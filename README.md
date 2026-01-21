@@ -287,3 +287,36 @@ MIT License
 **开发者**: Claude & User
 **版本**: 1.0.0
 **最后更新**: 2026-01-21
+
+## 📤 推送到GitHub
+
+```bash
+# 使用Personal Access Token推送
+# 1. 访问 https://github.com/settings/tokens
+# 2. 生成新token，勾选 repo 权限
+# 3. 执行推送：
+
+git push https://YOUR_TOKEN@github.com/WW-shan/fundingRate.git main
+
+# 或交互式推送：
+git push -u origin main
+# Username: WW-shan
+# Password: your_github_token
+```
+
+## 🧪 测试系统
+
+```bash
+# 创建虚拟环境
+python3 -m venv venv
+source venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行测试
+python test_system.py
+
+# 启动系统（模拟模式）
+python main.py
+```
