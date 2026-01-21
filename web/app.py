@@ -56,10 +56,10 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
         """当前机会API"""
         try:
             # 获取最新机会
-            opportunities = opportunity_monitor.get_latest_opportunities() if opportunity_monitor else []
+            opportunities = opportunity_monitor.get_opportunities(limit=20) if opportunity_monitor else []
             return jsonify({
                 'success': True,
-                'data': opportunities[:20]  # 返回前20个
+                'data': opportunities
             })
         except Exception as e:
             logger.error(f"Error getting opportunities: {e}")
@@ -72,11 +72,12 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             with db_manager.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, symbol, strategy_type, entry_price, current_price,
-                           pnl, pnl_percent, status, created_at
+                    SELECT id, symbol, strategy_type, position_size,
+                           current_pnl, realized_pnl, funding_collected,
+                           fees_paid, status, open_time, close_time
                     FROM positions
                     WHERE status = 'open'
-                    ORDER BY created_at DESC
+                    ORDER BY open_time DESC
                     LIMIT 50
                 """)
                 columns = [desc[0] for desc in cursor.description]
