@@ -22,6 +22,46 @@
             padding: 30px;
             margin-bottom: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-content {
+            flex: 1;
+        }
+        .logout-btn {
+            padding: 10px 20px;
+            background: #ef4444;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .logout-btn:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+        .nav-menu {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+        }
+        .nav-menu a {
+            padding: 10px 20px;
+            background: #f3f4f6;
+            color: #667eea;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .nav-menu a:hover, .nav-menu a.active {
+            background: #667eea;
+            color: white;
         }
         h1 { color: #667eea; font-size: 32px; margin-bottom: 10px; }
         .subtitle { color: #666; }
@@ -77,8 +117,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 资金费率套利系统</h1>
-            <p class="subtitle">Funding Rate Arbitrage System v1.0.0</p>
+            <div class="header-content">
+                <h1>🚀 资金费率套利系统</h1>
+                <p class="subtitle">Funding Rate Arbitrage System v1.0.0</p>
+            </div>
+            <a href="/logout" class="logout-btn">退出登录</a>
+        </div>
+
+        <div class="nav-menu">
+            <a href="/" class="active">📊 仪表盘</a>
+            <a href="/opportunities">🎯 机会监控</a>
+            <a href="/positions">💼 持仓管理</a>
+            <a href="/config">⚙️ 系统配置</a>
         </div>
 
         <div class="cards">

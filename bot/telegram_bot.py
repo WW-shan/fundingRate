@@ -12,13 +12,15 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 class TelegramBot:
     """Telegram Bot"""
 
-    def __init__(self, config_manager, db_manager, strategy_executor):
+    def __init__(self, config_manager, db_manager, strategy_executor, opportunity_monitor=None):
         self.config = config_manager
         self.db = db_manager
         self.executor = strategy_executor
+        self.opportunity_monitor = opportunity_monitor
         self.bot_token = os.getenv('TG_BOT_TOKEN')
         self.chat_id = os.getenv('TG_CHAT_ID')
         self.app = None
+        self.paused = False  # 暂停状态
 
         if not self.bot_token:
             logger.warning("⚠️ TG_BOT_TOKEN not set - Telegram Bot disabled")
@@ -38,6 +40,7 @@ class TelegramBot:
             self.app.add_handler(CommandHandler("positions", self.cmd_positions))
             self.app.add_handler(CommandHandler("opportunities", self.cmd_opportunities))
             self.app.add_handler(CommandHandler("status", self.cmd_status))
+            self.app.add_handler(CommandHandler("report", self.cmd_report))
             self.app.add_handler(CommandHandler("pause", self.cmd_pause))
             self.app.add_handler(CommandHandler("resume", self.cmd_resume))
             self.app.add_handler(CommandHandler("close", self.cmd_close))
@@ -98,6 +101,7 @@ class TelegramBot:
 /positions - 查看持仓
 /opportunities - 当前机会
 /status - 系统状态
+/report - 查看今日报告
 
 ⚙️ 控制命令:
 /pause - 暂停所有策略
@@ -108,8 +112,40 @@ class TelegramBot:
 
     async def cmd_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """查看余额"""
-        # TODO: 实现余额查询
-        await update.message.reply_text("💰 余额功能开发中...")
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 获取持仓统计
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total_positions,
+                        SUM(CASE WHEN status='open' THEN position_size ELSE 0 END) as occupied_capital,
+                        SUM(CASE WHEN status='open' THEN current_pnl ELSE 0 END) as unrealized_pnl,
+                        SUM(CASE WHEN status='closed' THEN realized_pnl ELSE 0 END) as realized_pnl
+                    FROM positions
+                """)
+                stats = cursor.fetchone()
+
+                total_capital = self.config.get('global', 'total_capital', 100000)
+                occupied = stats[1] or 0
+                unrealized = stats[2] or 0
+                realized = stats[3] or 0
+                available = total_capital - occupied
+
+                text = "💰 <b>资金概览</b>\n\n"
+                text += f"总资金: {total_capital:.2f} USDT\n"
+                text += f"可用资金: {available:.2f} USDT\n"
+                text += f"占用资金: {occupied:.2f} USDT\n\n"
+                text += f"未实现盈亏: {unrealized:+.2f} USDT\n"
+                text += f"已实现盈亏: {realized:+.2f} USDT\n"
+                text += f"总盈亏: {(unrealized + realized):+.2f} USDT\n"
+
+                await update.message.reply_text(text, parse_mode='HTML')
+
+        except Exception as e:
+            logger.error(f"Error in cmd_balance: {e}")
+            await update.message.reply_text(f"❌ 查询失败: {str(e)}")
 
     async def cmd_positions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """查看持仓"""
@@ -146,7 +182,33 @@ class TelegramBot:
 
     async def cmd_opportunities(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """查看当前机会"""
-        await update.message.reply_text("🔥 机会监控功能开发中...")
+        try:
+            if not self.opportunity_monitor:
+                await update.message.reply_text("❌ 机会监控器未初始化")
+                return
+
+            opportunities = self.opportunity_monitor.get_opportunities(limit=5)
+
+            if not opportunities:
+                await update.message.reply_text("📊 当前无高收益机会")
+                return
+
+            text = "🎯 <b>当前套利机会</b>\n\n"
+
+            for i, opp in enumerate(opportunities[:5], 1):
+                symbol = opp.get('symbol', 'N/A')
+                strategy = opp.get('type', 'N/A')
+                expected_return = opp.get('expected_return', 0)
+                expected_pct = opp.get('expected_return_pct', 0) * 100
+
+                text += f"{i}. {symbol} ({strategy})\n"
+                text += f"   预期收益: {expected_return:.2f} USDT ({expected_pct:.2f}%)\n\n"
+
+            await update.message.reply_text(text, parse_mode='HTML')
+
+        except Exception as e:
+            logger.error(f"Error in cmd_opportunities: {e}")
+            await update.message.reply_text(f"❌ 查询失败: {str(e)}")
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """系统状态"""
@@ -168,15 +230,81 @@ class TelegramBot:
             logger.error(f"Error in cmd_status: {e}")
             await update.message.reply_text(f"❌ 查询失败: {str(e)}")
 
+    async def cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """查看今日报告"""
+        try:
+            from datetime import datetime, timedelta
+
+            today = datetime.now().date()
+            today_str = today.isoformat()
+
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 今日交易统计
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) as closed,
+                        SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) as open_today,
+                        SUM(CASE WHEN status='closed' THEN realized_pnl ELSE 0 END) as realized_pnl,
+                        SUM(CASE WHEN status='closed' THEN fees_paid ELSE 0 END) as fees
+                    FROM positions
+                    WHERE DATE(open_time) = ?
+                """, (today_str,))
+
+                stats = cursor.fetchone()
+
+                text = f"📊 <b>今日报告 - {today_str}</b>\n\n"
+                text += "📈 <b>交易统计:</b>\n"
+                text += f"  今日开仓: {stats[0]} 单\n"
+                text += f"  已平仓: {stats[1]} 单\n"
+                text += f"  持仓中: {stats[2]} 单\n\n"
+
+                text += "💰 <b>盈亏统计:</b>\n"
+                realized = stats[3] or 0
+                fees = stats[4] or 0
+                net = realized - fees
+
+                text += f"  已实现盈亏: {realized:+.2f} USDT\n"
+                text += f"  手续费: {fees:.2f} USDT\n"
+                text += f"  净盈亏: {net:+.2f} USDT\n"
+
+                await update.message.reply_text(text, parse_mode='HTML')
+
+        except Exception as e:
+            logger.error(f"Error in cmd_report: {e}")
+            await update.message.reply_text(f"❌ 查询失败: {str(e)}")
+
     async def cmd_pause(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """暂停策略"""
-        # TODO: 实现暂停功能
-        await update.message.reply_text("⏸ 暂停功能开发中...")
+        try:
+            self.paused = True
+            # 通知策略执行器暂停
+            if hasattr(self.executor, 'set_paused'):
+                self.executor.set_paused(True)
+
+            await update.message.reply_text("⏸ <b>所有策略已暂停</b>\n\n不会开新仓，现有持仓继续持有\n使用 /resume 恢复", parse_mode='HTML')
+            logger.info("Strategies paused via Telegram command")
+
+        except Exception as e:
+            logger.error(f"Error in cmd_pause: {e}")
+            await update.message.reply_text(f"❌ 暂停失败: {str(e)}")
 
     async def cmd_resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """恢复策略"""
-        # TODO: 实现恢复功能
-        await update.message.reply_text("▶️ 恢复功能开发中...")
+        try:
+            self.paused = False
+            # 通知策略执行器恢复
+            if hasattr(self.executor, 'set_paused'):
+                self.executor.set_paused(False)
+
+            await update.message.reply_text("▶️ <b>策略已恢复</b>\n\n系统将继续监控并执行套利机会", parse_mode='HTML')
+            logger.info("Strategies resumed via Telegram command")
+
+        except Exception as e:
+            logger.error(f"Error in cmd_resume: {e}")
+            await update.message.reply_text(f"❌ 恢复失败: {str(e)}")
 
     async def cmd_close(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """平仓"""
