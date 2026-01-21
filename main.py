@@ -45,13 +45,21 @@ class FundingRateArbitrageSystem:
         else:
             logger.info("✅ Trading is ENABLED")
 
-        # TODO: 初始化其他模块
-        # self.data_collector = DataCollector(...)
-        # self.opportunity_monitor = OpportunityMonitor(...)
-        # self.strategy_executor = StrategyExecutor(...)
-        # self.risk_manager = RiskManager(...)
-        # self.web_app = create_app(...)
-        # self.tg_bot = TelegramBot(...)
+        # 初始化核心模块
+        from core import DataCollector, OpportunityMonitor, RiskManager, OrderManager, StrategyExecutor
+        from bot import TelegramBot
+
+        self.data_collector = DataCollector(self.config_manager, self.db_manager)
+        self.risk_manager = RiskManager(self.config_manager, self.db_manager)
+        self.opportunity_monitor = OpportunityMonitor(self.config_manager, self.db_manager, self.data_collector)
+        self.order_manager = OrderManager(self.db_manager, self.data_collector.exchanges)
+        self.strategy_executor = StrategyExecutor(self.config_manager, self.db_manager, self.risk_manager, self.order_manager)
+        self.tg_bot = TelegramBot(self.config_manager, self.db_manager, self.strategy_executor)
+
+        # 注册回调
+        self.opportunity_monitor.register_callback(self._on_opportunities_found)
+        self.risk_manager.register_callback(self._on_risk_event)
+        self.strategy_executor.register_callback(self._on_execution_event)
 
         logger.info("System initialization completed")
         logger.info("=" * 60)
@@ -61,29 +69,29 @@ class FundingRateArbitrageSystem:
         logger.info("Starting Funding Rate Arbitrage System...")
 
         try:
-            # TODO: 启动各个模块
             # 启动数据采集器
-            # threading.Thread(target=self.data_collector.start, daemon=True).start()
+            self.data_collector.start()
 
             # 启动机会监控器
-            # threading.Thread(target=self.opportunity_monitor.start, daemon=True).start()
+            self.opportunity_monitor.start()
+
+            # 启动风险管理器
+            self.risk_manager.start()
 
             # 启动策略执行器
-            # threading.Thread(target=self.strategy_executor.start, daemon=True).start()
+            self.strategy_executor.start()
 
-            # 启动TG Bot
-            # threading.Thread(target=self.tg_bot.start, daemon=True).start()
+            # 启动TG Bot（在后台线程）
+            if self.tg_bot.app:
+                threading.Thread(target=self.tg_bot.start, daemon=True).start()
 
-            # 启动Web服务（主线程）
+            # TODO: 启动Web服务（主线程）
             logger.info("=" * 60)
-            logger.info("Web server will start at http://0.0.0.0:5000")
+            logger.info("System is running...")
             logger.info("Press Ctrl+C to stop the system")
             logger.info("=" * 60)
 
-            # self.web_app.run(host='0.0.0.0', port=5000, debug=False)
-
             # 临时：保持主线程运行
-            logger.info("System is running... (Press Ctrl+C to stop)")
             while True:
                 time.sleep(1)
 
@@ -95,14 +103,33 @@ class FundingRateArbitrageSystem:
         """停止所有组件"""
         logger.info("Stopping Funding Rate Arbitrage System...")
 
-        # TODO: 停止各个模块
-        # self.data_collector.stop()
-        # self.opportunity_monitor.stop()
-        # self.strategy_executor.stop()
-        # self.tg_bot.stop()
+        self.data_collector.stop()
+        self.opportunity_monitor.stop()
+        self.risk_manager.stop()
+        self.strategy_executor.stop()
+        self.tg_bot.stop()
 
         logger.info("System stopped successfully")
         logger.info("=" * 60)
+
+    def _on_opportunities_found(self, opportunities):
+        """机会发现回调"""
+        # 自动提交高评分的低风险机会
+        for opp in opportunities:
+            if opp['risk_level'] == 'low' and opp['score'] > 70:
+                self.strategy_executor.submit_opportunity(opp)
+
+    def _on_risk_event(self, event):
+        """风险事件回调"""
+        # 发送到TG Bot
+        self.tg_bot.notify_risk_event(event)
+
+    def _on_execution_event(self, event_type, data):
+        """执行事件回调"""
+        if event_type == 'position_opened':
+            self.tg_bot.notify_position_opened(data)
+        elif event_type == 'opportunity_found':
+            self.tg_bot.notify_opportunity_found(data)
 
 
 def main():
