@@ -96,11 +96,11 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             if config_manager:
                 # 获取一些关键配置
                 configs = {
-                    'total_capital': config_manager.get('global.total_capital', 100000),
-                    'max_positions': config_manager.get('global.max_positions', 10),
-                    'strategy1_enabled': config_manager.get('strategy1.enabled', True),
-                    'strategy2a_enabled': config_manager.get('strategy2a.enabled', True),
-                    'strategy2b_enabled': config_manager.get('strategy2b.enabled', True),
+                    'total_capital': config_manager.get('global', 'total_capital', 100000),
+                    'max_positions': config_manager.get('global', 'max_positions', 10),
+                    'strategy1_enabled': config_manager.get('strategy1', 'enabled', True),
+                    'strategy2a_enabled': config_manager.get('strategy2a', 'enabled', True),
+                    'strategy2b_enabled': config_manager.get('strategy2b', 'enabled', True),
                 }
             return jsonify({'success': True, 'data': configs})
         except Exception as e:
