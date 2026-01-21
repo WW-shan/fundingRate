@@ -48,18 +48,40 @@ class TelegramBot:
             logger.error(f"Failed to initialize Telegram Bot: {e}")
 
     def start(self):
-        """启动Bot"""
+        """启动Bot (异步初始化,不阻塞)"""
         if not self.app:
             return
 
         logger.info("Starting Telegram Bot...")
-        self.app.run_polling()
+        import asyncio
+        import threading
+
+        # 在单独的线程中运行asyncio event loop
+        def run_bot():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.app.initialize())
+            loop.run_until_complete(self.app.start())
+            loop.run_until_complete(self.app.updater.start_polling())
+            # Keep the loop running
+            loop.run_forever()
+
+        self.bot_thread = threading.Thread(target=run_bot, daemon=True)
+        self.bot_thread.start()
+        logger.info("✅ Telegram Bot started in background thread")
 
     def stop(self):
         """停止Bot"""
         if self.app:
             logger.info("Stopping Telegram Bot...")
-            self.app.stop()
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.app.updater.stop())
+            loop.run_until_complete(self.app.stop())
+            loop.run_until_complete(self.app.shutdown())
+            loop.close()
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start命令"""
