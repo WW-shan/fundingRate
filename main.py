@@ -85,15 +85,28 @@ class FundingRateArbitrageSystem:
             if self.tg_bot.app:
                 threading.Thread(target=self.tg_bot.start, daemon=True).start()
 
-            # TODO: 启动Web服务（主线程）
+            # 启动Web服务
+            from web.app import create_app, run_web_server
+            web_app = create_app(
+                self.config_manager,
+                self.db_manager,
+                self.data_collector,
+                self.opportunity_monitor,
+                self.strategy_executor,
+                self.risk_manager
+            )
+
+            web_host = os.getenv('WEB_HOST', '0.0.0.0')
+            web_port = int(os.getenv('WEB_PORT', 5000))
+
             logger.info("=" * 60)
             logger.info("System is running...")
+            logger.info(f"Web UI: http://{web_host}:{web_port}")
             logger.info("Press Ctrl+C to stop the system")
             logger.info("=" * 60)
 
-            # 临时：保持主线程运行
-            while True:
-                time.sleep(1)
+            # 在主线程运行Web服务
+            run_web_server(web_app, host=web_host, port=web_port)
 
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
