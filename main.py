@@ -54,7 +54,7 @@ class FundingRateArbitrageSystem:
         self.opportunity_monitor = OpportunityMonitor(self.config_manager, self.db_manager, self.data_collector)
         self.order_manager = OrderManager(self.db_manager, self.data_collector.exchanges)
         self.strategy_executor = StrategyExecutor(self.config_manager, self.db_manager, self.risk_manager, self.order_manager)
-        self.tg_bot = TelegramBot(self.config_manager, self.db_manager, self.strategy_executor)
+        self.tg_bot = TelegramBot(self.config_manager, self.db_manager, self.strategy_executor, self.opportunity_monitor)
 
         # 注册回调
         self.opportunity_monitor.register_callback(self._on_opportunities_found)

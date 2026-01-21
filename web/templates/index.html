@@ -6,16 +6,19 @@
     <title>资金费率套利系统</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
+
         .header {
             background: white;
             border-radius: 10px;
@@ -26,9 +29,34 @@
             justify-content: space-between;
             align-items: center;
         }
+
         .header-content {
             flex: 1;
         }
+
+        .header-content h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+
+        .header-content .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .last-update {
+            font-size: 12px;
+            color: #999;
+            margin-right: 15px;
+        }
+
         .logout-btn {
             padding: 10px 20px;
             background: #ef4444;
@@ -37,20 +65,25 @@
             border-radius: 5px;
             font-size: 14px;
             transition: all 0.3s;
+            border: none;
+            cursor: pointer;
         }
+
         .logout-btn:hover {
             background: #dc2626;
             transform: translateY(-2px);
         }
+
         .nav-menu {
             background: white;
             border-radius: 10px;
-            padding: 20px;
+            padding: 15px;
             margin-bottom: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             display: flex;
-            gap: 15px;
+            gap: 10px;
         }
+
         .nav-menu a {
             padding: 10px 20px;
             background: #f3f4f6;
@@ -58,27 +91,65 @@
             text-decoration: none;
             border-radius: 5px;
             transition: all 0.3s;
+            font-size: 14px;
         }
+
         .nav-menu a:hover, .nav-menu a.active {
             background: #667eea;
             color: white;
         }
-        h1 { color: #667eea; font-size: 32px; margin-bottom: 10px; }
-        .subtitle { color: #666; }
-        .cards {
+
+        .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
             margin-bottom: 20px;
         }
-        .card {
+
+        .stat-card {
             background: white;
             border-radius: 10px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
         }
-        .card-title { color: #666; font-size: 14px; margin-bottom: 10px; }
-        .card-value { color: #333; font-size: 32px; font-weight: bold; }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .stat-change.positive {
+            color: #10b981;
+        }
+
+        .stat-change.negative {
+            color: #ef4444;
+        }
+
         .status-badge {
             display: inline-block;
             padding: 5px 15px;
@@ -86,32 +157,122 @@
             font-size: 12px;
             font-weight: bold;
         }
-        .status-running { background: #4ade80; color: white; }
+
+        .status-running { background: #10b981; color: white; }
         .status-simulation { background: #fbbf24; color: white; }
-        .api-section {
+        .status-error { background: #ef4444; color: white; }
+
+        .charts-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .chart-card {
             background: white;
             border-radius: 10px;
             padding: 25px;
-            margin-top: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         }
-        .api-section h2 { color: #667eea; margin-bottom: 15px; }
-        .api-links a {
-            display: block;
-            padding: 10px 15px;
-            margin-bottom: 10px;
-            background: #f3f4f6;
-            border-radius: 5px;
+
+        .chart-card h3 {
             color: #667eea;
-            text-decoration: none;
-            transition: all 0.3s;
+            margin-bottom: 20px;
+            font-size: 18px;
         }
-        .api-links a:hover {
-            background: #667eea;
-            color: white;
-            transform: translateX(5px);
+
+        .recent-activity {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
-        .loading { text-align: center; padding: 20px; color: #666; }
+
+        .recent-activity h3 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .activity-item {
+            padding: 15px;
+            border-left: 3px solid #667eea;
+            background: #f9fafb;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+
+        .activity-time {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .activity-content {
+            margin-top: 5px;
+            color: #333;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th {
+            background: #f3f4f6;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+
+        table tr:hover {
+            background: #f9fafb;
+        }
+
+        .pnl-positive {
+            color: #10b981;
+            font-weight: bold;
+        }
+
+        .pnl-negative {
+            color: #ef4444;
+            font-weight: bold;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -121,7 +282,10 @@
                 <h1>🚀 资金费率套利系统</h1>
                 <p class="subtitle">Funding Rate Arbitrage System v1.0.0</p>
             </div>
-            <a href="/logout" class="logout-btn">退出登录</a>
+            <div class="header-actions">
+                <span class="last-update" id="last-update">最后更新: --</span>
+                <a href="/logout" class="logout-btn">退出登录</a>
+            </div>
         </div>
 
         <div class="nav-menu">
@@ -131,40 +295,81 @@
             <a href="/config">⚙️ 系统配置</a>
         </div>
 
-        <div class="cards">
-            <div class="card">
-                <div class="card-title">系统状态</div>
-                <div class="card-value">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">🟢</div>
+                <div class="stat-label">系统状态</div>
+                <div class="stat-value">
                     <span class="status-badge" id="status-badge">加载中...</span>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-title">当前持仓</div>
-                <div class="card-value" id="open-positions">-</div>
+
+            <div class="stat-card">
+                <div class="stat-icon">💼</div>
+                <div class="stat-label">当前持仓</div>
+                <div class="stat-value" id="open-positions">-</div>
+                <div class="stat-change" id="positions-change"></div>
             </div>
-            <div class="card">
-                <div class="card-title">交易所连接</div>
-                <div class="card-value" id="exchanges">-</div>
+
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-label">总盈亏</div>
+                <div class="stat-value" id="total-pnl">-</div>
+                <div class="stat-change" id="pnl-change"></div>
             </div>
-            <div class="card">
-                <div class="card-title">监控交易对</div>
-                <div class="card-value" id="symbols">-</div>
+
+            <div class="stat-card">
+                <div class="stat-icon">🏦</div>
+                <div class="stat-label">交易所连接</div>
+                <div class="stat-value" id="exchanges">-</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">📈</div>
+                <div class="stat-label">监控交易对</div>
+                <div class="stat-value" id="symbols">-</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-label">今日交易</div>
+                <div class="stat-value" id="today-trades">-</div>
             </div>
         </div>
 
-        <div class="api-section">
-            <h2>📡 API接口</h2>
-            <div class="api-links">
-                <a href="/api/status" target="_blank">GET /api/status - 系统状态</a>
-                <a href="/api/positions" target="_blank">GET /api/positions - 当前持仓</a>
-                <a href="/api/opportunities" target="_blank">GET /api/opportunities - 套利机会</a>
-                <a href="/api/config" target="_blank">GET /api/config - 系统配置</a>
+        <div class="charts-section">
+            <div class="chart-card">
+                <h3>📊 持仓概览</h3>
+                <div id="positions-chart">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <h3>💹 盈亏统计</h3>
+                <div id="pnl-chart">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="recent-activity">
+            <h3>🕒 最近活动</h3>
+            <div id="recent-activity">
+                <div class="loading">加载中...</div>
             </div>
         </div>
     </div>
 
     <script>
-        // 获取系统状态
+        let lastPositionCount = 0;
+
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN');
+            document.getElementById('last-update').textContent = `最后更新: ${timeStr}`;
+        }
+
         async function loadStatus() {
             try {
                 const response = await fetch('/api/status');
@@ -179,37 +384,188 @@
                         statusBadge.textContent = '⚠️ 模拟模式';
                         statusBadge.className = 'status-badge status-simulation';
                     }
+                } else {
+                    statusBadge.textContent = '❌ 异常';
+                    statusBadge.className = 'status-badge status-error';
                 }
 
                 document.getElementById('exchanges').textContent = data.exchanges_connected || 0;
                 document.getElementById('symbols').textContent = data.market_data_symbols || 0;
             } catch (error) {
                 console.error('Failed to load status:', error);
+                const statusBadge = document.getElementById('status-badge');
+                statusBadge.textContent = '❌ 连接失败';
+                statusBadge.className = 'status-badge status-error';
             }
         }
 
-        // 获取持仓信息
         async function loadPositions() {
             try {
                 const response = await fetch('/api/positions');
                 const result = await response.json();
+
                 if (result.success) {
-                    document.getElementById('open-positions').textContent = result.data.length;
+                    const positions = result.data;
+                    const posCount = positions.length;
+
+                    document.getElementById('open-positions').textContent = posCount;
+
+                    // 显示变化
+                    if (lastPositionCount > 0 && posCount !== lastPositionCount) {
+                        const change = posCount - lastPositionCount;
+                        const changeEl = document.getElementById('positions-change');
+                        changeEl.textContent = change > 0 ? `+${change}` : change;
+                        changeEl.className = change > 0 ? 'stat-change positive' : 'stat-change negative';
+                    }
+                    lastPositionCount = posCount;
+
+                    // 计算总盈亏
+                    let totalPnl = 0;
+                    positions.forEach(pos => {
+                        totalPnl += parseFloat(pos.current_pnl || 0);
+                    });
+
+                    const pnlEl = document.getElementById('total-pnl');
+                    pnlEl.textContent = totalPnl.toFixed(2) + ' USDT';
+                    pnlEl.className = 'stat-value ' + (totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+
+                    // 渲染持仓图表
+                    renderPositionsChart(positions);
+                    renderPnlChart(positions);
+                } else {
+                    document.getElementById('open-positions').textContent = '0';
+                    document.getElementById('total-pnl').textContent = '0.00 USDT';
                 }
             } catch (error) {
                 console.error('Failed to load positions:', error);
             }
         }
 
+        function renderPositionsChart(positions) {
+            const container = document.getElementById('positions-chart');
+
+            if (positions.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无持仓数据</div>';
+                return;
+            }
+
+            // 按策略分组
+            const byStrategy = {};
+            positions.forEach(pos => {
+                const strategy = pos.strategy_type || 'unknown';
+                byStrategy[strategy] = (byStrategy[strategy] || 0) + 1;
+            });
+
+            let html = '<table><thead><tr><th>策略</th><th>持仓数</th><th>占比</th></tr></thead><tbody>';
+
+            Object.entries(byStrategy).forEach(([strategy, count]) => {
+                const percent = ((count / positions.length) * 100).toFixed(1);
+                html += `<tr>
+                    <td>${strategy}</td>
+                    <td>${count}</td>
+                    <td>${percent}%</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderPnlChart(positions) {
+            const container = document.getElementById('pnl-chart');
+
+            if (positions.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无盈亏数据</div>';
+                return;
+            }
+
+            let profitable = 0;
+            let losing = 0;
+
+            positions.forEach(pos => {
+                const pnl = parseFloat(pos.current_pnl || 0);
+                if (pnl > 0) profitable++;
+                else if (pnl < 0) losing++;
+            });
+
+            const total = positions.length;
+            const profitRate = ((profitable / total) * 100).toFixed(1);
+
+            let html = '<table><thead><tr><th>类型</th><th>数量</th><th>占比</th></tr></thead><tbody>';
+            html += `<tr>
+                <td style="color: #10b981;">盈利</td>
+                <td>${profitable}</td>
+                <td>${profitRate}%</td>
+            </tr>`;
+            html += `<tr>
+                <td style="color: #ef4444;">亏损</td>
+                <td>${losing}</td>
+                <td>${((losing / total) * 100).toFixed(1)}%</td>
+            </tr>`;
+            html += `<tr>
+                <td>持平</td>
+                <td>${total - profitable - losing}</td>
+                <td>${(((total - profitable - losing) / total) * 100).toFixed(1)}%</td>
+            </tr>`;
+            html += '</tbody></table>';
+
+            container.innerHTML = html;
+        }
+
+        async function loadRecentActivity() {
+            try {
+                const response = await fetch('/api/positions');
+                const result = await response.json();
+
+                if (result.success && result.data.length > 0) {
+                    const positions = result.data.slice(0, 5); // 最近5个
+
+                    let html = '';
+                    positions.forEach(pos => {
+                        const pnl = parseFloat(pos.current_pnl || 0);
+                        const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+                        html += `<div class="activity-item">
+                            <div class="activity-time">${pos.open_time || '-'}</div>
+                            <div class="activity-content">
+                                <strong>${pos.symbol}</strong> - ${pos.strategy_type}
+                                <span class="${pnlClass}" style="float: right;">
+                                    ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT
+                                </span>
+                            </div>
+                        </div>`;
+                    });
+
+                    document.getElementById('recent-activity').innerHTML = html;
+                } else {
+                    document.getElementById('recent-activity').innerHTML =
+                        '<div class="empty-state">暂无活动记录</div>';
+                }
+            } catch (error) {
+                console.error('Failed to load recent activity:', error);
+            }
+        }
+
+        async function loadTodayTrades() {
+            // 简化版：使用持仓数据
+            document.getElementById('today-trades').textContent = lastPositionCount || '0';
+        }
+
+        async function refreshAll() {
+            updateTime();
+            await Promise.all([
+                loadStatus(),
+                loadPositions(),
+                loadRecentActivity(),
+                loadTodayTrades()
+            ]);
+        }
+
         // 初始加载
-        loadStatus();
-        loadPositions();
+        refreshAll();
 
         // 每5秒刷新一次
-        setInterval(() => {
-            loadStatus();
-            loadPositions();
-        }, 5000);
+        setInterval(refreshAll, 5000);
     </script>
 </body>
 </html>

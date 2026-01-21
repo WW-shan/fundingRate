@@ -7,8 +7,14 @@ import traceback
 from typing import Callable, Any
 from functools import wraps
 from loguru import logger
-import psutil
 import os
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger.warning("psutil not available - system stats will be limited")
 
 
 class PerformanceMonitor:
@@ -32,15 +38,29 @@ class PerformanceMonitor:
 
     def get_system_stats(self) -> dict:
         """获取系统统计信息"""
-        process = psutil.Process(os.getpid())
-
-        return {
+        stats = {
             'uptime_seconds': int(time.time() - self.start_time),
-            'cpu_percent': process.cpu_percent(),
-            'memory_mb': process.memory_info().rss / 1024 / 1024,
-            'threads': len(process.threads()),
             'metrics': self.metrics.copy()
         }
+
+        if PSUTIL_AVAILABLE:
+            try:
+                process = psutil.Process(os.getpid())
+                stats.update({
+                    'cpu_percent': process.cpu_percent(),
+                    'memory_mb': process.memory_info().rss / 1024 / 1024,
+                    'threads': len(process.threads())
+                })
+            except Exception as e:
+                logger.debug(f"Error getting process stats: {e}")
+        else:
+            stats.update({
+                'cpu_percent': 0.0,
+                'memory_mb': 0.0,
+                'threads': 0
+            })
+
+        return stats
 
     def log_stats(self):
         """记录统计信息"""
