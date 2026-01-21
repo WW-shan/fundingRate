@@ -155,6 +155,62 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             logger.error(f"Error closing position: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
+    @app.route('/api/export/positions', methods=['GET'])
+    def api_export_positions():
+        """导出持仓数据"""
+        try:
+            import csv
+            from io import StringIO
+            from flask import make_response
+
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # 写入表头
+            writer.writerow(['ID', 'Symbol', 'Strategy', 'Position Size', 'Current PnL',
+                           'Realized PnL', 'Fees', 'Status', 'Open Time', 'Close Time'])
+
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM positions ORDER BY id DESC LIMIT 1000")
+                for row in cursor.fetchall():
+                    writer.writerow(row)
+
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv'
+            response.headers['Content-Disposition'] = 'attachment; filename=positions_export.csv'
+            return response
+        except Exception as e:
+            logger.error(f"Error exporting positions: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/export/funding_rates', methods=['GET'])
+    def api_export_funding_rates():
+        """导出资金费率数据"""
+        try:
+            import csv
+            from io import StringIO
+            from flask import make_response
+
+            output = StringIO()
+            writer = csv.writer(output)
+
+            writer.writerow(['ID', 'Exchange', 'Symbol', 'Funding Rate', 'Timestamp'])
+
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM funding_rates ORDER BY timestamp DESC LIMIT 10000")
+                for row in cursor.fetchall():
+                    writer.writerow(row)
+
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv'
+            response.headers['Content-Disposition'] = 'attachment; filename=funding_rates_export.csv'
+            return response
+        except Exception as e:
+            logger.error(f"Error exporting funding rates: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
     # 错误处理
     @app.errorhandler(404)
     def not_found(error):

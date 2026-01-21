@@ -277,3 +277,27 @@ class TelegramBot:
             asyncio.create_task(self.send_notification(message))
         except:
             pass
+
+    def send_daily_report(self, report: Dict[str, Any]):
+        """发送每日报告"""
+        message = f"""
+📊 <b>每日报告 - {report['date']}</b>
+
+💰 盈亏统计:
+• 总盈亏: {report['total_pnl']:.2f} USDT
+• 总手续费: {report['total_fees']:.2f} USDT
+• 净盈亏: {report['net_pnl']:.2f} USDT
+
+📈 持仓统计:
+• 今日开仓: {report['total_positions']} 单
+• 当前持仓: {report['open_positions']} 单
+• 已平仓: {report['closed_positions']} 单
+
+生成时间: {report.get('generated_at', 'N/A')}
+        """
+
+        import asyncio
+        try:
+            asyncio.create_task(self.send_notification(message))
+        except:
+            pass

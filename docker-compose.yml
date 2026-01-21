@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  funding-arbitrage:
+    build: .
+    container_name: funding-rate-arbitrage
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - arbitrage-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/status', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  arbitrage-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:

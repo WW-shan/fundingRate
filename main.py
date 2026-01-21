@@ -85,6 +85,9 @@ class FundingRateArbitrageSystem:
             if self.tg_bot.app:
                 threading.Thread(target=self.tg_bot.start, daemon=True).start()
 
+            # 启动定时任务（备份和报告）
+            threading.Thread(target=self._daily_tasks, daemon=True).start()
+
             # 启动Web服务
             from web.app import create_app, run_web_server
             web_app = create_app(
@@ -143,6 +146,84 @@ class FundingRateArbitrageSystem:
             self.tg_bot.notify_position_opened(data)
         elif event_type == 'opportunity_found':
             self.tg_bot.notify_opportunity_found(data)
+
+    def _daily_tasks(self):
+        """每日定时任务:备份数据库和发送报告"""
+        import schedule
+
+        def backup_job():
+            """备份数据库"""
+            try:
+                logger.info("Starting daily database backup...")
+                self.db_manager.backup_database()
+                logger.info("✅ Database backup completed")
+            except Exception as e:
+                logger.error(f"❌ Database backup failed: {e}")
+
+        def daily_report_job():
+            """发送每日报告"""
+            try:
+                logger.info("Generating daily report...")
+                # 生成报告数据
+                report = self._generate_daily_report()
+                # 通过TG Bot发送
+                if self.tg_bot.app:
+                    self.tg_bot.send_daily_report(report)
+                logger.info("✅ Daily report sent")
+            except Exception as e:
+                logger.error(f"❌ Daily report failed: {e}")
+
+        # 每天凌晨2点备份
+        schedule.every().day.at("02:00").do(backup_job)
+        # 每天早上9点发送报告
+        schedule.every().day.at("09:00").do(daily_report_job)
+
+        logger.info("Daily tasks scheduler started")
+
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # 每分钟检查一次
+
+    def _generate_daily_report(self):
+        """生成每日报告"""
+        from datetime import datetime, timedelta
+
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # 获取今日持仓数
+            cursor.execute("""
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) as open_positions,
+                       SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) as closed_positions
+                FROM positions
+                WHERE DATE(open_time) = ?
+            """, (today,))
+            position_stats = cursor.fetchone()
+
+            # 获取今日盈亏
+            cursor.execute("""
+                SELECT SUM(realized_pnl) as total_pnl,
+                       SUM(fees_paid) as total_fees
+                FROM positions
+                WHERE DATE(close_time) = ? AND status='closed'
+            """, (today,))
+            pnl_stats = cursor.fetchone()
+
+            report = {
+                'date': str(today),
+                'total_positions': position_stats['total'] or 0,
+                'open_positions': position_stats['open_positions'] or 0,
+                'closed_positions': position_stats['closed_positions'] or 0,
+                'total_pnl': pnl_stats['total_pnl'] or 0,
+                'total_fees': pnl_stats['total_fees'] or 0,
+                'net_pnl': (pnl_stats['total_pnl'] or 0) - (pnl_stats['total_fees'] or 0)
+            }
+
+        return report
 
 
 def main():
