@@ -7,6 +7,8 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 from werkzeug.security import generate_password_hash, check_password_hash
 from loguru import logger
 from backtesting import BacktestEngine, DataLoader, ResultsAnalyzer
+from utils.performance import performance_monitor, error_collector
+import time
 
 
 def create_app(config_manager, db_manager, data_collector, opportunity_monitor, strategy_executor, risk_manager):
@@ -125,6 +127,52 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             'exchanges_connected': len(data_collector.exchanges) if data_collector else 0,
             'market_data_symbols': len(data_collector.market_data) if data_collector else 0
         })
+
+    @app.route('/api/health')
+    def api_health():
+        """健康检查API"""
+        try:
+            # 检查数据库连接
+            with db_manager.get_connection() as conn:
+                conn.execute("SELECT 1").fetchone()
+
+            # 获取系统统计
+            stats = performance_monitor.get_system_stats()
+
+            # 检查关键组件
+            components = {
+                'database': True,
+                'data_collector': data_collector is not None,
+                'opportunity_monitor': opportunity_monitor is not None,
+                'strategy_executor': strategy_executor is not None
+            }
+
+            all_healthy = all(components.values())
+
+            return jsonify({
+                'status': 'healthy' if all_healthy else 'degraded',
+                'components': components,
+                'system_stats': stats,
+                'timestamp': time.time()
+            }), 200 if all_healthy else 503
+
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return jsonify({
+                'status': 'unhealthy',
+                'error': str(e)
+            }), 503
+
+    @app.route('/api/errors')
+    @api_auth_required
+    def api_errors():
+        """获取最近错误"""
+        try:
+            summary = error_collector.get_error_summary()
+            return jsonify({'success': True, 'data': summary})
+        except Exception as e:
+            logger.error(f"Error getting error summary: {e}")
+            return jsonify({'success': False, 'error': str(e)})
 
     @app.route('/api/opportunities')
     @api_auth_required
@@ -308,7 +356,7 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             return jsonify({'success': True, 'data': results})
 
         except Exception as e:
-            logger.error(f\"Error running backtest: {e}\")
+            logger.error(f"Error running backtest: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
     @app.route('/api/backtest/data_range', methods=['GET'])
@@ -320,7 +368,7 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             date_range = data_loader.get_available_date_range()
             return jsonify({'success': True, 'data': date_range})
         except Exception as e:
-            logger.error(f\"Error getting data range: {e}\")
+            logger.error(f"Error getting data range: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
     @app.route('/api/backtest/results', methods=['GET'])
@@ -342,7 +390,7 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
 
             return jsonify({'success': True, 'data': results})
         except Exception as e:
-            logger.error(f\"Error getting backtest results: {e}\")
+            logger.error(f"Error getting backtest results: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
     # 错误处理
