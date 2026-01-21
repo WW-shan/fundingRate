@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统配置 - 资金费率套利系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header {
+            background: white;
+            border-radius: 10px;
+            padding: 20px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { color: #667eea; font-size: 24px; }
+        .nav { display: flex; gap: 15px; }
+        .nav a {
+            color: #667eea;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .nav a:hover, .nav a.active {
+            background: #667eea;
+            color: white;
+        }
+        .content {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            color: #374151;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        input[type="number"], input[type="text"], select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        .loading { text-align: center; padding: 40px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>系统配置</h1>
+            <div class="nav">
+                <a href="/">仪表盘</a>
+                <a href="/opportunities">机会监控</a>
+                <a href="/positions">持仓管理</a>
+                <a href="/config" class="active">系统配置</a>
+            </div>
+        </div>
+
+        <div class="content">
+            <div id="alert-container"></div>
+
+            <div class="section">
+                <h3>全局配置</h3>
+                <div class="form-group">
+                    <label>总资金 (USDT)</label>
+                    <input type="number" id="total_capital" placeholder="100000">
+                </div>
+                <div class="form-group">
+                    <label>最大持仓数量</label>
+                    <input type="number" id="max_positions" placeholder="10">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>策略开关</h3>
+                <div class="form-group">
+                    <label>策略1: 跨交易所资金费率套利</label>
+                    <select id="strategy1_enabled">
+                        <option value="true">启用</option>
+                        <option value="false">禁用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>策略2A: 现货-期货资金费率套利</label>
+                    <select id="strategy2a_enabled">
+                        <option value="true">启用</option>
+                        <option value="false">禁用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>策略2B: 现货-期货基差套利</label>
+                    <select id="strategy2b_enabled">
+                        <option value="true">启用</option>
+                        <option value="false">禁用</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+        </div>
+    </div>
+
+    <script>
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const result = await response.json();
+
+                if (result.success) {
+                    const config = result.data;
+                    document.getElementById('total_capital').value = config.total_capital || 100000;
+                    document.getElementById('max_positions').value = config.max_positions || 10;
+                    document.getElementById('strategy1_enabled').value = String(config.strategy1_enabled || true).toLowerCase();
+                    document.getElementById('strategy2a_enabled').value = String(config.strategy2a_enabled || true).toLowerCase();
+                    document.getElementById('strategy2b_enabled').value = String(config.strategy2b_enabled || true).toLowerCase();
+                }
+            } catch (error) {
+                showAlert('加载配置失败', 'error');
+            }
+        }
+
+        async function saveConfig() {
+            const updates = [
+                { category: 'global', key: 'total_capital', value: parseFloat(document.getElementById('total_capital').value) },
+                { category: 'global', key: 'max_positions', value: parseInt(document.getElementById('max_positions').value) },
+                { category: 'strategy1', key: 'enabled', value: document.getElementById('strategy1_enabled').value },
+                { category: 'strategy2a', key: 'enabled', value: document.getElementById('strategy2a_enabled').value },
+                { category: 'strategy2b', key: 'enabled', value: document.getElementById('strategy2b_enabled').value }
+            ];
+
+            let success = true;
+            for (const update of updates) {
+                try {
+                    const response = await fetch('/api/config/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(update)
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        success = false;
+                        break;
+                    }
+                } catch (error) {
+                    success = false;
+                    break;
+                }
+            }
+
+            if (success) {
+                showAlert('配置保存成功', 'success');
+            } else {
+                showAlert('配置保存失败', 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertHtml = `<div class="alert alert-${type}">${message}</div>`;
+            document.getElementById('alert-container').innerHTML = alertHtml;
+            setTimeout(() => {
+                document.getElementById('alert-container').innerHTML = '';
+            }, 3000);
+        }
+
+        loadConfig();
+    </script>
+</body>
+</html>

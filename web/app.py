@@ -40,6 +40,24 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             logger.error(f"Error in index route: {e}")
             return render_template('index.html', position_stats={'total': 0, 'open_positions': 0})
 
+    # 机会监控页面
+    @app.route('/opportunities')
+    def opportunities_page():
+        """机会监控页面"""
+        return render_template('opportunities.html')
+
+    # 持仓管理页面
+    @app.route('/positions')
+    def positions_page():
+        """持仓管理页面"""
+        return render_template('positions.html')
+
+    # 配置页面
+    @app.route('/config')
+    def config_page():
+        """配置页面"""
+        return render_template('config.html')
+
     # API路由
     @app.route('/api/status')
     def api_status():
@@ -105,6 +123,36 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             return jsonify({'success': True, 'data': configs})
         except Exception as e:
             logger.error(f"Error getting config: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/config/update', methods=['POST'])
+    def api_config_update():
+        """更新配置API"""
+        try:
+            data = request.get_json()
+            category = data.get('category')
+            key = data.get('key')
+            value = data.get('value')
+
+            if not all([category, key, value is not None]):
+                return jsonify({'success': False, 'error': 'Missing required fields'})
+
+            config_manager.set(f"{category}.{key}", value)
+            return jsonify({'success': True, 'message': 'Config updated'})
+        except Exception as e:
+            logger.error(f"Error updating config: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/close_position/<int:position_id>', methods=['POST'])
+    def api_close_position(position_id):
+        """平仓API"""
+        try:
+            if strategy_executor:
+                result = strategy_executor.close_position(position_id)
+                return jsonify({'success': True, 'data': result})
+            return jsonify({'success': False, 'error': 'Strategy executor not available'})
+        except Exception as e:
+            logger.error(f"Error closing position: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
     # 错误处理

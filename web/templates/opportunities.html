@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机会监控 - 资金费率套利系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header {
+            background: white;
+            border-radius: 10px;
+            padding: 20px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { color: #667eea; font-size: 24px; }
+        .nav { display: flex; gap: 15px; }
+        .nav a {
+            color: #667eea;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .nav a:hover, .nav a.active {
+            background: #667eea;
+            color: white;
+        }
+        .content {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f3f4f6;
+            color: #667eea;
+            font-weight: 600;
+        }
+        tr:hover { background: #f9fafb; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge-high { background: #4ade80; color: white; }
+        .badge-medium { background: #fbbf24; color: white; }
+        .badge-low { background: #f87171; color: white; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>机会监控</h1>
+            <div class="nav">
+                <a href="/">仪表盘</a>
+                <a href="/opportunities" class="active">机会监控</a>
+                <a href="/positions">持仓管理</a>
+                <a href="/config">系统配置</a>
+            </div>
+        </div>
+
+        <div class="content">
+            <h2>当前套利机会</h2>
+            <div id="opportunities-list">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadOpportunities() {
+            try {
+                const response = await fetch('/api/opportunities');
+                const result = await response.json();
+
+                if (result.success) {
+                    displayOpportunities(result.data);
+                } else {
+                    document.getElementById('opportunities-list').innerHTML =
+                        '<p class="loading">加载失败: ' + result.error + '</p>';
+                }
+            } catch (error) {
+                document.getElementById('opportunities-list').innerHTML =
+                    '<p class="loading">加载失败</p>';
+            }
+        }
+
+        function displayOpportunities(opportunities) {
+            if (opportunities.length === 0) {
+                document.getElementById('opportunities-list').innerHTML =
+                    '<p class="loading">暂无套利机会</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr>';
+            html += '<th>交易对</th><th>策略</th><th>预期收益率</th>';
+            html += '<th>评分</th><th>风险等级</th></tr></thead><tbody>';
+
+            opportunities.forEach(opp => {
+                html += '<tr>';
+                html += `<td>${opp.symbol || '-'}</td>`;
+                html += `<td>${opp.strategy_type || '-'}</td>`;
+                html += `<td>${(opp.expected_return * 100).toFixed(3)}%</td>`;
+                html += `<td>${opp.score || 0}</td>`;
+                const riskClass = opp.risk_level === 'low' ? 'badge-high' :
+                                 opp.risk_level === 'medium' ? 'badge-medium' : 'badge-low';
+                html += `<td><span class="badge ${riskClass}">${opp.risk_level || 'unknown'}</span></td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('opportunities-list').innerHTML = html;
+        }
+
+        loadOpportunities();
+        setInterval(loadOpportunities, 10000); // 每10秒刷新
+    </script>
+</body>
+</html>
