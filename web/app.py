@@ -252,6 +252,115 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
             logger.error(f"Error updating config: {e}")
             return jsonify({'success': False, 'error': str(e)})
 
+    @app.route('/api/exchanges')
+    @api_auth_required
+    def api_exchanges():
+        """获取交易所账户列表"""
+        try:
+            exchanges = db_manager.execute_query(
+                "SELECT exchange_name, is_active FROM exchange_accounts ORDER BY exchange_name"
+            )
+            return jsonify({'success': True, 'data': exchanges})
+        except Exception as e:
+            logger.error(f"Error getting exchanges: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/exchanges/add', methods=['POST'])
+    @api_auth_required
+    def api_exchanges_add():
+        """添加交易所账户"""
+        try:
+            data = request.get_json()
+            exchange_name = data.get('exchange_name', '').lower().strip()
+            api_key = data.get('api_key', '').strip()
+            api_secret = data.get('api_secret', '').strip()
+            passphrase = data.get('passphrase', '').strip()
+
+            if not exchange_name or not api_key or not api_secret:
+                return jsonify({'success': False, 'error': '请填写完整信息'})
+
+            if exchange_name not in ['binance', 'okx', 'bybit', 'gate', 'bitget']:
+                return jsonify({'success': False, 'error': '不支持的交易所'})
+
+            if exchange_name in ['okx', 'bitget'] and not passphrase:
+                return jsonify({'success': False, 'error': f'{exchange_name.upper()} 需要 Passphrase'})
+
+            # 插入或更新数据库
+            db_manager.execute_query(
+                """
+                INSERT INTO exchange_accounts (exchange_name, api_key, api_secret, passphrase, is_active)
+                VALUES (?, ?, ?, ?, TRUE)
+                ON CONFLICT(exchange_name) DO UPDATE SET
+                    api_key = excluded.api_key,
+                    api_secret = excluded.api_secret,
+                    passphrase = excluded.passphrase,
+                    is_active = TRUE
+                """,
+                (exchange_name, api_key, api_secret, passphrase)
+            )
+
+            logger.info(f"Exchange account added: {exchange_name}")
+            return jsonify({'success': True, 'message': '添加成功，请重启应用生效'})
+        except Exception as e:
+            logger.error(f"Error adding exchange: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/exchanges/delete', methods=['POST'])
+    @api_auth_required
+    def api_exchanges_delete():
+        """删除交易所账户"""
+        try:
+            data = request.get_json()
+            exchange_name = data.get('exchange_name', '').lower().strip()
+
+            if not exchange_name:
+                return jsonify({'success': False, 'error': '请指定交易所'})
+
+            db_manager.execute_query(
+                "DELETE FROM exchange_accounts WHERE exchange_name = ?",
+                (exchange_name,)
+            )
+
+            logger.info(f"Exchange account deleted: {exchange_name}")
+            return jsonify({'success': True, 'message': '删除成功，请重启应用生效'})
+        except Exception as e:
+            logger.error(f"Error deleting exchange: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
+    @app.route('/api/system/restart', methods=['POST'])
+    @api_auth_required
+    def api_system_restart():
+        """重启应用"""
+        try:
+            logger.info("System restart requested via web interface")
+            
+            def restart_app():
+                import time
+                import sys
+                import subprocess
+                time.sleep(1)  # 等待响应返回
+                logger.info("Restarting application...")
+                
+                # Windows 环境下使用 subprocess 重启
+                python_exe = sys.executable
+                script_path = os.path.abspath(sys.argv[0])
+                
+                # 停止当前进程并启动新进程
+                subprocess.Popen([python_exe, script_path], 
+                               cwd=os.path.dirname(script_path),
+                               creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+                
+                # 退出当前进程
+                os._exit(0)
+            
+            import threading
+            threading.Thread(target=restart_app, daemon=False).start()
+            
+            return jsonify({'success': True, 'message': '应用正在重启...'})
+        except Exception as e:
+            logger.error(f"Error restarting application: {e}")
+            return jsonify({'success': False, 'error': str(e)})
+
     @app.route('/api/close_position/<int:position_id>', methods=['POST'])
     @api_auth_required
     def api_close_position(position_id):

@@ -11,6 +11,7 @@ class BitgetAdapter(BaseExchange):
         self.exchange = ccxt.bitget({
             'apiKey': self.api_key,
             'secret': self.api_secret,
+            'password': self.passphrase,  # Bitget需要passphrase（称为password）
             'enableRateLimit': True,
         })
 

@@ -55,7 +55,7 @@ class DataCollector:
                     )
                 elif exchange_name == 'bitget':
                     self.exchanges['bitget'] = BitgetAdapter(
-                        cfg['api_key'], cfg['api_secret']
+                        cfg['api_key'], cfg['api_secret'], cfg['passphrase']
                     )
 
                 # 测试连接

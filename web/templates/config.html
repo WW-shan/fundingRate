@@ -1,226 +1,631 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>系统配置 - 资金费率套利系统</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .header {
-            background: white;
-            border-radius: 10px;
-            padding: 20px 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        h1 { color: #667eea; font-size: 24px; }
-        .nav { display: flex; gap: 15px; }
-        .nav a {
-            color: #667eea;
-            text-decoration: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            transition: all 0.3s;
-        }
-        .nav a:hover, .nav a.active {
-            background: #667eea;
-            color: white;
-        }
-        .content {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            color: #374151;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-        input[type="number"], input[type="text"], select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s;
-        }
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        .btn-primary:hover {
-            background: #5568d3;
-        }
-        .alert {
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
-        .alert-success {
-            background: #d1fae5;
-            color: #065f46;
-        }
-        .alert-error {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-        .section {
-            margin-bottom: 30px;
-            padding-bottom: 30px;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        .section:last-child {
-            border-bottom: none;
-        }
-        h3 {
-            color: #667eea;
-            margin-bottom: 15px;
-        }
-        .loading { text-align: center; padding: 40px; color: #666; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .header {
+        background: white;
+        border-radius: 10px;
+        padding: 20px 30px;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      h1 {
+        color: #667eea;
+        font-size: 24px;
+      }
+      .nav {
+        display: flex;
+        gap: 15px;
+      }
+      .nav a {
+        color: #667eea;
+        text-decoration: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        transition: all 0.3s;
+      }
+      .nav a:hover,
+      .nav a.active {
+        background: #667eea;
+        color: white;
+      }
+      .content {
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        color: #374151;
+        font-weight: 500;
+        margin-bottom: 8px;
+      }
+      input[type="number"],
+      input[type="text"],
+      input[type="password"],
+      select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.3s;
+      }
+      .btn-primary {
+        background: #667eea;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #5568d3;
+      }
+      .alert {
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+      }
+      .alert-success {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      .alert-error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .section {
+        margin-bottom: 30px;
+        padding-bottom: 30px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .section:last-child {
+        border-bottom: none;
+      }
+      h3 {
+        color: #667eea;
+        margin-bottom: 15px;
+      }
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+      .exchange-item {
+        background: #f9fafb;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .exchange-name {
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #667eea;
+      }
+      .exchange-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-left: 10px;
+      }
+      .status-active {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      .status-inactive {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal.show {
+        display: flex;
+      }
+      .modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        max-width: 500px;
+        width: 90%;
+      }
+      .modal-header {
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .modal-header h3 {
+        margin: 0;
+      }
+      .modal-footer {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .restart-notice {
+        background: #fef3c7;
+        border-left: 4px solid #f59e0b;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        display: none;
+      }
+      .restart-notice.show {
+        display: block;
+      }
+      .restart-notice-text {
+        color: #92400e;
+        font-weight: 500;
+        margin-bottom: 10px;
+      }
+      .btn-warning {
+        background: #f59e0b;
+        color: white;
+      }
+      .btn-warning:hover {
+        background: #d97706;
+      }
+      .code-block {
+        background: #1f2937;
+        color: #10b981;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+        margin-top: 8px;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <div class="header">
-            <h1>系统配置</h1>
-            <div class="nav">
-                <a href="/">仪表盘</a>
-                <a href="/opportunities">机会监控</a>
-                <a href="/positions">持仓管理</a>
-                <a href="/config" class="active">系统配置</a>
-            </div>
+      <div class="header">
+        <h1>系统配置</h1>
+        <div class="nav">
+          <a href="/">仪表盘</a>
+          <a href="/opportunities">机会监控</a>
+          <a href="/positions">持仓管理</a>
+          <a href="/config" class="active">系统配置</a>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="alert-container"></div>
+
+        <!-- 重启提示 -->
+        <div id="restart-notice" class="restart-notice">
+          <div class="restart-notice-text">
+            ⚠️ 配置已更改，需要重启应用才能生效
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center">
+            <button class="btn btn-warning" onclick="restartApplication()">
+              🔄 立即重启
+            </button>
+            <span style="color: #92400e; font-size: 13px"
+              >注：重启不会影响当前持仓</span
+            >
+          </div>
         </div>
 
-        <div class="content">
-            <div id="alert-container"></div>
-
-            <div class="section">
-                <h3>全局配置</h3>
-                <div class="form-group">
-                    <label>总资金 (USDT)</label>
-                    <input type="number" id="total_capital" placeholder="100000">
-                </div>
-                <div class="form-group">
-                    <label>最大持仓数量</label>
-                    <input type="number" id="max_positions" placeholder="10">
-                </div>
-            </div>
-
-            <div class="section">
-                <h3>策略开关</h3>
-                <div class="form-group">
-                    <label>策略1: 跨交易所资金费率套利</label>
-                    <select id="strategy1_enabled">
-                        <option value="true">启用</option>
-                        <option value="false">禁用</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>策略2A: 现货-期货资金费率套利</label>
-                    <select id="strategy2a_enabled">
-                        <option value="true">启用</option>
-                        <option value="false">禁用</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>策略2B: 现货-期货基差套利</label>
-                    <select id="strategy2b_enabled">
-                        <option value="true">启用</option>
-                        <option value="false">禁用</option>
-                    </select>
-                </div>
-            </div>
-
-            <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+        <div class="section">
+          <h3>交易所账户</h3>
+          <div id="exchanges-list" class="loading">加载中...</div>
+          <button
+            class="btn btn-primary"
+            onclick="showAddExchangeModal()"
+            style="margin-top: 15px"
+          >
+            添加交易所
+          </button>
         </div>
+
+        <div class="section">
+          <h3>全局配置</h3>
+          <div class="form-group">
+            <label>总资金 (USDT)</label>
+            <input type="number" id="total_capital" placeholder="100000" />
+          </div>
+          <div class="form-group">
+            <label>最大持仓数量</label>
+            <input type="number" id="max_positions" placeholder="10" />
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>策略开关</h3>
+          <div class="form-group">
+            <label>策略1: 跨交易所资金费率套利</label>
+            <select id="strategy1_enabled">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>策略2A: 现货-期货资金费率套利</label>
+            <select id="strategy2a_enabled">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>策略2B: 现货-期货基差套利</label>
+            <select id="strategy2b_enabled">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+      </div>
+    </div>
+
+    <!-- 添加交易所模态框 -->
+    <div id="addExchangeModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>添加交易所账户</h3>
+        </div>
+        <div class="form-group">
+          <label>交易所</label>
+          <select id="new_exchange_name">
+            <option value="binance">Binance</option>
+            <option value="okx">OKX</option>
+            <option value="bybit">Bybit</option>
+            <option value="gate">Gate.io</option>
+            <option value="bitget">Bitget</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="text" id="new_api_key" placeholder="输入 API Key" />
+        </div>
+        <div class="form-group">
+          <label>API Secret</label>
+          <input
+            type="password"
+            id="new_api_secret"
+            placeholder="输入 API Secret"
+          />
+        </div>
+        <div class="form-group" id="passphrase_group" style="display: none">
+          <label>Passphrase (仅 OKX 需要)</label>
+          <input
+            type="password"
+            id="new_passphrase"
+            placeholder="输入 Passphrase"
+          />
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="addExchange()">添加</button>
+          <button class="btn" onclick="hideAddExchangeModal()">取消</button>
+        </div>
+      </div>
     </div>
 
     <script>
-        async function loadConfig() {
-            try {
-                const response = await fetch('/api/config');
-                const result = await response.json();
+      // 监听交易所选择变化
+      document
+        .getElementById("new_exchange_name")
+        .addEventListener("change", function () {
+          const passphraseGroup = document.getElementById("passphrase_group");
+          const passphraseLabel = passphraseGroup.querySelector("label");
 
-                if (result.success) {
-                    const config = result.data;
-                    document.getElementById('total_capital').value = config.total_capital || 100000;
-                    document.getElementById('max_positions').value = config.max_positions || 10;
-                    document.getElementById('strategy1_enabled').value = String(config.strategy1_enabled || true).toLowerCase();
-                    document.getElementById('strategy2a_enabled').value = String(config.strategy2a_enabled || true).toLowerCase();
-                    document.getElementById('strategy2b_enabled').value = String(config.strategy2b_enabled || true).toLowerCase();
-                }
-            } catch (error) {
-                showAlert('加载配置失败', 'error');
-            }
-        }
+          if (this.value === "okx") {
+            passphraseGroup.style.display = "block";
+            passphraseLabel.textContent = "Passphrase (仅 OKX 需要)";
+          } else if (this.value === "bitget") {
+            passphraseGroup.style.display = "block";
+            passphraseLabel.textContent = "Passphrase (仅 Bitget 需要)";
+          } else {
+            passphraseGroup.style.display = "none";
+          }
+        });
 
-        async function saveConfig() {
-            const updates = [
-                { category: 'global', key: 'total_capital', value: parseFloat(document.getElementById('total_capital').value) },
-                { category: 'global', key: 'max_positions', value: parseInt(document.getElementById('max_positions').value) },
-                { category: 'strategy1', key: 'enabled', value: document.getElementById('strategy1_enabled').value },
-                { category: 'strategy2a', key: 'enabled', value: document.getElementById('strategy2a_enabled').value },
-                { category: 'strategy2b', key: 'enabled', value: document.getElementById('strategy2b_enabled').value }
-            ];
+      async function loadExchanges() {
+        try {
+          const response = await fetch("/api/exchanges");
+          const result = await response.json();
 
-            let success = true;
-            for (const update of updates) {
-                try {
-                    const response = await fetch('/api/config/update', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(update)
-                    });
-                    const result = await response.json();
-                    if (!result.success) {
-                        success = false;
-                        break;
-                    }
-                } catch (error) {
-                    success = false;
-                    break;
-                }
-            }
+          if (result.success) {
+            const exchanges = result.data;
+            let html = "";
 
-            if (success) {
-                showAlert('配置保存成功', 'success');
+            if (exchanges.length === 0) {
+              html =
+                '<p style="color: #666;">暂无交易所账户，请点击下方按钮添加</p>';
             } else {
-                showAlert('配置保存失败', 'error');
+              exchanges.forEach((ex) => {
+                const statusClass = ex.is_active
+                  ? "status-active"
+                  : "status-inactive";
+                const statusText = ex.is_active ? "启用" : "禁用";
+                html += `
+                                <div class="exchange-item">
+                                    <div>
+                                        <span class="exchange-name">${ex.exchange_name}</span>
+                                        <span class="exchange-status ${statusClass}">${statusText}</span>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-danger" onclick="deleteExchange('${ex.exchange_name}')">删除</button>
+                                    </div>
+                                </div>
+                            `;
+              });
             }
+
+            document.getElementById("exchanges-list").innerHTML = html;
+          } else {
+            document.getElementById("exchanges-list").innerHTML =
+              '<p style="color: #ef4444;">加载失败</p>';
+          }
+        } catch (error) {
+          document.getElementById("exchanges-list").innerHTML =
+            '<p style="color: #ef4444;">加载失败</p>';
+        }
+      }
+
+      function showAddExchangeModal() {
+        document.getElementById("addExchangeModal").classList.add("show");
+      }
+
+      function hideAddExchangeModal() {
+        document.getElementById("addExchangeModal").classList.remove("show");
+        document.getElementById("new_api_key").value = "";
+        document.getElementById("new_api_secret").value = "";
+        document.getElementById("new_passphrase").value = "";
+      }
+
+      async function addExchange() {
+        const exchangeName = document.getElementById("new_exchange_name").value;
+        const apiKey = document.getElementById("new_api_key").value.trim();
+        const apiSecret = document
+          .getElementById("new_api_secret")
+          .value.trim();
+        const passphrase = document
+          .getElementById("new_passphrase")
+          .value.trim();
+
+        if (!apiKey || !apiSecret) {
+          showAlert("请填写 API Key 和 Secret", "error");
+          return;
         }
 
-        function showAlert(message, type) {
-            const alertHtml = `<div class="alert alert-${type}">${message}</div>`;
-            document.getElementById('alert-container').innerHTML = alertHtml;
+        if (
+          (exchangeName === "okx" || exchangeName === "bitget") &&
+          !passphrase
+        ) {
+          showAlert(`${exchangeName.toUpperCase()} 需要 Passphrase`, "error");
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/exchanges/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              exchange_name: exchangeName,
+              api_key: apiKey,
+              api_secret: apiSecret,
+              passphrase: passphrase,
+            }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showAlert("交易所添加成功！", "success");
+            showRestartNotice();
+            hideAddExchangeModal();
+            loadExchanges();
+          } else {
+            showAlert("添加失败: " + (result.error || "未知错误"), "error");
+          }
+        } catch (error) {
+          showAlert("添加失败: " + error.message, "error");
+        }
+      }
+
+      async function deleteExchange(exchangeName) {
+        if (!confirm(`确定要删除 ${exchangeName.toUpperCase()} 吗？`)) {
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/exchanges/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ exchange_name: exchangeName }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showAlert("删除成功！", "success");
+            showRestartNotice();
+            loadExchanges();
+          } else {
+            showAlert("删除失败: " + (result.error || "未知错误"), "error");
+          }
+        } catch (error) {
+          showAlert("删除失败: " + error.message, "error");
+        }
+      }
+
+      async function loadConfig() {
+        try {
+          const response = await fetch("/api/config");
+          const result = await response.json();
+
+          if (result.success) {
+            const config = result.data;
+            document.getElementById("total_capital").value =
+              config.total_capital || 100000;
+            document.getElementById("max_positions").value =
+              config.max_positions || 10;
+            document.getElementById("strategy1_enabled").value = String(
+              config.strategy1_enabled || true,
+            ).toLowerCase();
+            document.getElementById("strategy2a_enabled").value = String(
+              config.strategy2a_enabled || true,
+            ).toLowerCase();
+            document.getElementById("strategy2b_enabled").value = String(
+              config.strategy2b_enabled || true,
+            ).toLowerCase();
+          }
+        } catch (error) {
+          showAlert("加载配置失败", "error");
+        }
+      }
+
+      async function saveConfig() {
+        const updates = [
+          {
+            category: "global",
+            key: "total_capital",
+            value: parseFloat(document.getElementById("total_capital").value),
+          },
+          {
+            category: "global",
+            key: "max_positions",
+            value: parseInt(document.getElementById("max_positions").value),
+          },
+          {
+            category: "strategy1",
+            key: "enabled",
+            value: document.getElementById("strategy1_enabled").value,
+          },
+          {
+            category: "strategy2a",
+            key: "enabled",
+            value: document.getElementById("strategy2a_enabled").value,
+          },
+          {
+            category: "strategy2b",
+            key: "enabled",
+            value: document.getElementById("strategy2b_enabled").value,
+          },
+        ];
+
+        let success = true;
+        for (const update of updates) {
+          try {
+            const response = await fetch("/api/config/update", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(update),
+            });
+            const result = await response.json();
+            if (!result.success) {
+              success = false;
+              break;
+            }
+          } catch (error) {
+            success = false;
+            break;
+          }
+        }
+
+        if (success) {
+          showAlert("配置保存成功", "success");
+        } else {
+          showAlert("配置保存失败", "error");
+        }
+      }
+
+      function showAlert(message, type) {
+        const alertHtml = `<div class="alert alert-${type}">${message}</div>`;
+        document.getElementById("alert-container").innerHTML = alertHtml;
+        setTimeout(() => {
+          document.getElementById("alert-container").innerHTML = "";
+        }, 3000);
+      }
+
+      function showRestartNotice() {
+        document.getElementById("restart-notice").classList.add("show");
+      }
+
+      async function restartApplication() {
+        if (
+          !confirm(
+            "确定要重启应用吗？\n\n重启过程约需5-10秒，期间无法访问系统。\n当前持仓数据不会受影响。",
+          )
+        ) {
+          return;
+        }
+
+        try {
+          showAlert("正在重启应用...", "success");
+
+          const response = await fetch("/api/system/restart", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showAlert("应用正在重启，页面将在5秒后自动刷新...", "success");
+            // 5秒后刷新页面
             setTimeout(() => {
-                document.getElementById('alert-container').innerHTML = '';
-            }, 3000);
+              window.location.reload();
+            }, 5000);
+          } else {
+            showAlert("重启失败: " + (result.error || "未知错误"), "error");
+          }
+        } catch (error) {
+          showAlert("重启失败: " + error.message, "error");
         }
+      }
 
-        loadConfig();
+      // 页面加载时执行
+      loadExchanges();
+      loadConfig();
     </script>
-</body>
+  </body>
 </html>
