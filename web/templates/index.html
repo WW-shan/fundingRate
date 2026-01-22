@@ -761,8 +761,8 @@
             // 计算总采集交易对数（去重）
             const allSymbols = new Set();
             if (data.exchanges) {
-              data.exchanges.forEach(ex => {
-                ex.symbols.forEach(s => allSymbols.add(s));
+              data.exchanges.forEach((ex) => {
+                ex.symbols.forEach((s) => allSymbols.add(s));
               });
             }
 
@@ -821,13 +821,13 @@
       function toggleSymbols(cardId) {
         const symbolList = document.getElementById(cardId);
         const btn = event.target;
-        
-        if (symbolList.classList.contains('expanded')) {
-          symbolList.classList.remove('expanded');
-          btn.textContent = '👁️ 查看交易对';
+
+        if (symbolList.classList.contains("expanded")) {
+          symbolList.classList.remove("expanded");
+          btn.textContent = "👁️ 查看交易对";
         } else {
-          symbolList.classList.add('expanded');
-          btn.textContent = '🙈 收起';
+          symbolList.classList.add("expanded");
+          btn.textContent = "🙈 收起";
         }
       }
 
