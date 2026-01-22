@@ -422,6 +422,38 @@
         <div id="data-status-content" class="loading">加载中...</div>
       </div>
 
+      <!-- 账户余额区域 -->
+      <div
+        class="accounts-section"
+        style="
+          background: white;
+          border-radius: 10px;
+          padding: 20px;
+          margin-bottom: 20px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        "
+      >
+        <h3 style="color: #667eea; margin-bottom: 15px; font-size: 18px">
+          💰 账户余额
+          <button
+            onclick="refreshAccountInfo()"
+            style="
+              float: right;
+              padding: 5px 15px;
+              background: #667eea;
+              color: white;
+              border: none;
+              border-radius: 5px;
+              cursor: pointer;
+              font-size: 12px;
+            "
+          >
+            🔄 刷新
+          </button>
+        </h3>
+        <div id="account-info-content" class="loading">加载中...</div>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon">🟢</div>
@@ -753,7 +785,110 @@
           loadRecentActivity(),
           loadTodayTrades(),
           loadDataStatus(),
+          loadAccountInfo(),
         ]);
+      }
+
+      // 加载账户信息
+      async function loadAccountInfo() {
+        try {
+          const response = await fetch("/api/account_info");
+          const result = await response.json();
+
+          if (result.success && result.data) {
+            const data = result.data;
+            let html = "";
+
+            // 总资产
+            html += `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">`;
+            html += `<div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">总资产 (USDT)</div>`;
+            html += `<div style="font-size: 32px; font-weight: bold;">${data.total_usdt.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`;
+            html += `</div>`;
+
+            // 各交易所账户
+            if (data.accounts && data.accounts.length > 0) {
+              html +=
+                '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">';
+
+              data.accounts.forEach((account) => {
+                const hasError = account.error;
+                html += `<div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; background: ${hasError ? "#fef2f2" : "#f9fafb"};">`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">`;
+                html += `<h4 style="color: #667eea; font-size: 16px; margin: 0;">🏦 ${account.exchange.toUpperCase()}</h4>`;
+
+                if (hasError) {
+                  html += `<span style="color: #ef4444; font-size: 12px;">⚠️ 连接失败</span>`;
+                } else {
+                  html += `<span style="color: #10b981; font-size: 12px;">✅ 已连接</span>`;
+                }
+                html += `</div>`;
+
+                if (hasError) {
+                  html += `<div style="color: #ef4444; font-size: 12px;">${account.error}</div>`;
+                } else {
+                  // 资产总额
+                  html += `<div style="margin-bottom: 10px;">`;
+                  html += `<div style="font-size: 12px; color: #6b7280;">资产总额</div>`;
+                  html += `<div style="font-size: 20px; font-weight: 600; color: #111;">${account.total_usdt.toLocaleString("zh-CN", { minimumFractionDigits: 2 })} USDT</div>`;
+                  html += `</div>`;
+
+                  // 持仓数量
+                  if (account.positions_count > 0) {
+                    html += `<div style="margin-bottom: 10px; font-size: 12px; color: #6b7280;">`;
+                    html += `💼 持仓: ${account.positions_count} 个`;
+                    html += `</div>`;
+                  }
+
+                  // 主要币种余额
+                  const balances = account.balances;
+                  if (balances && Object.keys(balances).length > 0) {
+                    html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb;">`;
+                    html += `<div style="font-size: 11px; color: #9ca3af; margin-bottom: 5px;">主要币种</div>`;
+
+                    let balanceHtml = "";
+                    Object.entries(balances)
+                      .slice(0, 5)
+                      .forEach(([currency, info]) => {
+                        balanceHtml += `<div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px;">`;
+                        balanceHtml += `<span style="color: #6b7280;">${currency}:</span>`;
+                        balanceHtml += `<span style="color: #111; font-weight: 500;">${parseFloat(info.total).toFixed(info.total < 1 ? 6 : 2)}</span>`;
+                        balanceHtml += `</div>`;
+                      });
+
+                    html += balanceHtml;
+                    html += `</div>`;
+                  }
+                }
+
+                html += `</div>`;
+              });
+
+              html += "</div>";
+            } else {
+              html += '<div class="empty-state">暂无交易所账户</div>';
+            }
+
+            document.getElementById("account-info-content").innerHTML = html;
+          } else {
+            document.getElementById("account-info-content").innerHTML =
+              '<div class="empty-state" style="color: #ef4444;">加载失败: ' +
+              (result.error || "未知错误") +
+              "</div>";
+          }
+        } catch (error) {
+          console.error("加载账户信息失败:", error);
+          document.getElementById("account-info-content").innerHTML =
+            '<div class="empty-state" style="color: #ef4444;">加载失败: ' +
+            error.message +
+            "</div>";
+        }
+      }
+
+      // 刷新账户信息
+      async function refreshAccountInfo() {
+        document.getElementById("account-info-content").innerHTML =
+          '<div class="loading">刷新中...</div>';
+        await loadAccountInfo();
       }
 
       // 初始加载

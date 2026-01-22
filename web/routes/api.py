@@ -142,3 +142,62 @@ def close_position(position_id):
     except Exception as e:
         logger.error(f"Error closing position: {e}")
         return jsonify({'success': False, 'error': str(e)})
+
+
+@api_bp.route('/account_info')
+@api_auth_required
+def account_info():
+    """获取所有交易所的账户信息"""
+    data_collector = current_app.config['DATA_COLLECTOR']
+    
+    try:
+        if not data_collector or not data_collector.exchanges:
+            return jsonify({'success': False, 'error': '没有连接的交易所'})
+        
+        accounts_info = []
+        total_usdt_all = 0
+        
+        for exchange_name, exchange_adapter in data_collector.exchanges.items():
+            try:
+                # 获取账户信息
+                info = exchange_adapter.get_account_info()
+                
+                # 提取主要币种余额（只显示价值较大的）
+                main_balances = {}
+                for currency, balance_info in info['balances'].items():
+                    if balance_info['total'] > 0.01:  # 过滤掉太小的余额
+                        main_balances[currency] = balance_info
+                
+                account_data = {
+                    'exchange': exchange_name,
+                    'total_usdt': info['total_usdt'],
+                    'positions_count': info['positions_count'],
+                    'balances': main_balances,
+                    'timestamp': info['timestamp']
+                }
+                
+                accounts_info.append(account_data)
+                total_usdt_all += info['total_usdt']
+                
+            except Exception as ex:
+                logger.error(f"Error getting account info for {exchange_name}: {ex}")
+                accounts_info.append({
+                    'exchange': exchange_name,
+                    'total_usdt': 0,
+                    'positions_count': 0,
+                    'balances': {},
+                    'error': str(ex)
+                })
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'accounts': accounts_info,
+                'total_usdt': round(total_usdt_all, 2)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting account info: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
