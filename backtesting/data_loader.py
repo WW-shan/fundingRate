@@ -5,7 +5,7 @@
 
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from loguru import logger
 import pandas as pd
 
