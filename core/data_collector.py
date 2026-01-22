@@ -213,8 +213,46 @@ class DataCollector:
         if configs:
             return [cfg['symbol'] for cfg in configs]
         else:
-            # 如果没有配置，返回默认交易对
-            return ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+            # 如果没有配置，从交易所获取所有USDT永续合约交易对
+            return self._get_all_usdt_perpetual_symbols()
+
+    def _get_all_usdt_perpetual_symbols(self) -> List[str]:
+        """从交易所获取所有USDT永续合约交易对"""
+        all_symbols = set()
+
+        # 从所有已连接的交易所获取交易对
+        for exchange_name, exchange in self.exchanges.items():
+            try:
+                # 加载市场数据
+                markets = exchange.exchange.load_markets()
+
+                # 筛选USDT永续合约
+                for symbol, market in markets.items():
+                    # 检查是否为永续合约且以USDT结算
+                    is_perpetual = market.get('type') == 'swap' or market.get('swap') is True
+                    is_usdt = symbol.endswith('/USDT:USDT') or (
+                        symbol.endswith('/USDT') and is_perpetual
+                    )
+
+                    if is_usdt and is_perpetual:
+                        # 转换为标准格式 BTC/USDT
+                        base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                        all_symbols.add(base_symbol)
+
+            except Exception as e:
+                logger.warning(f"Error loading markets from {exchange_name}: {e}")
+
+        # 转换为列表并排序
+        symbols_list = sorted(list(all_symbols))
+
+        if symbols_list:
+            logger.info(f"Found {len(symbols_list)} USDT perpetual symbols across {len(self.exchanges)} exchanges")
+        else:
+            # 如果没有获取到任何交易对，返回默认列表
+            logger.warning("No USDT perpetual symbols found, using default symbols")
+            symbols_list = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+
+        return symbols_list
 
     def get_market_data(self, symbol: str = None, exchange: str = None) -> Dict[str, Any]:
         """
