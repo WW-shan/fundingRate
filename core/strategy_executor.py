@@ -24,6 +24,7 @@ class StrategyExecutor:
         self.risk_manager = risk_manager
         self.order_manager = order_manager
         self.running = False
+        self.paused = False  # 暂停状态
         self.pending_opportunities = []  # 待处理的机会队列
         self.execution_callbacks = []  # 执行回调
 
@@ -48,6 +49,16 @@ class StrategyExecutor:
     def register_callback(self, callback):
         """注册执行事件回调"""
         self.execution_callbacks.append(callback)
+
+    def set_paused(self, paused: bool):
+        """设置暂停状态"""
+        self.paused = paused
+        status = "paused" if paused else "resumed"
+        logger.info(f"Strategy executor {status}")
+
+    def is_paused(self) -> bool:
+        """检查是否暂停"""
+        return self.paused
 
     def submit_opportunity(self, opportunity: Dict[str, Any]):
         """提交套利机会"""
@@ -405,6 +416,11 @@ class StrategyExecutor:
         """执行循环"""
         while self.running:
             try:
+                # 检查是否暂停
+                if self.paused:
+                    time.sleep(1)
+                    continue
+
                 if self.pending_opportunities:
                     opportunity = self.pending_opportunities.pop(0)
                     self.execute_opportunity(opportunity)
