@@ -127,7 +127,7 @@ class ConfigManager:
         self.set('global', 'max_positions', 10, True, "最大同时持仓数")
         self.set('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
         self.set('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
-        self.set('global', 'opportunity_scan_interval', 10, True, "机会扫描间隔（秒）")
+        self.set('global', 'opportunity_scan_interval', 300, True, "机会扫描间隔（秒）")
 
         # 策略1：跨交易所资金费率套利
         self.set('strategy1', 'enabled', True, True, "是否启用")

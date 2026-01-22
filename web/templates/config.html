@@ -96,6 +96,8 @@
         padding: 12px;
         border-radius: 6px;
         margin-bottom: 20px;
+        white-space: pre-line;
+        line-height: 1.6;
       }
       .alert-success {
         background: #d1fae5;
@@ -104,6 +106,10 @@
       .alert-error {
         background: #fee2e2;
         color: #991b1b;
+      }
+      .alert-info {
+        background: #dbeafe;
+        color: #1e40af;
       }
       .section {
         margin-bottom: 30px;
@@ -188,29 +194,6 @@
         gap: 10px;
         justify-content: flex-end;
       }
-      .restart-notice {
-        background: #fef3c7;
-        border-left: 4px solid #f59e0b;
-        padding: 15px;
-        border-radius: 6px;
-        margin-bottom: 20px;
-        display: none;
-      }
-      .restart-notice.show {
-        display: block;
-      }
-      .restart-notice-text {
-        color: #92400e;
-        font-weight: 500;
-        margin-bottom: 10px;
-      }
-      .btn-warning {
-        background: #f59e0b;
-        color: white;
-      }
-      .btn-warning:hover {
-        background: #d97706;
-      }
       .code-block {
         background: #1f2937;
         color: #10b981;
@@ -237,21 +220,6 @@
       <div class="content">
         <div id="alert-container"></div>
 
-        <!-- 重启提示 -->
-        <div id="restart-notice" class="restart-notice">
-          <div class="restart-notice-text">
-            ⚠️ 配置已更改，需要重启应用才能生效
-          </div>
-          <div style="display: flex; gap: 10px; align-items: center">
-            <button class="btn btn-warning" onclick="restartApplication()">
-              🔄 立即重启
-            </button>
-            <span style="color: #92400e; font-size: 13px"
-              >注：重启不会影响当前持仓</span
-            >
-          </div>
-        </div>
-
         <div class="section">
           <h3>交易所账户</h3>
           <div id="exchanges-list" class="loading">加载中...</div>
@@ -271,8 +239,37 @@
             <input type="number" id="total_capital" placeholder="100000" />
           </div>
           <div class="form-group">
+            <label>最大资金使用率 (0-1)</label>
+            <input
+              type="number"
+              step="0.01"
+              id="max_capital_usage"
+              placeholder="0.8"
+            />
+          </div>
+          <div class="form-group">
             <label>最大持仓数量</label>
             <input type="number" id="max_positions" placeholder="10" />
+          </div>
+          <div class="form-group">
+            <label>价格刷新间隔 (秒)</label>
+            <input type="number" id="price_refresh_interval" placeholder="5" />
+          </div>
+          <div class="form-group">
+            <label>资金费率刷新间隔 (秒)</label>
+            <input
+              type="number"
+              id="funding_refresh_interval"
+              placeholder="300"
+            />
+          </div>
+          <div class="form-group">
+            <label>机会扫描间隔 (秒)</label>
+            <input
+              type="number"
+              id="opportunity_scan_interval"
+              placeholder="300"
+            />
           </div>
         </div>
 
@@ -444,7 +441,13 @@
           return;
         }
 
+        // 立即关闭模态框
+        hideAddExchangeModal();
+
         try {
+          // 显示加载中提示（不自动消失）
+          showAlert("⏳ 正在测试连接，请稍候...", "info", false);
+
           const response = await fetch("/api/exchanges/add", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -459,12 +462,14 @@
           const result = await response.json();
 
           if (result.success) {
-            showAlert("交易所添加成功！", "success");
-            showRestartNotice();
-            hideAddExchangeModal();
-            loadExchanges();
+            // 显示成功消息
+            showAlert(result.message || "✅ 交易所添加成功！", "success");
+            // 重新加载交易所列表
+            await loadExchanges();
           } else {
-            showAlert("添加失败: " + (result.error || "未知错误"), "error");
+            // 显示详细错误信息（保持换行）
+            const errorMsg = result.error || "未知错误";
+            showAlert("❌ " + errorMsg.replace(/\\n/g, "\n"), "error");
           }
         } catch (error) {
           showAlert("添加失败: " + error.message, "error");
@@ -487,7 +492,6 @@
 
           if (result.success) {
             showAlert("删除成功！", "success");
-            showRestartNotice();
             loadExchanges();
           } else {
             showAlert("删除失败: " + (result.error || "未知错误"), "error");
@@ -504,19 +508,39 @@
 
           if (result.success) {
             const config = result.data;
-            document.getElementById("total_capital").value =
-              config.total_capital || 100000;
-            document.getElementById("max_positions").value =
-              config.max_positions || 10;
-            document.getElementById("strategy1_enabled").value = String(
-              config.strategy1_enabled || true,
-            ).toLowerCase();
-            document.getElementById("strategy2a_enabled").value = String(
-              config.strategy2a_enabled || true,
-            ).toLowerCase();
-            document.getElementById("strategy2b_enabled").value = String(
-              config.strategy2b_enabled || true,
-            ).toLowerCase();
+
+            // 全局配置
+            if (config.global) {
+              document.getElementById("total_capital").value =
+                config.global.total_capital || 100000;
+              document.getElementById("max_capital_usage").value =
+                config.global.max_capital_usage || 0.8;
+              document.getElementById("max_positions").value =
+                config.global.max_positions || 10;
+              document.getElementById("price_refresh_interval").value =
+                config.global.price_refresh_interval || 5;
+              document.getElementById("funding_refresh_interval").value =
+                config.global.funding_refresh_interval || 300;
+              document.getElementById("opportunity_scan_interval").value =
+                config.global.opportunity_scan_interval || 300;
+            }
+
+            // 策略开关
+            if (config.strategy1) {
+              document.getElementById("strategy1_enabled").value = String(
+                config.strategy1.enabled,
+              ).toLowerCase();
+            }
+            if (config.strategy2a) {
+              document.getElementById("strategy2a_enabled").value = String(
+                config.strategy2a.enabled,
+              ).toLowerCase();
+            }
+            if (config.strategy2b) {
+              document.getElementById("strategy2b_enabled").value = String(
+                config.strategy2b.enabled,
+              ).toLowerCase();
+            }
           }
         } catch (error) {
           showAlert("加载配置失败", "error");
@@ -532,27 +556,60 @@
           },
           {
             category: "global",
+            key: "max_capital_usage",
+            value: parseFloat(
+              document.getElementById("max_capital_usage").value,
+            ),
+          },
+          {
+            category: "global",
             key: "max_positions",
             value: parseInt(document.getElementById("max_positions").value),
           },
           {
+            category: "global",
+            key: "price_refresh_interval",
+            value: parseInt(
+              document.getElementById("price_refresh_interval").value,
+            ),
+          },
+          {
+            category: "global",
+            key: "funding_refresh_interval",
+            value: parseInt(
+              document.getElementById("funding_refresh_interval").value,
+            ),
+          },
+          {
+            category: "global",
+            key: "opportunity_scan_interval",
+            value: parseInt(
+              document.getElementById("opportunity_scan_interval").value,
+            ),
+          },
+          {
             category: "strategy1",
             key: "enabled",
-            value: document.getElementById("strategy1_enabled").value,
+            value:
+              document.getElementById("strategy1_enabled").value === "true",
           },
           {
             category: "strategy2a",
             key: "enabled",
-            value: document.getElementById("strategy2a_enabled").value,
+            value:
+              document.getElementById("strategy2a_enabled").value === "true",
           },
           {
             category: "strategy2b",
             key: "enabled",
-            value: document.getElementById("strategy2b_enabled").value,
+            value:
+              document.getElementById("strategy2b_enabled").value === "true",
           },
         ];
 
         let success = true;
+        let errors = [];
+
         for (const update of updates) {
           try {
             const response = await fetch("/api/config/update", {
@@ -563,63 +620,30 @@
             const result = await response.json();
             if (!result.success) {
               success = false;
-              break;
+              errors.push(`${update.category}.${update.key}: ${result.error}`);
             }
           } catch (error) {
             success = false;
-            break;
+            errors.push(`${update.category}.${update.key}: ${error.message}`);
           }
         }
 
         if (success) {
-          showAlert("配置保存成功", "success");
+          showAlert("✅ 配置保存成功！更改将立即生效", "success");
         } else {
-          showAlert("配置保存失败", "error");
+          showAlert("❌ 配置保存失败: " + errors.join("; "), "error");
         }
       }
 
-      function showAlert(message, type) {
+      function showAlert(message, type, autoDismiss = true) {
         const alertHtml = `<div class="alert alert-${type}">${message}</div>`;
         document.getElementById("alert-container").innerHTML = alertHtml;
-        setTimeout(() => {
-          document.getElementById("alert-container").innerHTML = "";
-        }, 3000);
-      }
 
-      function showRestartNotice() {
-        document.getElementById("restart-notice").classList.add("show");
-      }
-
-      async function restartApplication() {
-        if (
-          !confirm(
-            "确定要重启应用吗？\n\n重启过程约需5-10秒，期间无法访问系统。\n当前持仓数据不会受影响。",
-          )
-        ) {
-          return;
-        }
-
-        try {
-          showAlert("正在重启应用...", "success");
-
-          const response = await fetch("/api/system/restart", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            showAlert("应用正在重启，页面将在5秒后自动刷新...", "success");
-            // 5秒后刷新页面
-            setTimeout(() => {
-              window.location.reload();
-            }, 5000);
-          } else {
-            showAlert("重启失败: " + (result.error || "未知错误"), "error");
-          }
-        } catch (error) {
-          showAlert("重启失败: " + error.message, "error");
+        // 如果 autoDismiss 为 true，3秒后自动消失
+        if (autoDismiss) {
+          setTimeout(() => {
+            document.getElementById("alert-container").innerHTML = "";
+          }, 3000);
         }
       }
 
