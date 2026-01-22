@@ -54,6 +54,19 @@ class ConfigManager:
         self._config_cache[cache_key] = value_str
 
         logger.info(f"Config updated: {category}.{key} = {value}")
+    
+    def set_default(self, category: str, key: str, value: Any,
+                   is_hot_reload: bool = True, description: str = ""):
+        """设置默认配置值（如果配置已存在则不覆盖）"""
+        cache_key = f"{category}.{key}"
+        
+        # 检查配置是否已存在
+        if cache_key in self._config_cache:
+            # 配置已存在，不覆盖
+            return
+        
+        # 配置不存在，设置默认值
+        self.set(category, key, value, is_hot_reload, description)
 
     def reload_hot_configs(self):
         """重新加载所有支持热更新的配置"""
@@ -118,57 +131,60 @@ class ConfigManager:
         }
 
     def init_default_configs(self):
-        """初始化默认配置"""
+        """初始化默认配置（不覆盖已有配置）"""
         logger.info("Initializing default configurations...")
 
         # 全局配置
-        self.set('global', 'total_capital', 100000, True, "总资金池（USDT）")
-        self.set('global', 'max_capital_usage', 0.8, True, "最大资金使用率")
-        self.set('global', 'max_positions', 10, True, "最大同时持仓数")
-        self.set('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
-        self.set('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
-        self.set('global', 'opportunity_scan_interval', 10, True, "机会扫描间隔（秒）")
+        self.set_default('global', 'total_capital', 100000, True, "总资金池（USDT）")
+        self.set_default('global', 'max_capital_usage', 0.8, True, "最大资金使用率")
+        self.set_default('global', 'max_positions', 10, True, "最大同时持仓数")
+        self.set_default('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
+        self.set_default('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
+        self.set_default('global', 'opportunity_scan_interval', 300, True, "机会扫描间隔（秒）")
 
         # 策略1：跨交易所资金费率套利
-        self.set('strategy1', 'enabled', True, True, "是否启用")
-        self.set('strategy1', 'execution_mode', 'auto', True, "执行模式（auto/manual）")
-        self.set('strategy1', 'position_size', 10000, True, "默认开仓金额（USDT）")
-        self.set('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差")
-        self.set('strategy1', 'min_profit_rate', 0.0003, True, "最小净收益率")
-        self.set('strategy1', 'max_price_diff', 0.02, True, "最大价差容忍")
-        self.set('strategy1', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
+        self.set_default('strategy1', 'enabled', True, True, "是否启用")
+        self.set_default('strategy1', 'execution_mode', 'auto', True, "执行模式（auto/manual）")
+        self.set_default('strategy1', 'position_size', 10000, True, "默认开仓金额（USDT）")
+        self.set_default('strategy1', 'daily_return_target', 0.001, True, "目标日化收益率（小数）")
+        self.set_default('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差")
+        self.set_default('strategy1', 'min_profit_rate', 0.0003, True, "最小净收益率")
+        self.set_default('strategy1', 'max_price_diff', 0.02, True, "最大价差容忍")
+        self.set_default('strategy1', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
 
         # 策略2A：现货期货资金费率套利
-        self.set('strategy2a', 'enabled', True, True, "是否启用")
-        self.set('strategy2a', 'execution_mode', 'auto', True, "执行模式")
-        self.set('strategy2a', 'position_size', 10000, True, "默认开仓金额（USDT）")
-        self.set('strategy2a', 'min_funding_rate', 0.30, True, "最小年化费率")
-        self.set('strategy2a', 'max_basis_deviation', 0.01, True, "基差安全范围")
-        self.set('strategy2a', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
+        self.set_default('strategy2a', 'enabled', True, True, "是否启用")
+        self.set_default('strategy2a', 'execution_mode', 'auto', True, "执行模式")
+        self.set_default('strategy2a', 'position_size', 10000, True, "默认开仓金额（USDT）")
+        self.set_default('strategy2a', 'daily_return_target', 0.0008, True, "目标日化收益率（小数）")
+        self.set_default('strategy2a', 'min_funding_rate', 0.30, True, "最小年化费率")
+        self.set_default('strategy2a', 'max_basis_deviation', 0.01, True, "基差安全范围")
+        self.set_default('strategy2a', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
 
         # 策略2B：基差套利
-        self.set('strategy2b', 'enabled', True, True, "是否启用")
-        self.set('strategy2b', 'execution_mode', 'manual', False, "执行模式（固定为manual）")
-        self.set('strategy2b', 'position_size', 8000, True, "默认开仓金额（USDT）")
-        self.set('strategy2b', 'min_basis', 0.02, True, "最小基差")
-        self.set('strategy2b', 'target_return', 0.015, True, "目标收益率")
-        self.set('strategy2b', 'max_hold_days', 7, True, "最大持仓天数")
+        self.set_default('strategy2b', 'enabled', True, True, "是否启用")
+        self.set_default('strategy2b', 'execution_mode', 'manual', False, "执行模式（固定为manual）")
+        self.set_default('strategy2b', 'position_size', 8000, True, "默认开仓金额（USDT）")
+        self.set_default('strategy2b', 'daily_return_target', 0.002, True, "目标日化收益率（小数）")
+        self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差")
+        self.set_default('strategy2b', 'target_return', 0.015, True, "目标收益率")
+        self.set_default('strategy2b', 'max_hold_days', 7, True, "最大持仓天数")
 
         # 风控配置
-        self.set('risk', 'max_loss_per_trade', 0.02, True, "单笔最大亏损")
-        self.set('risk', 'max_drawdown', 0.10, True, "总资金最大回撤")
-        self.set('risk', 'max_position_per_exchange', 30000, True, "单交易所最大仓位")
-        self.set('risk', 'warning_threshold', 0.005, True, "警告级别浮亏阈值")
-        self.set('risk', 'critical_threshold', 0.010, True, "严重级别浮亏阈值")
-        self.set('risk', 'emergency_threshold', 0.015, True, "紧急级别浮亏阈值")
-        self.set('risk', 'price_deviation_threshold', 0.02, True, "价格偏离阈值")
-        self.set('risk', 'abnormal_funding_rate', 0.005, True, "异常资金费率阈值")
-        self.set('risk', 'min_depth_multiplier', 10, True, "最小深度倍数")
+        self.set_default('risk', 'max_loss_per_trade', 0.02, True, "单笔最大亏损")
+        self.set_default('risk', 'max_drawdown', 0.10, True, "总资金最大回撤")
+        self.set_default('risk', 'max_position_per_exchange', 30000, True, "单交易所最大仓位")
+        self.set_default('risk', 'warning_threshold', 0.005, True, "警告级别浮亏阈值")
+        self.set_default('risk', 'critical_threshold', 0.010, True, "严重级别浮亏阈值")
+        self.set_default('risk', 'emergency_threshold', 0.015, True, "紧急级别浮亏阈值")
+        self.set_default('risk', 'price_deviation_threshold', 0.02, True, "价格偏离阈值")
+        self.set_default('risk', 'abnormal_funding_rate', 0.005, True, "异常资金费率阈值")
+        self.set_default('risk', 'min_depth_multiplier', 10, True, "最小深度倍数")
 
         # 动态仓位调整
-        self.set('risk', 'dynamic_position_enabled', True, True, "启用动态仓位调整")
-        self.set('risk', 'high_score_multiplier', 1.5, True, "高评分仓位倍数（>85分）")
-        self.set('risk', 'medium_score_multiplier', 1.0, True, "中等评分仓位倍数（60-85分）")
-        self.set('risk', 'low_score_multiplier', 0.5, True, "低评分仓位倍数（<60分）")
+        self.set_default('risk', 'dynamic_position_enabled', True, True, "启用动态仓位调整")
+        self.set_default('risk', 'high_score_multiplier', 1.5, True, "高评分仓位倍数（>85分）")
+        self.set_default('risk', 'medium_score_multiplier', 1.0, True, "中等评分仓位倍数（60-85分）")
+        self.set_default('risk', 'low_score_multiplier', 0.5, True, "低评分仓位倍数（<60分）")
 
         logger.info("Default configurations initialized")

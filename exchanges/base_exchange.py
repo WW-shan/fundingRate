@@ -125,6 +125,73 @@ class BaseExchange(ABC):
             logger.error(f"Error fetching balance: {e}")
             return {}
 
+    def get_account_info(self) -> Dict[str, Any]:
+        """
+        获取账户详细信息
+        返回: {
+            'balances': {'USDT': {'free': 1000, 'used': 100, 'total': 1100}, ...},
+            'total_usdt': 总资产(USDT计价),
+            'positions_count': 持仓数量,
+            'timestamp': 查询时间戳
+        }
+        """
+        try:
+            from datetime import datetime
+            
+            # 获取余额
+            balance = self.exchange.fetch_balance()
+            
+            # 整理余额信息
+            balances = {}
+            total_usdt = 0
+            
+            for currency, amount in balance.get('total', {}).items():
+                if amount > 0:
+                    free = balance.get('free', {}).get(currency, 0)
+                    used = balance.get('used', {}).get(currency, 0)
+                    
+                    balances[currency] = {
+                        'free': free,
+                        'used': used,
+                        'total': amount
+                    }
+                    
+                    # 计算USDT价值
+                    if currency == 'USDT':
+                        total_usdt += amount
+                    else:
+                        # 尝试获取价格并计算价值
+                        try:
+                            symbol = f"{currency}/USDT"
+                            ticker = self.exchange.fetch_ticker(symbol)
+                            price = ticker.get('last', 0)
+                            total_usdt += amount * price
+                        except:
+                            pass  # 如果无法获取价格，跳过
+            
+            # 获取持仓数量
+            positions_count = 0
+            try:
+                positions = self.exchange.fetch_positions()
+                positions_count = len([p for p in positions if float(p.get('contracts', 0)) != 0])
+            except:
+                pass
+            
+            return {
+                'balances': balances,
+                'total_usdt': round(total_usdt, 2),
+                'positions_count': positions_count,
+                'timestamp': int(datetime.now().timestamp() * 1000)
+            }
+        except Exception as e:
+            logger.error(f"Error fetching account info: {e}")
+            return {
+                'balances': {},
+                'total_usdt': 0,
+                'positions_count': 0,
+                'timestamp': 0
+            }
+
     def get_positions(self) -> List[Dict[str, Any]]:
         """
         获取持仓（期货）

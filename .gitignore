@@ -35,6 +35,9 @@ env/
 data/database.db
 data/backups/*.db
 
+# Encryption key (CRITICAL - DO NOT COMMIT)
+data/.encryption_key
+
 # Logs
 logs/*.log
 *.log

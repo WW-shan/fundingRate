@@ -36,6 +36,10 @@ class FundingRateArbitrageSystem:
         # 初始化配置管理器
         self.config_manager = ConfigManager(self.db_manager)
         self.config_manager.init_default_configs()
+        
+        # 初始化交易所账户管理器
+        from config import ExchangeAccountManager
+        self.account_manager = ExchangeAccountManager(self.db_manager)
 
         # 检查是否启用实际交易
         self.enable_trading = os.getenv('ENABLE_TRADING', 'False').lower() == 'true'
@@ -49,7 +53,7 @@ class FundingRateArbitrageSystem:
         from core import DataCollector, OpportunityMonitor, RiskManager, OrderManager, StrategyExecutor
         from bot import TelegramBot
 
-        self.data_collector = DataCollector(self.config_manager, self.db_manager)
+        self.data_collector = DataCollector(self.config_manager, self.db_manager, self.account_manager)
         self.risk_manager = RiskManager(self.config_manager, self.db_manager)
         self.opportunity_monitor = OpportunityMonitor(self.config_manager, self.db_manager, self.data_collector)
         self.order_manager = OrderManager(self.db_manager, self.data_collector.exchanges)

@@ -7,7 +7,7 @@ import threading
 from typing import Dict, List, Any
 from datetime import datetime
 from loguru import logger
-from config import ConfigManager
+from config import ConfigManager, ExchangeAccountManager
 from database import DatabaseManager
 from exchanges import (
     BinanceAdapter, OKXAdapter, BybitAdapter,
@@ -18,9 +18,11 @@ from exchanges import (
 class DataCollector:
     """数据采集器"""
 
-    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
+    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager,
+                 account_manager: ExchangeAccountManager):
         self.config = config_manager
         self.db = db_manager
+        self.account_manager = account_manager
         self.running = False
         self.exchanges = {}
         self.market_data = {}  # 存储最新的市场数据
@@ -30,12 +32,11 @@ class DataCollector:
         """初始化所有交易所连接"""
         logger.info("Initializing exchange connections...")
 
-        exchange_configs = self.db.execute_query(
-            "SELECT * FROM exchange_accounts WHERE is_active = TRUE"
-        )
+        # 从账户管理器获取所有激活的账户
+        exchange_accounts = self.account_manager.get_all_accounts()
 
-        for cfg in exchange_configs:
-            exchange_name = cfg['exchange_name'].lower()
+        for exchange_name, cfg in exchange_accounts.items():
+            exchange_name = exchange_name.lower()
             try:
                 if exchange_name == 'binance':
                     self.exchanges['binance'] = BinanceAdapter(
@@ -55,7 +56,7 @@ class DataCollector:
                     )
                 elif exchange_name == 'bitget':
                     self.exchanges['bitget'] = BitgetAdapter(
-                        cfg['api_key'], cfg['api_secret']
+                        cfg['api_key'], cfg['api_secret'], cfg['passphrase']
                     )
 
                 # 测试连接
@@ -69,6 +70,21 @@ class DataCollector:
                 logger.error(f"Failed to initialize {exchange_name}: {e}")
 
         logger.info(f"Connected to {len(self.exchanges)} exchanges: {list(self.exchanges.keys())}")
+
+    def reload_exchanges(self):
+        """重新加载交易所连接（支持热更新）"""
+        logger.info("Reloading exchange connections...")
+        
+        # 重新加载账户信息
+        self.account_manager.reload_accounts()
+        
+        # 关闭旧连接
+        self.exchanges.clear()
+        
+        # 重新初始化
+        self._init_exchanges()
+        
+        logger.info("Exchange connections reloaded")
 
     def start(self):
         """启动数据采集"""
