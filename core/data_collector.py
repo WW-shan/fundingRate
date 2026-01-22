@@ -25,6 +25,7 @@ class DataCollector:
         self.account_manager = account_manager
         self.running = False
         self.exchanges = {}
+        self.exchange_symbols = {}  # 每个交易所支持的交易对: {exchange: {'futures': set(), 'spot': set()}}
         self.market_data = {}  # 存储最新的市场数据
         self._init_exchanges()
 
@@ -62,6 +63,8 @@ class DataCollector:
                 # 测试连接
                 if self.exchanges[exchange_name].test_connection():
                     logger.info(f"✅ {exchange_name.capitalize()} connected successfully")
+                    # 缓存该交易所支持的交易对列表
+                    self._cache_exchange_symbols(exchange_name)
                 else:
                     logger.warning(f"⚠️ {exchange_name.capitalize()} connection test failed")
                     del self.exchanges[exchange_name]
@@ -70,6 +73,46 @@ class DataCollector:
                 logger.error(f"Failed to initialize {exchange_name}: {e}")
 
         logger.info(f"Connected to {len(self.exchanges)} exchanges: {list(self.exchanges.keys())}")
+
+    def _cache_exchange_symbols(self, exchange_name: str):
+        """缓存交易所支持的现货和USDT永续合约交易对"""
+        try:
+            exchange = self.exchanges.get(exchange_name)
+            if not exchange:
+                return
+            
+            markets = exchange.exchange.load_markets()
+            futures_symbols = set()
+            spot_symbols = set()
+            
+            for symbol, market in markets.items():
+                # 检查是否为永续合约且以USDT结算
+                is_perpetual = market.get('type') == 'swap' or market.get('swap') is True
+                is_usdt_futures = symbol.endswith('/USDT:USDT') or (
+                    symbol.endswith('/USDT') and is_perpetual
+                )
+                
+                if is_usdt_futures and is_perpetual:
+                    # 转换为标准格式 BTC/USDT
+                    base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                    futures_symbols.add(base_symbol)
+                
+                # 检查是否为现货且以USDT报价
+                is_spot = market.get('type') == 'spot'
+                is_usdt_spot = symbol.endswith('/USDT') and is_spot
+                
+                if is_usdt_spot:
+                    spot_symbols.add(symbol)
+            
+            self.exchange_symbols[exchange_name] = {
+                'futures': futures_symbols,
+                'spot': spot_symbols
+            }
+            logger.info(f"Cached {len(futures_symbols)} futures and {len(spot_symbols)} spot symbols for {exchange_name}")
+            
+        except Exception as e:
+            logger.error(f"Error caching symbols for {exchange_name}: {e}")
+            self.exchange_symbols[exchange_name] = {'futures': set(), 'spot': set()}
 
     def reload_exchanges(self):
         """重新加载交易所连接（支持热更新）"""
@@ -80,6 +123,7 @@ class DataCollector:
         
         # 关闭旧连接
         self.exchanges.clear()
+        self.exchange_symbols.clear()
         
         # 重新初始化
         self._init_exchanges()
@@ -135,6 +179,15 @@ class DataCollector:
 
         for symbol in symbols:
             for exchange_name, exchange in self.exchanges.items():
+                # 检查该交易所是否支持该交易对
+                exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
+                supports_futures = symbol in exchange_support.get('futures', set())
+                supports_spot = symbol in exchange_support.get('spot', set())
+                
+                # 如果该交易所不支持该交易对的任何市场，跳过
+                if not supports_futures and not supports_spot:
+                    continue
+                
                 try:
                     # 初始化symbol数据结构
                     if symbol not in self.market_data:
@@ -142,26 +195,29 @@ class DataCollector:
                     if exchange_name not in self.market_data[symbol]:
                         self.market_data[symbol][exchange_name] = {}
 
-                    # 获取现货行情
-                    spot_ticker = exchange.get_spot_ticker(symbol)
-                    if spot_ticker:
-                        self.market_data[symbol][exchange_name]['spot_bid'] = spot_ticker.get('bid')
-                        self.market_data[symbol][exchange_name]['spot_ask'] = spot_ticker.get('ask')
-                        self.market_data[symbol][exchange_name]['spot_price'] = spot_ticker.get('last')
+                    # 只在支持现货时采集现货数据
+                    if supports_spot:
+                        spot_ticker = exchange.get_spot_ticker(symbol)
+                        if spot_ticker:
+                            self.market_data[symbol][exchange_name]['spot_bid'] = spot_ticker.get('bid')
+                            self.market_data[symbol][exchange_name]['spot_ask'] = spot_ticker.get('ask')
+                            self.market_data[symbol][exchange_name]['spot_price'] = spot_ticker.get('last')
 
-                    # 获取期货行情
-                    futures_ticker = exchange.get_futures_ticker(symbol)
-                    if futures_ticker:
-                        self.market_data[symbol][exchange_name]['futures_bid'] = futures_ticker.get('bid')
-                        self.market_data[symbol][exchange_name]['futures_ask'] = futures_ticker.get('ask')
-                        self.market_data[symbol][exchange_name]['futures_price'] = futures_ticker.get('last')
+                        # 获取现货订单簿深度
+                        spot_orderbook = exchange.get_order_book(symbol, is_futures=False, limit=5)
+                        self.market_data[symbol][exchange_name]['spot_depth_5'] = spot_orderbook.get('bid_depth', 0)
 
-                    # 获取订单簿深度
-                    spot_orderbook = exchange.get_order_book(symbol, is_futures=False, limit=5)
-                    self.market_data[symbol][exchange_name]['spot_depth_5'] = spot_orderbook.get('bid_depth', 0)
+                    # 只在支持期货时采集期货数据
+                    if supports_futures:
+                        futures_ticker = exchange.get_futures_ticker(symbol)
+                        if futures_ticker:
+                            self.market_data[symbol][exchange_name]['futures_bid'] = futures_ticker.get('bid')
+                            self.market_data[symbol][exchange_name]['futures_ask'] = futures_ticker.get('ask')
+                            self.market_data[symbol][exchange_name]['futures_price'] = futures_ticker.get('last')
 
-                    futures_orderbook = exchange.get_order_book(symbol, is_futures=True, limit=5)
-                    self.market_data[symbol][exchange_name]['futures_depth_5'] = futures_orderbook.get('bid_depth', 0)
+                        # 获取期货订单簿深度
+                        futures_orderbook = exchange.get_order_book(symbol, is_futures=True, limit=5)
+                        self.market_data[symbol][exchange_name]['futures_depth_5'] = futures_orderbook.get('bid_depth', 0)
 
                     # 获取交易手续费
                     fees = exchange.get_trading_fees(symbol)
@@ -183,6 +239,14 @@ class DataCollector:
 
         for symbol in symbols:
             for exchange_name, exchange in self.exchanges.items():
+                # 检查该交易所是否支持该交易对的期货
+                exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
+                supports_futures = symbol in exchange_support.get('futures', set())
+                
+                # 资金费率只在期货市场，如果不支持期货则跳过
+                if not supports_futures:
+                    continue
+                
                 try:
                     funding_data = exchange.get_funding_rate(symbol)
                     if funding_data and funding_data.get('funding_rate') is not None:

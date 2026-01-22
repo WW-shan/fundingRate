@@ -357,6 +357,31 @@
         color: #6b7280;
         margin-top: 8px;
         line-height: 1.6;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+      }
+
+      .exchange-status-card .symbol-list.expanded {
+        max-height: 500px;
+        overflow-y: auto;
+      }
+
+      .toggle-symbols-btn {
+        margin-top: 8px;
+        padding: 4px 12px;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        font-size: 11px;
+        color: #6b7280;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .toggle-symbols-btn:hover {
+        background: #e5e7eb;
+        color: #374151;
       }
 
       .collector-status {
@@ -733,26 +758,41 @@
               ? '<span class="collector-status collector-running">✅ 运行中</span>'
               : '<span class="collector-status collector-stopped">❌ 已停止</span>';
 
-            html += `<div style="margin-bottom: 20px; display: flex; gap: 20px; align-items: center;">`;
+            // 计算总采集交易对数（去重）
+            const allSymbols = new Set();
+            if (data.exchanges) {
+              data.exchanges.forEach(ex => {
+                ex.symbols.forEach(s => allSymbols.add(s));
+              });
+            }
+
+            html += `<div style="margin-bottom: 20px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">`;
             html += `<div>采集器: ${collectorStatus}</div>`;
-            html += `<div style="color: #667eea; font-weight: 600;">监控交易对: ${data.total_symbols} 个</div>`;
+            html += `<div style="color: #667eea; font-weight: 600;">采集交易对: ${allSymbols.size} 个</div>`;
+            html += `<div style="color: #9ca3af; font-size: 13px;">（已连接 ${data.exchanges ? data.exchanges.length : 0} 个交易所）</div>`;
             html += `</div>`;
 
             // 各交易所状态
             if (data.exchanges && data.exchanges.length > 0) {
               html += '<div class="exchange-status-grid">';
 
-              data.exchanges.forEach((ex) => {
+              data.exchanges.forEach((ex, index) => {
                 const statusIcon = ex.symbols_count > 0 ? "🟢" : "🔴";
+                const cardId = `exchange-card-${index}`;
                 html += `
                                 <div class="exchange-status-card">
                                     <h4>${statusIcon} ${ex.exchange.toUpperCase()}</h4>
                                     <div class="data-count">${ex.symbols_count}</div>
-                                    <div style="font-size: 12px; color: #6b7280;">个交易对数据</div>
+                                    <div style="font-size: 12px; color: #6b7280;">个交易对</div>
                                     ${
                                       ex.symbols.length > 0
-                                        ? `<div class="symbol-list">${ex.symbols.join(" · ")}</div>`
-                                        : '<div class="symbol-list" style="color: #ef4444;">暂无数据</div>'
+                                        ? `
+                                        <button class="toggle-symbols-btn" onclick="toggleSymbols('${cardId}')">
+                                            👁️ 查看交易对
+                                        </button>
+                                        <div class="symbol-list" id="${cardId}">${ex.symbols.sort().join(" · ")}</div>
+                                        `
+                                        : '<div style="color: #ef4444; font-size: 12px; margin-top: 8px;">暂无数据</div>'
                                     }
                                 </div>
                             `;
@@ -774,6 +814,20 @@
             '<div class="empty-state" style="color: #ef4444;">加载失败: ' +
             error.message +
             "</div>";
+        }
+      }
+
+      // 切换交易对列表显示
+      function toggleSymbols(cardId) {
+        const symbolList = document.getElementById(cardId);
+        const btn = event.target;
+        
+        if (symbolList.classList.contains('expanded')) {
+          symbolList.classList.remove('expanded');
+          btn.textContent = '👁️ 查看交易对';
+        } else {
+          symbolList.classList.add('expanded');
+          btn.textContent = '🙈 收起';
         }
       }
 
