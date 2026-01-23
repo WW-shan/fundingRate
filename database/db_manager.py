@@ -133,6 +133,7 @@ class DatabaseManager:
                     timestamp BIGINT,
                     funding_rate DECIMAL(10,6),
                     next_funding_time BIGINT,
+                    funding_interval BIGINT,
                     UNIQUE(exchange, symbol, timestamp)
                 )
             """)

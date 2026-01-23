@@ -653,30 +653,74 @@
             ? (opp.expected_return_pct * timesPerDay * 365 * 100).toFixed(2)
             : "0";
 
+          // 单期资金费率（优先使用funding_rate字段）
+          const singleFundingRate =
+            opp.funding_rate !== undefined
+              ? opp.funding_rate
+              : opp.annual_funding_rate
+                ? opp.annual_funding_rate / timesPerDay / 365
+                : 0;
+          const singleFundingRatePct = (singleFundingRate * 100).toFixed(4);
+
+          // 年化净收益率
+          const annualNetReturn =
+            opp.annual_net_return !== undefined
+              ? (opp.annual_net_return * 100).toFixed(2)
+              : annualizedReturn;
+
+          // 动态调整价格小数位：根据价格大小决定
+          const getPriceDecimals = (price) => {
+            if (!price) return 2;
+            if (price >= 10000) return 2; // BTC级别：50123.45
+            if (price >= 1000) return 3; // ETH级别：3456.789
+            if (price >= 100) return 4; // 中等价格：234.5678
+            if (price >= 1) return 5; // 小价格：12.34567
+            return 6; // 微小价格：0.123456
+          };
+
+          const spotDecimals = getPriceDecimals(opp.spot_price);
+          const futuresDecimals = getPriceDecimals(opp.futures_price);
+
           html += `
                     <div class="detail-item">
-                        <div class="detail-label">年化收益率</div>
-                        <div class="detail-value" style="color: #10b981;">${annualizedReturn}%</div>
+                        <div class="detail-label">年化净收益率</div>
+                        <div class="detail-value" style="color: #10b981; font-weight: 600; font-size: 16px;">${annualNetReturn}%</div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-label">资金费率频率</div>
-                        <div class="detail-value">每${fundingFreqHours}小时 (${timesPerDay.toFixed(0)}次/天)</div>
+                        <div class="detail-label">单期资金费率</div>
+                        <div class="detail-value" style="color: ${parseFloat(singleFundingRatePct) >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">
+                            ${singleFundingRatePct}%
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率周期</div>
+                        <div class="detail-value" style="color: #6b7280;">每${fundingFreqHours}小时 · ${timesPerDay.toFixed(0)}次/天</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">资金费率（年化）</div>
-                        <div class="detail-value">${opp.annual_funding_rate ? (opp.annual_funding_rate * 100).toFixed(2) : "0"}%</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">现货价格</div>
-                        <div class="detail-value">${opp.spot_price ? opp.spot_price.toFixed(2) : "-"}</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">期货价格</div>
-                        <div class="detail-value">${opp.futures_price ? opp.futures_price.toFixed(2) : "-"}</div>
+                        <div class="detail-value" style="color: ${opp.annual_funding_rate >= 0 ? "#10b981" : "#ef4444"}">
+                            ${opp.annual_funding_rate ? (opp.annual_funding_rate * 100).toFixed(2) : "0"}%
+                        </div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">基差</div>
-                        <div class="detail-value">${opp.basis ? (opp.basis * 100).toFixed(3) : "0"}%</div>
+                        <div class="detail-value" style="color: ${Math.abs(opp.basis || 0) < 0.005 ? "#10b981" : "#ef4444"}">
+                            ${opp.basis ? (opp.basis * 100).toFixed(3) : "0"}%
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">现货买入价</div>
+                        <div class="detail-value" style="font-family: 'Courier New', monospace;">\$${opp.spot_entry_price ? opp.spot_entry_price.toFixed(spotDecimals) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">期货卖出价</div>
+                        <div class="detail-value" style="font-family: 'Courier New', monospace;">\$${opp.futures_entry_price ? opp.futures_entry_price.toFixed(futuresDecimals) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">价格差异</div>
+                        <div class="detail-value" style="color: #6b7280;">
+                            \$${opp.spot_entry_price && opp.futures_entry_price ? (opp.futures_entry_price - opp.spot_entry_price).toFixed(Math.max(spotDecimals, futuresDecimals)) : "0"}
+                        </div>
                     </div>
                 `;
         } else if (opp.type === "basis_arbitrage") {

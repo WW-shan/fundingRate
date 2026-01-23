@@ -440,7 +440,8 @@ class DataCollector:
                                 if funding_rate is not None:
                                     all_funding_rates[base_symbol] = {
                                         'funding_rate': float(funding_rate),
-                                        'next_funding_time': info.get('nextFundingTime') or info.get('next_funding_time')
+                                        'next_funding_time': info.get('nextFundingTime') or info.get('next_funding_time'),
+                                        'funding_interval': info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
                                     }
                         logger.info(f"通过 fetch_tickers 提取了 {len(all_funding_rates)} 个资金费率")
                     
@@ -463,24 +464,33 @@ class DataCollector:
                                 # 处理不同的数据格式
                                 if isinstance(funding_data, dict):
                                     funding_rate = funding_data.get('fundingRate') or funding_data.get('funding_rate')
-                                    next_funding_time = funding_data.get('nextFundingTime') or funding_data.get('next_funding_time')
+                                    next_funding_time = funding_data.get('fundingTimestamp') or funding_data.get('nextFundingTime') or funding_data.get('next_funding_time')
+                                    funding_interval = funding_data.get('fundingInterval') or funding_data.get('funding_interval')
+                                    
+                                    # 如果标准字段没有，尝试从info中获取
+                                    if not funding_interval and 'info' in funding_data:
+                                        info = funding_data.get('info', {})
+                                        funding_interval = info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
                                 else:
                                     funding_rate = funding_data
                                     next_funding_time = None
+                                    funding_interval = None
                                 
                                 self.market_data[base_symbol][exchange_name]['funding_rate'] = funding_rate
                                 self.market_data[base_symbol][exchange_name]['next_funding_time'] = next_funding_time
+                                self.market_data[base_symbol][exchange_name]['funding_interval'] = funding_interval
                                 
                                 # 存储到数据库
                                 self.db.execute_query(
                                     """
-                                    INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
-                                    VALUES (?, ?, ?, ?, ?)
+                                    INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval)
+                                    VALUES (?, ?, ?, ?, ?, ?)
                                     ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
                                         funding_rate = excluded.funding_rate,
-                                        next_funding_time = excluded.next_funding_time
+                                        next_funding_time = excluded.next_funding_time,
+                                        funding_interval = excluded.funding_interval
                                     """,
-                                    (exchange_name, base_symbol, timestamp, funding_rate, next_funding_time)
+                                    (exchange_name, base_symbol, timestamp, funding_rate, next_funding_time, funding_interval)
                                 )
                                 success_count += 1
                                 
@@ -503,17 +513,19 @@ class DataCollector:
                                     
                                     self.market_data[symbol][exchange_name]['funding_rate'] = funding_data.get('funding_rate')
                                     self.market_data[symbol][exchange_name]['next_funding_time'] = funding_data.get('next_funding_time')
+                                    self.market_data[symbol][exchange_name]['funding_interval'] = funding_data.get('funding_interval')
                                     
                                     # 存储到数据库
                                     self.db.execute_query(
                                         """
-                                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
-                                        VALUES (?, ?, ?, ?, ?)
+                                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval)
+                                        VALUES (?, ?, ?, ?, ?, ?)
                                         ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
                                             funding_rate = excluded.funding_rate,
-                                            next_funding_time = excluded.next_funding_time
+                                            next_funding_time = excluded.next_funding_time,
+                                            funding_interval = excluded.funding_interval
                                         """,
-                                        (exchange_name, symbol, timestamp, funding_data.get('funding_rate'), funding_data.get('next_funding_time'))
+                                        (exchange_name, symbol, timestamp, funding_data.get('funding_rate'), funding_data.get('next_funding_time'), funding_data.get('funding_interval'))
                                     )
                                     success_count += 1
                             except Exception as e:
@@ -648,8 +660,8 @@ class DataCollector:
                 try:
                     self.db.execute_query(
                         """
-                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         ON CONFLICT(exchange, symbol, timestamp) DO NOTHING
                         """,
                         (
@@ -657,7 +669,8 @@ class DataCollector:
                             symbol,
                             int(row['timestamp']),
                             float(row['funding_rate']),
-                            int(row.get('next_funding_time', 0))
+                            int(row.get('next_funding_time', 0)),
+                            int(row.get('funding_interval', 0))
                         )
                     )
                     count += 1

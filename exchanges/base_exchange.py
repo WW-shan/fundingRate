@@ -67,16 +67,28 @@ class BaseExchange(ABC):
         返回: {
             'funding_rate': 当前资金费率,
             'next_funding_time': 下次结算时间戳,
-            'predicted_rate': 预测费率（如果有）
+            'predicted_rate': 预测费率（如果有）,
+            'funding_interval': 资金费率间隔（毫秒）
         }
         """
         try:
             futures_symbol = self._convert_to_futures_symbol(symbol)
             funding = self.exchange.fetch_funding_rate(futures_symbol)
+            
+            # 尝试获取资金费率间隔（毫秒）
+            funding_interval = funding.get('fundingInterval')
+            
+            # 如果没有fundingInterval，尝试从info中获取
+            if not funding_interval and 'info' in funding:
+                info = funding['info']
+                # 不同交易所的字段名可能不同
+                funding_interval = info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
+            
             return {
                 'funding_rate': funding.get('fundingRate'),
                 'next_funding_time': funding.get('fundingTimestamp'),
-                'predicted_rate': funding.get('indicativeRate') or funding.get('fundingRate')
+                'predicted_rate': funding.get('indicativeRate') or funding.get('fundingRate'),
+                'funding_interval': funding_interval
             }
         except Exception as e:
             logger.error(f"Error fetching funding rate for {symbol}: {e}")

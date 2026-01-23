@@ -69,15 +69,38 @@ class OpportunityMonitor:
         except:
             return 8
 
-    def _get_funding_frequency_single(self, data: Dict) -> int:
+    def _get_funding_frequency_single(self, data: Dict, exchange: str = '') -> int:
         """从单个交易所数据中获取资金费率频率（小时）"""
         try:
-            if 'next_funding_time' in data and data['next_funding_time']:
-                # 简化版本：默认8小时
-                # 实际应该从交易所API或配置中读取
-                return 8
+            # 优先从API返回的funding_interval获取（毫秒）
+            if 'funding_interval' in data and data.get('funding_interval'):
+                interval_ms = data['funding_interval']
+                # 转换为小时
+                interval_hours = interval_ms / (1000 * 60 * 60)
+                if interval_hours > 0:
+                    return int(interval_hours)
+            
+            # 尝试从next_funding_time计算（需要两次数据才能计算间隔）
+            # 这里暂不实现，因为需要存储历史数据
+            
+            # 根据交易所判断资金费率频率（后备方案）
+            exchange_lower = exchange.lower()
+            
+            # 已知的资金费率周期（根据交易所文档）
+            # Gate.io: 每8小时 (00:00, 08:00, 16:00 UTC)
+            # OKX: 每8小时 (00:00, 08:00, 16:00 UTC)
+            # Binance: 每8小时 (00:00, 08:00, 16:00 UTC)
+            # Bybit: 每8小时 (00:00, 08:00, 16:00 UTC)
+            # Bitget: 每8小时 (00:00, 08:00, 16:00 UTC)
+            
+            # 如果未来发现某些交易所是其他周期，在这里添加
+            # if exchange_lower in ['某交易所']:
+            #     return 4
+            
+            # 默认返回8小时
             return 8
-        except:
+        except Exception as e:
+            logger.debug(f"获取资金费率频率失败: {e}")
             return 8
 
     def _load_market_data_from_db(self, max_age_seconds: int = 60) -> Dict[str, Dict[str, Any]]:
@@ -340,14 +363,15 @@ class OpportunityMonitor:
         missing_data = 0
         low_funding = 0
         high_basis = 0
+        low_net_return = 0  # 新增:年化净收益过低
 
         for exchange, data in exchanges_data.items():
             try:
                 check_count += 1
                 
-                # 检查数据完整性
+                # 检查数据完整性（字段存在且不为None）
                 required_fields = ['funding_rate', 'spot_ask', 'futures_bid', 'spot_price', 'futures_price', 'taker_fee', 'maker_fee']
-                if not all(k in data for k in required_fields):
+                if not all(k in data and data[k] is not None for k in required_fields):
                     missing_data += 1
                     continue
 
@@ -358,22 +382,26 @@ class OpportunityMonitor:
                 position_size = pair_config.get('s2a_position_size', 10000)
 
                 # 动态获取资金费率频率
-                funding_frequency_hours = self._get_funding_frequency_single(data)
+                funding_frequency_hours = self._get_funding_frequency_single(data, exchange)
                 times_per_day = 24 / funding_frequency_hours
-                
+
                 # 计算年化资金费率
                 annual_funding_rate = data['funding_rate'] * times_per_day * 365
 
+                # 策略2A只做正费率(做空期货收费)的情况
+                # 负费率需要反向操作(做空现货+做多期货),暂不支持
                 if annual_funding_rate < min_funding_rate:
                     low_funding += 1
+                    logger.debug(f"策略2A {exchange} {symbol}: 年化资金费率{annual_funding_rate:.2%} < {min_funding_rate:.2%}, 跳过")
                     continue
 
-                # 计算基差（使用实际交易价格：期货做空价 - 现货买入价）
+                # 计算基差(使用实际交易价格:期货做空价 - 现货买入价)
                 basis = (data['futures_bid'] - data['spot_ask']) / data['spot_ask']
 
                 if abs(basis) > max_basis_deviation:
                     high_basis += 1
-                    continue  # 基差风险过大
+                    logger.debug(f"策略2A {exchange} {symbol}: |基差{basis:.4%}| > {max_basis_deviation:.2%}, 跳过")
+                    continue
 
                 # 计算收益
                 profit = calculate_spot_futures_funding_profit(
@@ -385,12 +413,23 @@ class OpportunityMonitor:
                     futures_maker_fee=data['maker_fee']
                 )
 
-                if profit['net_profit_pct'] <= 0:
-                    continue  # 单期必须盈利
+                # 改为年化净收益检查:允许单期小亏,但年化必须为正
+                # 年化净收益计算:
+                # - 年化资金费收入 = funding_rate * times_per_day * 3 (3天收益预估)
+                # - 开平仓总成本 = maker_fee * 4 (现货买卖各1次 + 期货买卖各1次，总共4笔，只算一次)
+                # - 年化净收益率 = 年化资金费收入 - 开平仓成本
+                # 注意：开平仓成本是一次性的，不是每天都有
+                annual_net_return = (data['funding_rate'] * times_per_day * 3) - (data['maker_fee'] * 4)
+                min_annual_net_return = float(self.config.get('strategy2a', 'min_annual_net_return', 0.001))
 
-                # 计算评分
+                if annual_net_return < min_annual_net_return:
+                    low_net_return += 1
+                    continue
+
+                # 通过所有检查,生成机会
+                # 计算评分 (使用年化净收益而不是单期收益)
                 score = calculate_score(
-                    profit['net_profit_pct'],
+                    annual_net_return,  # 改用年化净收益
                     abs(basis),
                     annual_funding_rate
                 )
@@ -405,13 +444,15 @@ class OpportunityMonitor:
                     'score': score,
                     'symbol': symbol,
                     'exchange': exchange,
-                    'annual_funding_rate': annual_funding_rate,
-                    'funding_frequency_hours': funding_frequency_hours,
-                    'times_per_day': times_per_day,
-                    'basis': basis,
+                    'funding_rate': data['funding_rate'],  # 单期资金费率
+                    'annual_funding_rate': annual_funding_rate,  # 年化资金费率
+                    'funding_frequency_hours': funding_frequency_hours,  # 资金费率频率（小时）
+                    'times_per_day': times_per_day,  # 每天收取次数
+                    'basis': basis,  # 基差
                     'position_size': position_size,
-                    'expected_return': profit['net_profit'],
-                    'expected_return_pct': profit['net_profit_pct'],
+                    'expected_return': profit['net_profit'],  # 单期净收益（USDT）
+                    'expected_return_pct': profit['net_profit_pct'],  # 单期净收益率
+                    'annual_net_return': annual_net_return,  # 年化净收益率
                     'spot_price': data['spot_ask'],  # 现货价格（买入价）
                     'futures_price': data['futures_bid'],  # 期货价格（做空价）
                     'spot_entry_price': data['spot_ask'],  # 现货开仓价（买入价）
@@ -421,14 +462,15 @@ class OpportunityMonitor:
                     'status': 'pending'
                 }
 
+                logger.info(f"✅ 发现策略2A机会: {exchange} {symbol} 年化{annual_funding_rate:.2%} 净收益{annual_net_return:.2%} 基差{basis:.4%}")
                 opportunities.append(opportunity)
 
             except Exception as e:
-                logger.debug(f"Error calculating spot futures funding opportunity: {e}")
+                logger.error(f"❌ 策略2A {exchange} {symbol} 计算异常: {e}", exc_info=True)
         
-        # 添加统计日志
-        if check_count > 0:
-            logger.debug(f"策略2A {symbol}: 检查{check_count}, 数据不全{missing_data}, 资金费率过低{low_funding}, 基差过大{high_basis}, 机会{len(opportunities)}")
+        # 只在有机会时输出统计
+        if len(opportunities) > 0:
+            logger.info(f"策略2A {symbol}: 发现{len(opportunities)}个机会 (检查{check_count}个交易所)")
 
         return opportunities
 
