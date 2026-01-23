@@ -427,7 +427,7 @@ class DataCollector:
                     if hasattr(exchange.exchange, 'fetch_funding_rates'):
                         all_funding_rates = exchange.exchange.fetch_funding_rates()
                         logger.info(f"使用 fetch_funding_rates 批量获取了 {len(all_funding_rates)} 个资金费率")
-                    
+
                     # 方法2：通过 fetch_tickers 获取（包含资金费率信息）
                     elif hasattr(exchange.exchange, 'fetch_tickers'):
                         all_tickers = exchange.exchange.fetch_tickers(params={'type': 'swap'})
@@ -465,12 +465,67 @@ class DataCollector:
                                 if isinstance(funding_data, dict):
                                     funding_rate = funding_data.get('fundingRate') or funding_data.get('funding_rate')
                                     next_funding_time = funding_data.get('fundingTimestamp') or funding_data.get('nextFundingTime') or funding_data.get('next_funding_time')
-                                    funding_interval = funding_data.get('fundingInterval') or funding_data.get('funding_interval')
-                                    
-                                    # 如果标准字段没有，尝试从info中获取
+
+                                    # 优先使用 CCXT 规范化的 interval 字段 (格式: "8h")
+                                    funding_interval = None
+                                    interval_str = funding_data.get('interval')
+
+                                    if interval_str:
+                                        # 将 "8h", "4h" 等转换为毫秒
+                                        try:
+                                            interval_str_clean = str(interval_str).lower().replace('h', '').strip()
+                                            hours = int(interval_str_clean)
+                                            if hours > 0:
+                                                funding_interval = hours * 3600 * 1000
+                                        except (ValueError, AttributeError, TypeError):
+                                            logger.debug(f"无法解析interval: {interval_str}")
+
+                                    # 如果CCXT字段没有,尝试fundingInterval
+                                    if not funding_interval:
+                                        funding_interval = funding_data.get('fundingInterval') or funding_data.get('funding_interval')
+
+                                    # 如果还是没有,尝试从info中获取
                                     if not funding_interval and 'info' in funding_data:
                                         info = funding_data.get('info', {})
-                                        funding_interval = info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
+                                        # Bybit: fundingIntervalHour, Bitget: fundingRateInterval (小时)
+                                        interval_hours = info.get('fundingIntervalHour') or info.get('fundingIntervalHours') or info.get('fundingRateInterval')
+                                        if interval_hours:
+                                            try:
+                                                hours = float(interval_hours)
+                                                if hours > 0:
+                                                    funding_interval = int(hours * 3600 * 1000)
+                                            except (ValueError, TypeError):
+                                                logger.debug(f"无法解析interval_hours: {interval_hours}")
+
+                                        # Gate: funding_interval (秒)
+                                        if not funding_interval:
+                                            interval_seconds = info.get('funding_interval')
+                                            if interval_seconds:
+                                                try:
+                                                    seconds = float(interval_seconds)
+                                                    if seconds > 0:
+                                                        funding_interval = int(seconds * 1000)
+                                                except (ValueError, TypeError):
+                                                    logger.debug(f"无法解析interval_seconds: {interval_seconds}")
+
+                                    # 如果还是没有,尝试通过调用exchange的get_funding_rate方法
+                                    # 该方法内部会通过历史数据计算(仅对第一个符号尝试,避免过多API调用)
+                                    if not funding_interval and base_symbol in list(all_funding_rates.keys())[:1]:
+                                        try:
+                                            detailed_data = exchange.get_funding_rate(base_symbol)
+                                            funding_interval = detailed_data.get('funding_interval')
+                                            if funding_interval:
+                                                logger.info(f"通过历史数据计算 {exchange_name} 的资金费率间隔: {funding_interval}ms")
+                                                # 将这个间隔应用到所有该交易所的币种
+                                                self._cached_funding_intervals = getattr(self, '_cached_funding_intervals', {})
+                                                self._cached_funding_intervals[exchange_name] = funding_interval
+                                        except Exception as e:
+                                            logger.debug(f"无法通过历史数据获取间隔: {e}")
+
+                                    # 使用缓存的间隔(对于Binance等不返回interval的交易所)
+                                    if not funding_interval:
+                                        self._cached_funding_intervals = getattr(self, '_cached_funding_intervals', {})
+                                        funding_interval = self._cached_funding_intervals.get(exchange_name)
                                 else:
                                     funding_rate = funding_data
                                     next_funding_time = None

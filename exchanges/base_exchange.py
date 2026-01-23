@@ -74,16 +74,81 @@ class BaseExchange(ABC):
         try:
             futures_symbol = self._convert_to_futures_symbol(symbol)
             funding = self.exchange.fetch_funding_rate(futures_symbol)
-            
-            # 尝试获取资金费率间隔（毫秒）
-            funding_interval = funding.get('fundingInterval')
-            
-            # 如果没有fundingInterval，尝试从info中获取
+
+            # 优先使用 CCXT 规范化的 interval 字段 (格式: "8h", "4h" 等)
+            funding_interval = None
+            interval_str = funding.get('interval')  # CCXT 规范化字段
+
+            if interval_str:
+                # 将 "8h", "4h" 等转换为毫秒
+                try:
+                    # 支持多种格式: "8h", "8H", "8"
+                    interval_str_clean = str(interval_str).lower().replace('h', '').strip()
+                    hours = int(interval_str_clean)
+                    if hours > 0:
+                        funding_interval = hours * 3600 * 1000  # 转换为毫秒
+                except (ValueError, AttributeError, TypeError):
+                    logger.warning(f"无法解析interval字段: {interval_str}")
+
+            # 如果CCXT规范化字段没有,尝试从顶层获取 fundingInterval
+            if not funding_interval:
+                funding_interval = funding.get('fundingInterval')
+
+            # 如果还是没有,尝试从info中获取(不同交易所字段名不同)
             if not funding_interval and 'info' in funding:
                 info = funding['info']
-                # 不同交易所的字段名可能不同
-                funding_interval = info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
-            
+                # Bybit: fundingIntervalHour (小时)
+                # Gate: funding_interval (秒)
+                # Bitget: fundingRateInterval (小时)
+                # OKX: 没有,但CCXT已规范化到顶层interval
+
+                # 尝试获取小时数
+                interval_hours = info.get('fundingIntervalHour') or info.get('fundingIntervalHours') or info.get('fundingRateInterval')
+                if interval_hours:
+                    try:
+                        hours = float(interval_hours)
+                        if hours > 0:
+                            funding_interval = int(hours * 3600 * 1000)
+                    except (ValueError, TypeError):
+                        logger.debug(f"无法解析interval_hours: {interval_hours}")
+
+                # Gate的特殊情况: funding_interval是秒数
+                if not funding_interval:
+                    interval_seconds = info.get('funding_interval')
+                    if interval_seconds:
+                        try:
+                            seconds = float(interval_seconds)
+                            if seconds > 0:
+                                funding_interval = int(seconds * 1000)
+                        except (ValueError, TypeError):
+                            logger.debug(f"无法解析interval_seconds: {interval_seconds}")
+
+            # 如果仍然没有获取到,尝试通过历史数据计算
+            # 这对于Binance等不返回interval的交易所很有用
+            # 注意: 这是从交易所实际的历史结算时间计算的真实值,不是推算
+            if not funding_interval:
+                try:
+                    history = self.exchange.fetch_funding_rate_history(futures_symbol, limit=2)
+                    if len(history) >= 2:
+                        # 计算最近两次资金费率的实际时间间隔
+                        interval_ms = abs(history[0]['timestamp'] - history[1]['timestamp'])
+
+                        # 验证间隔是否在合理范围内 (1小时到24小时)
+                        # 主流交易所通常是4小时或8小时
+                        if 3600000 <= interval_ms <= 86400000:  # 1h - 24h
+                            funding_interval = interval_ms
+                            interval_hours = interval_ms / 3600000
+                            logger.debug(
+                                f"从实际历史数据获取资金费率间隔: {funding_interval}ms ({interval_hours:.2f}小时) "
+                                f"[时间戳: {history[1]['timestamp']} → {history[0]['timestamp']}]"
+                            )
+                        else:
+                            logger.warning(
+                                f"计算的间隔 {interval_ms}ms 超出合理范围,可能数据异常"
+                            )
+                except Exception as e:
+                    logger.debug(f"无法通过历史数据计算间隔: {e}")
+
             return {
                 'funding_rate': funding.get('fundingRate'),
                 'next_funding_time': funding.get('fundingTimestamp'),
