@@ -1,180 +1,980 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>持仓管理 - 资金费率套利系统</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .container {
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+      .header {
+        background: white;
+        border-radius: 10px;
+        padding: 20px 30px;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      h1 {
+        color: #667eea;
+        font-size: 24px;
+      }
+      .nav {
+        display: flex;
+        gap: 15px;
+      }
+      .nav a {
+        color: #667eea;
+        text-decoration: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        transition: all 0.3s;
+      }
+      .nav a:hover,
+      .nav a.active {
+        background: #667eea;
+        color: white;
+      }
+      .content {
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+      .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+        padding: 20px;
+        color: white;
+      }
+      .stat-label {
+        font-size: 12px;
+        opacity: 0.9;
+        margin-bottom: 5px;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: 700;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+        font-size: 13px;
+      }
+      th,
+      td {
+        padding: 12px 8px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+      }
+      th {
+        background: #f3f4f6;
+        color: #667eea;
+        font-weight: 600;
+        font-size: 12px;
+      }
+      tr:hover {
+        background: #f9fafb;
+      }
+      .alert-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+      }
+      .alert-modal.show {
+        display: flex;
+      }
+      .alert-modal-content {
+        background: white;
+        padding: 25px 30px;
+        border-radius: 10px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+      .alert-modal-icon {
+        font-size: 48px;
+        text-align: center;
+        margin-bottom: 15px;
+      }
+      .alert-modal-message {
+        color: #374151;
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-line;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .alert-modal-close {
+        padding: 10px 30px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        width: 100%;
+        transition: all 0.3s;
+      }
+      .alert-modal-close.success {
+        background: #10b981;
+        color: white;
+      }
+      .alert-modal-close.success:hover {
+        background: #059669;
+      }
+      .alert-modal-close.error {
+        background: #ef4444;
+        color: white;
+      }
+      .alert-modal-close.error:hover {
+        background: #dc2626;
+      }
+      .alert-modal-close.info {
+        background: #3b82f6;
+        color: white;
+      }
+      .alert-modal-close.info:hover {
+        background: #2563eb;
+      }
+      .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+      }
+      .badge-strategy1 {
+        background: #dbeafe;
+        color: #1e40af;
+      }
+      .badge-strategy2a {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .badge-strategy2b {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      .btn {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .btn-danger {
+        background: #f87171;
+        color: white;
+      }
+      .btn-danger:hover {
+        background: #ef4444;
+      }
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+      .positive {
+        color: #10b981;
+        font-weight: 600;
+      }
+      .negative {
+        color: #ef4444;
+        font-weight: 600;
+      }
+      .detail-btn {
+        background: #e0e7ff;
+        color: #4f46e5;
+        margin-right: 5px;
+      }
+      .detail-btn:hover {
+        background: #c7d2fe;
+      }
+      .position-detail {
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 3px;
+      }
+
+      /* 详情弹窗样式 */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        animation: fadeIn 0.2s;
+      }
+      .modal-content {
+        background-color: white;
+        margin: 3% auto;
+        padding: 0;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        animation: slideIn 0.3s;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
         }
-        .container { max-width: 1400px; margin: 0 auto; }
-        .header {
-            background: white;
-            border-radius: 10px;
-            padding: 20px 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        to {
+          opacity: 1;
         }
-        h1 { color: #667eea; font-size: 24px; }
-        .nav { display: flex; gap: 15px; }
-        .nav a {
-            color: #667eea;
-            text-decoration: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            transition: all 0.3s;
+      }
+      @keyframes slideIn {
+        from {
+          transform: translateY(-50px);
+          opacity: 0;
         }
-        .nav a:hover, .nav a.active {
-            background: #667eea;
-            color: white;
+        to {
+          transform: translateY(0);
+          opacity: 1;
         }
-        .content {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-        th {
-            background: #f3f4f6;
-            color: #667eea;
-            font-weight: 600;
-        }
-        tr:hover { background: #f9fafb; }
-        .btn {
-            padding: 6px 12px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        .btn-danger {
-            background: #f87171;
-            color: white;
-        }
-        .btn-danger:hover {
-            background: #ef4444;
-        }
-        .loading { text-align: center; padding: 40px; color: #666; }
-        .positive { color: #4ade80; font-weight: 600; }
-        .negative { color: #f87171; font-weight: 600; }
+      }
+      .modal-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px 30px;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .modal-header h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .close {
+        color: white;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        line-height: 1;
+        opacity: 0.8;
+      }
+      .close:hover {
+        opacity: 1;
+      }
+      .modal-body {
+        padding: 30px;
+      }
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+      .detail-item {
+        background: #f9fafb;
+        padding: 15px;
+        border-radius: 8px;
+      }
+      .detail-item-label {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 5px;
+      }
+      .detail-item-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1f2937;
+      }
+      .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #667eea;
+        margin: 25px 0 15px 0;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e5e7eb;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <div class="header">
-            <h1>持仓管理</h1>
-            <div class="nav">
-                <a href="/">仪表盘</a>
-                <a href="/opportunities">机会监控</a>
-                <a href="/positions" class="active">持仓管理</a>
-                <a href="/config">系统配置</a>
-            </div>
+      <div class="header">
+        <h1>持仓管理</h1>
+        <div class="nav">
+          <a href="/">仪表盘</a>
+          <a href="/opportunities">机会监控</a>
+          <a href="/positions" class="active">持仓管理</a>
+          <a href="/config">系统配置</a>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- 提示弹窗 -->
+        <div id="alertModal" class="alert-modal">
+          <div class="alert-modal-content">
+            <div class="alert-modal-icon" id="alertIcon"></div>
+            <div class="alert-modal-message" id="alertMessage"></div>
+            <button
+              class="alert-modal-close"
+              id="alertCloseBtn"
+              onclick="hideAlert()"
+            >
+              确定
+            </button>
+          </div>
         </div>
 
-        <div class="content">
-            <h2>当前持仓</h2>
-            <div id="positions-list">
-                <div class="loading">加载中...</div>
-            </div>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">持仓数量</div>
+            <div class="stat-value" id="stat-count">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">总仓位</div>
+            <div class="stat-value" id="stat-total">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">总盈亏</div>
+            <div class="stat-value" id="stat-pnl">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">盈亏率</div>
+            <div class="stat-value" id="stat-pnl-pct">-</div>
+          </div>
         </div>
+
+        <h2>当前持仓</h2>
+        <div id="positions-list">
+          <div class="loading">加载中...</div>
+        </div>
+      </div>
     </div>
 
+    <!-- 详情弹窗 -->
+    <div id="detailModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>持仓详情</h2>
+          <span class="close" onclick="closeDetailModal()">&times;</span>
+        </div>
+        <div class="modal-body" id="modalBody">
+          <!-- 动态内容 -->
+        </div>
+      </div>
+    </div>
     <script>
-        async function loadPositions() {
-            try {
-                const response = await fetch('/api/positions');
-                const result = await response.json();
+      async function loadPositions() {
+        try {
+          const response = await fetch("/api/positions");
+          const result = await response.json();
 
-                if (result.success) {
-                    displayPositions(result.data);
-                } else {
-                    document.getElementById('positions-list').innerHTML =
-                        '<p class="loading">加载失败: ' + result.error + '</p>';
-                }
-            } catch (error) {
-                document.getElementById('positions-list').innerHTML =
-                    '<p class="loading">加载失败</p>';
-            }
+          if (result.success) {
+            displayPositions(result.data);
+            updateStats(result.data);
+          } else {
+            document.getElementById("positions-list").innerHTML =
+              '<p class="loading">加载失败: ' + result.error + "</p>";
+          }
+        } catch (error) {
+          document.getElementById("positions-list").innerHTML =
+            '<p class="loading">加载失败</p>';
+        }
+      }
+
+      function updateStats(positions) {
+        const count = positions.length;
+        const totalSize = positions.reduce(
+          (sum, p) => sum + parseFloat(p.position_size || 0),
+          0,
+        );
+        const totalPnl = positions.reduce(
+          (sum, p) => sum + parseFloat(p.current_pnl || 0),
+          0,
+        );
+        const pnlPct = totalSize > 0 ? (totalPnl / totalSize) * 100 : 0;
+
+        document.getElementById("stat-count").textContent = count;
+        document.getElementById("stat-total").textContent =
+          "$" + totalSize.toFixed(2);
+        document.getElementById("stat-pnl").textContent =
+          "$" + totalPnl.toFixed(2);
+        document.getElementById("stat-pnl").style.color =
+          totalPnl >= 0 ? "#10b981" : "#ef4444";
+        document.getElementById("stat-pnl-pct").textContent =
+          pnlPct.toFixed(2) + "%";
+        document.getElementById("stat-pnl-pct").style.color =
+          pnlPct >= 0 ? "#10b981" : "#ef4444";
+      }
+
+      function getStrategyName(type) {
+        const names = {
+          funding_rate_cross_exchange: "策略1",
+          funding_rate_spot_futures: "策略2A",
+          basis_arbitrage: "策略2B",
+        };
+        return names[type] || type;
+      }
+
+      function getStrategyBadge(type) {
+        const badges = {
+          funding_rate_cross_exchange: "badge-strategy1",
+          funding_rate_spot_futures: "badge-strategy2a",
+          basis_arbitrage: "badge-strategy2b",
+        };
+        return badges[type] || "";
+      }
+
+      function displayPositions(positions) {
+        if (positions.length === 0) {
+          document.getElementById("positions-list").innerHTML =
+            '<p class="loading">暂无持仓</p>';
+          return;
         }
 
-        function displayPositions(positions) {
-            if (positions.length === 0) {
-                document.getElementById('positions-list').innerHTML =
-                    '<p class="loading">暂无持仓</p>';
-                return;
+        let html = "<table><thead><tr>";
+        html +=
+          "<th>ID</th><th>交易对</th><th>策略</th><th>交易所/方向</th><th>仓位</th>";
+        html +=
+          "<th>开仓价格</th><th>当前盈亏</th><th>盈亏率</th><th>资金费率收益</th><th>手续费</th><th>持仓时间</th><th>操作</th>";
+        html += "</tr></thead><tbody>";
+
+        positions.forEach((pos) => {
+          const entryDetails = pos.entry_details
+            ? JSON.parse(pos.entry_details)
+            : {};
+          const pnl = parseFloat(pos.current_pnl || 0);
+          const pnlPct =
+            pos.position_size > 0 ? (pnl / pos.position_size) * 100 : 0;
+          const fundingCollected = parseFloat(pos.funding_collected || 0);
+          const feesPaid = parseFloat(pos.fees_paid || 0);
+
+          // 计算持仓时长 - 使用UTC时间确保准确性
+          const openTime = new Date(pos.open_time + "Z"); // 添加Z确保解析为UTC时间
+          const now = new Date();
+          const diffMs = now - openTime;
+          const diffMins = Math.floor(diffMs / 1000 / 60);
+          const diffHours = Math.floor(diffMins / 60);
+          const diffDays = Math.floor(diffHours / 24);
+
+          let durationText = "";
+          if (diffDays > 0) {
+            durationText = `${diffDays}天${diffHours % 24}小时`;
+          } else if (diffHours > 0) {
+            durationText = `${diffHours}小时${diffMins % 60}分钟`;
+          } else if (diffMins > 0) {
+            durationText = `${diffMins}分钟`;
+          } else {
+            durationText = "刚刚";
+          }
+
+          html += "<tr>";
+          html += `<td>${pos.id}</td>`;
+          html += `<td><strong>${pos.symbol}</strong></td>`;
+
+          const strategyName = getStrategyName(pos.strategy_type);
+          const strategyBadge = getStrategyBadge(pos.strategy_type);
+          html += `<td><span class="badge ${strategyBadge}">${strategyName}</span></td>`;
+
+          // 交易所/方向信息
+          let exchangeInfo = "";
+          if (pos.strategy_type === "funding_rate_cross_exchange") {
+            exchangeInfo = `<div>做多: ${entryDetails.long_exchange || "-"}</div>`;
+            exchangeInfo += `<div>做空: ${entryDetails.short_exchange || "-"}</div>`;
+          } else {
+            exchangeInfo = pos.exchanges || "-";
+          }
+          html += `<td>${exchangeInfo}</td>`;
+
+          html += `<td>$${parseFloat(pos.position_size || 0).toFixed(2)}</td>`;
+
+          // 开仓价格
+          let priceInfo = "";
+          if (entryDetails.spot_price && entryDetails.futures_price) {
+            priceInfo = `<div class="position-detail">现货: ${parseFloat(entryDetails.spot_price).toFixed(6)}</div>`;
+            priceInfo += `<div class="position-detail">期货: ${parseFloat(entryDetails.futures_price).toFixed(6)}</div>`;
+            if (entryDetails.basis) {
+              priceInfo += `<div class="position-detail">基差: ${(entryDetails.basis * 100).toFixed(2)}%</div>`;
             }
+          } else if (entryDetails.long_price && entryDetails.short_price) {
+            priceInfo = `<div class="position-detail">做多: ${parseFloat(entryDetails.long_price).toFixed(2)}</div>`;
+            priceInfo += `<div class="position-detail">做空: ${parseFloat(entryDetails.short_price).toFixed(2)}</div>`;
+          }
+          html += `<td>${priceInfo || "-"}</td>`;
 
-            let html = '<table><thead><tr>';
-            html += '<th>ID</th><th>交易对</th><th>策略</th><th>仓位</th>';
-            html += '<th>当前盈亏</th><th>已实现盈亏</th><th>手续费</th><th>开仓时间</th><th>操作</th>';
-            html += '</tr></thead><tbody>';
+          const pnlClass = pnl >= 0 ? "positive" : "negative";
+          html += `<td class="${pnlClass}">$${pnl.toFixed(2)}</td>`;
+          html += `<td class="${pnlClass}">${pnlPct.toFixed(2)}%</td>`;
 
-            positions.forEach(pos => {
-                html += '<tr>';
-                html += `<td>${pos.id}</td>`;
-                html += `<td>${pos.symbol}</td>`;
-                html += `<td>${pos.strategy_type}</td>`;
-                html += `<td>$${parseFloat(pos.position_size || 0).toFixed(2)}</td>`;
+          const fundingClass = fundingCollected >= 0 ? "positive" : "negative";
+          html += `<td class="${fundingClass}">$${fundingCollected.toFixed(2)}</td>`;
 
-                const pnl = parseFloat(pos.current_pnl || 0);
-                const pnlClass = pnl >= 0 ? 'positive' : 'negative';
-                html += `<td class="${pnlClass}">$${pnl.toFixed(2)}</td>`;
+          html += `<td>$${feesPaid.toFixed(2)}</td>`;
+          html += `<td><div><strong>${durationText}</strong></div><div class="position-detail">${openTime.toLocaleString("zh-CN", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}</div></td>`;
+          html += `<td>`;
+          html += `<button class="btn detail-btn" onclick="viewPositionDetail(${pos.id})">详情</button>`;
+          html += `<button class="btn btn-danger" onclick="closePosition(${pos.id})">平仓</button>`;
+          html += `</td>`;
+          html += "</tr>";
+        });
 
-                const realizedPnl = parseFloat(pos.realized_pnl || 0);
-                const realizedClass = realizedPnl >= 0 ? 'positive' : 'negative';
-                html += `<td class="${realizedClass}">$${realizedPnl.toFixed(2)}</td>`;
+        html += "</tbody></table>";
+        document.getElementById("positions-list").innerHTML = html;
 
-                html += `<td>$${parseFloat(pos.fees_paid || 0).toFixed(2)}</td>`;
-                html += `<td>${new Date(pos.open_time).toLocaleString('zh-CN')}</td>`;
-                html += `<td><button class="btn btn-danger" onclick="closePosition(${pos.id})">平仓</button></td>`;
-                html += '</tr>';
-            });
+        // 保存positions数据供详情查看使用
+        window.currentPositions = positions;
+      }
 
-            html += '</tbody></table>';
-            document.getElementById('positions-list').innerHTML = html;
+      function viewPositionDetail(positionId) {
+        const position = window.currentPositions.find(
+          (p) => p.id === positionId,
+        );
+        if (!position) {
+          showAlert("未找到持仓信息", "error");
+          return;
         }
 
-        async function closePosition(positionId) {
-            if (!confirm('确定要平仓吗?')) return;
+        const entryDetails = position.entry_details
+          ? JSON.parse(position.entry_details)
+          : {};
+        const strategyName = getStrategyName(position.strategy_type);
+        const pnl = parseFloat(position.current_pnl || 0);
+        const pnlPct =
+          position.position_size > 0 ? (pnl / position.position_size) * 100 : 0;
 
-            try {
-                const response = await fetch(`/api/close_position/${positionId}`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
+        let html = `
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">持仓ID</div>
+                        <div class="detail-item-value">#${position.id}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">交易对</div>
+                        <div class="detail-item-value">${position.symbol}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">策略类型</div>
+                        <div class="detail-item-value">${strategyName}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">仓位大小</div>
+                        <div class="detail-item-value">$${parseFloat(position.position_size || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前盈亏</div>
+                        <div class="detail-item-value" style="color: ${pnl >= 0 ? "#10b981" : "#ef4444"}">$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓时间</div>
+                        <div class="detail-item-value" style="font-size: 14px;">${new Date(position.open_time + "Z").toLocaleString("zh-CN")}</div>
+                    </div>
+                </div>
+            `;
 
-                if (result.success) {
-                    alert('平仓成功');
-                    loadPositions();
-                } else {
-                    alert('平仓失败: ' + result.error);
-                }
-            } catch (error) {
-                alert('平仓失败');
-            }
+        // 根据策略类型显示不同的详细信息
+        if (position.strategy_type === "funding_rate_cross_exchange") {
+          html += generateCrossExchangeDetails(position, entryDetails);
+        } else if (position.strategy_type === "funding_rate_spot_futures") {
+          html += generateSpotFuturesDetails(position, entryDetails);
+        } else if (position.strategy_type === "basis_arbitrage") {
+          html += generateBasisArbitrageDetails(position, entryDetails);
         }
 
-        loadPositions();
-        setInterval(loadPositions, 5000); // 每5秒刷新
+        document.getElementById("modalBody").innerHTML = html;
+        document.getElementById("detailModal").style.display = "block";
+      }
+
+      function generateCrossExchangeDetails(position, details) {
+        const fundingDiff = details.funding_diff || 0;
+        const expectedReturn = details.expected_return || 0;
+
+        return `
+                <div class="section-title">策略1：跨交易所套利 - 详细信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">做多交易所</div>
+                        <div class="detail-item-value">${details.long_exchange || "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">做空交易所</div>
+                        <div class="detail-item-value">${details.short_exchange || "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">做多开仓价</div>
+                        <div class="detail-item-value">$${parseFloat(details.long_price || 0).toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">做空开仓价</div>
+                        <div class="detail-item-value">$${parseFloat(details.short_price || 0).toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">资金费率差</div>
+                        <div class="detail-item-value" style="color: ${fundingDiff >= 0 ? "#10b981" : "#ef4444"}">${(fundingDiff * 100).toFixed(4)}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预期单期收益</div>
+                        <div class="detail-item-value" style="color: #10b981">$${expectedReturn.toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已收取资金费率</div>
+                        <div class="detail-item-value" style="color: #10b981">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已支付手续费</div>
+                        <div class="detail-item-value">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                    </div>
+                </div>
+            `;
+      }
+
+      function generateSpotFuturesDetails(position, details) {
+        const openBasis = details.basis || 0;
+        const spotPrice = parseFloat(details.spot_price || 0);
+        const futuresPrice = parseFloat(details.futures_price || 0);
+        const expectedReturn = details.expected_return || 0;
+
+        // 实时市场数据
+        const currentSpotPrice = position.current_spot_ask || spotPrice;
+        const currentFuturesPrice =
+          position.current_futures_bid || futuresPrice;
+        const currentBasis =
+          position.current_basis !== undefined
+            ? position.current_basis
+            : openBasis;
+        const basisChange = position.basis_change || 0;
+
+        return `
+                <div class="section-title">策略2A：现货期货套利 - 详细信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">交易所</div>
+                        <div class="detail-item-value">${position.exchanges || "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前资金费率</div>
+                        <div class="detail-item-value" style="color: ${position.current_funding_rate >= 0 ? "#10b981" : "#ef4444"}">
+                            ${position.current_funding_rate ? (position.current_funding_rate * 100).toFixed(4) + "% / 8h" : "-"}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section-title">开仓信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">现货开仓价</div>
+                        <div class="detail-item-value">$${spotPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">期货开仓价</div>
+                        <div class="detail-item-value">$${futuresPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓基差</div>
+                        <div class="detail-item-value" style="color: ${openBasis >= 0 ? "#10b981" : "#ef4444"}">${(openBasis * 100).toFixed(3)}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预期单期收益</div>
+                        <div class="detail-item-value" style="color: #10b981">$${expectedReturn.toFixed(2)}</div>
+                    </div>
+                </div>
+                
+                <div class="section-title">实时市场信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前现货价</div>
+                        <div class="detail-item-value">$${currentSpotPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前期货价</div>
+                        <div class="detail-item-value">$${currentFuturesPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前基差</div>
+                        <div class="detail-item-value" style="color: ${currentBasis >= 0 ? "#10b981" : "#ef4444"}">
+                            ${(currentBasis * 100).toFixed(3)}%
+                            <div style="font-size: 11px; color: ${basisChange <= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${basisChange <= 0 ? "↓" : "↑"} ${Math.abs(basisChange * 100).toFixed(3)}%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section-title">收益统计</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">已收取资金费率</div>
+                        <div class="detail-item-value" style="color: #10b981">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已支付手续费</div>
+                        <div class="detail-item-value">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已实现盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.realized_pnl >= 0 ? "#10b981" : "#ef4444"}">$${parseFloat(position.realized_pnl || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前净盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px;">
+                            $${parseFloat(position.current_pnl || 0).toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+            `;
+      }
+
+      function generateBasisArbitrageDetails(position, details) {
+        const openBasis = details.basis || 0;
+        const spotPrice = parseFloat(details.spot_price || 0);
+        const futuresPrice = parseFloat(details.futures_price || 0);
+        const expectedReturn = details.expected_return || 0;
+        const estimatedHoldDays = details.estimated_hold_days || 1;
+
+        // 实时市场数据
+        const currentSpotPrice = position.current_spot_ask || spotPrice;
+        const currentFuturesPrice =
+          position.current_futures_bid || futuresPrice;
+        const currentBasis =
+          position.current_basis !== undefined
+            ? position.current_basis
+            : openBasis;
+        const basisChange = position.basis_change || 0;
+
+        // 价格变化
+        const spotPriceChange = currentSpotPrice - spotPrice;
+        const futuresPriceChange = currentFuturesPrice - futuresPrice;
+        const spotPriceChangePct =
+          spotPrice > 0 ? (spotPriceChange / spotPrice) * 100 : 0;
+        const futuresPriceChangePct =
+          futuresPrice > 0 ? (futuresPriceChange / futuresPrice) * 100 : 0;
+
+        // 基差收敛收益 = 仓位 × (开仓基差 - 当前基差)
+        const basisConvergenceProfit =
+          position.position_size * (openBasis - currentBasis);
+
+        // 预期总收益 = 基差收敛收益 + 资金费率收益
+        const totalExpectedProfit =
+          basisConvergenceProfit + parseFloat(position.funding_collected || 0);
+
+        return `
+                <div class="section-title">策略2B：基差套利 - 详细信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">交易所</div>
+                        <div class="detail-item-value">${position.exchanges || "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预计持仓周期</div>
+                        <div class="detail-item-value">${estimatedHoldDays} 天</div>
+                    </div>
+                </div>
+                
+                <div class="section-title">开仓信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">现货开仓价 (买入)</div>
+                        <div class="detail-item-value">$${spotPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">期货开仓价 (做空)</div>
+                        <div class="detail-item-value">$${futuresPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓基差</div>
+                        <div class="detail-item-value" style="color: ${openBasis >= 0 ? "#10b981" : "#ef4444"}">${(openBasis * 100).toFixed(3)}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓价差</div>
+                        <div class="detail-item-value">$${(futuresPrice - spotPrice).toFixed(6)}</div>
+                    </div>
+                </div>
+                
+                <div class="section-title">实时市场信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前现货价 (卖出)</div>
+                        <div class="detail-item-value">
+                            $${currentSpotPrice.toFixed(6)}
+                            <div style="font-size: 11px; color: ${spotPriceChangePct >= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${spotPriceChangePct >= 0 ? "↑" : "↓"} ${Math.abs(spotPriceChangePct).toFixed(2)}%
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前期货价 (平仓)</div>
+                        <div class="detail-item-value">
+                            $${currentFuturesPrice.toFixed(6)}
+                            <div style="font-size: 11px; color: ${futuresPriceChangePct >= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${futuresPriceChangePct >= 0 ? "↑" : "↓"} ${Math.abs(futuresPriceChangePct).toFixed(2)}%
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前基差</div>
+                        <div class="detail-item-value" style="color: ${currentBasis >= 0 ? "#10b981" : "#ef4444"}">
+                            ${(currentBasis * 100).toFixed(3)}%
+                            <div style="font-size: 11px; color: ${basisChange <= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${basisChange <= 0 ? "↓" : "↑"} ${Math.abs(basisChange * 100).toFixed(3)}%
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前价差</div>
+                        <div class="detail-item-value">$${(currentFuturesPrice - currentSpotPrice).toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前资金费率</div>
+                        <div class="detail-item-value" style="color: ${position.current_funding_rate >= 0 ? "#10b981" : "#ef4444"}">
+                            ${position.current_funding_rate ? (position.current_funding_rate * 100).toFixed(4) + "% / 8h" : "-"}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section-title">收益分析</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">基差收敛收益 (已实现)</div>
+                        <div class="detail-item-value" style="color: ${basisConvergenceProfit >= 0 ? "#10b981" : "#ef4444"}">
+                            $${basisConvergenceProfit.toFixed(2)}
+                            <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
+                                开仓基差${(openBasis * 100).toFixed(3)}% → 当前基差${(currentBasis * 100).toFixed(3)}%
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">资金费率收益 (已收)</div>
+                        <div class="detail-item-value" style="color: #10b981">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预期总收益</div>
+                        <div class="detail-item-value" style="color: ${totalExpectedProfit >= 0 ? "#10b981" : "#ef4444"}">
+                            $${totalExpectedProfit.toFixed(2)}
+                            <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
+                                基差收敛 + 资金费率
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">手续费支出</div>
+                        <div class="detail-item-value">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前净盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px;">
+                            $${parseFloat(position.current_pnl || 0).toFixed(2)}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">盈亏率</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px;">
+                            ${(position.position_size > 0 ? (position.current_pnl / position.position_size) * 100 : 0).toFixed(2)}%
+                        </div>
+                    </div>
+                </div>
+            `;
+      }
+
+      function closeDetailModal() {
+        document.getElementById("detailModal").style.display = "none";
+      }
+
+      // 点击弹窗外部关闭
+      window.onclick = function (event) {
+        const modal = document.getElementById("detailModal");
+        if (event.target == modal) {
+          modal.style.display = "none";
+        }
+      };
+
+      async function closePosition(positionId) {
+        if (!confirm("确定要平仓吗?")) return;
+
+        try {
+          const response = await fetch(`/api/close_position/${positionId}`, {
+            method: "POST",
+          });
+          const result = await response.json();
+
+          if (result.success) {
+            showAlert("平仓成功", "success");
+            loadPositions();
+          } else {
+            showAlert("平仓失败: " + result.error, "error");
+          }
+        } catch (error) {
+          showAlert("平仓失败", "error");
+        }
+      }
+
+      function showAlert(message, type, autoDismiss = true) {
+        const alertModal = document.getElementById("alertModal");
+        const alertIcon = document.getElementById("alertIcon");
+        const alertMessage = document.getElementById("alertMessage");
+        const alertCloseBtn = document.getElementById("alertCloseBtn");
+
+        // 设置图标
+        const icons = {
+          success: "✅",
+          error: "❌",
+          info: "ℹ️",
+        };
+        alertIcon.textContent = icons[type] || "ℹ️";
+
+        // 设置消息
+        alertMessage.textContent = message;
+
+        // 设置按钮样式
+        alertCloseBtn.className = `alert-modal-close ${type}`;
+
+        // 显示模态框
+        alertModal.classList.add("show");
+
+        // 如果 autoDismiss 为 true，5秒后自动关闭
+        if (autoDismiss) {
+          setTimeout(() => {
+            hideAlert();
+          }, 5000);
+        }
+      }
+
+      function hideAlert() {
+        document.getElementById("alertModal").classList.remove("show");
+      }
+
+      loadPositions();
+      setInterval(loadPositions, 5000); // 每5秒刷新
     </script>
-</body>
+  </body>
 </html>

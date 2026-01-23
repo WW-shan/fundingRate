@@ -118,7 +118,7 @@ class ConfigManager:
             's1_position_size': self.get('strategy1', 'position_size', 10000),
             's1_target_exchanges': ['binance', 'okx', 'bybit'],
             's2a_execution_mode': 'auto',
-            's2a_min_funding_rate': self.get('strategy2a', 'min_funding_rate', 0.30),
+            's2a_min_funding_rate': self.get('strategy2a', 'min_funding_rate', 0.05),
             's2a_position_size': self.get('strategy2a', 'position_size', 10000),
             's2a_max_basis_deviation': self.get('strategy2a', 'max_basis_deviation', 0.01),
             's2b_execution_mode': 'manual',
@@ -140,16 +140,16 @@ class ConfigManager:
         self.set_default('global', 'max_positions', 10, True, "最大同时持仓数")
         self.set_default('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
         self.set_default('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
-        self.set_default('global', 'opportunity_scan_interval', 300, True, "机会扫描间隔（秒）")
+        self.set_default('global', 'opportunity_scan_interval', 10, True, "机会扫描间隔（秒）")
 
         # 策略1：跨交易所资金费率套利
         self.set_default('strategy1', 'enabled', True, True, "是否启用")
         self.set_default('strategy1', 'execution_mode', 'auto', True, "执行模式（auto/manual）")
         self.set_default('strategy1', 'position_size', 10000, True, "默认开仓金额（USDT）")
         self.set_default('strategy1', 'daily_return_target', 0.001, True, "目标日化收益率（小数）")
-        self.set_default('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差")
-        self.set_default('strategy1', 'min_profit_rate', 0.0003, True, "最小净收益率")
-        self.set_default('strategy1', 'max_price_diff', 0.02, True, "最大价差容忍")
+        self.set_default('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差（单期，0.05%）")
+        self.set_default('strategy1', 'min_profit_rate', 0.0003, True, "最小净收益率（单期）")
+        self.set_default('strategy1', 'max_price_diff', 0.02, True, "最大价差容忍（2%）")
         self.set_default('strategy1', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
 
         # 策略2A：现货期货资金费率套利
@@ -157,17 +157,17 @@ class ConfigManager:
         self.set_default('strategy2a', 'execution_mode', 'auto', True, "执行模式")
         self.set_default('strategy2a', 'position_size', 10000, True, "默认开仓金额（USDT）")
         self.set_default('strategy2a', 'daily_return_target', 0.0008, True, "目标日化收益率（小数）")
-        self.set_default('strategy2a', 'min_funding_rate', 0.30, True, "最小年化费率")
-        self.set_default('strategy2a', 'max_basis_deviation', 0.01, True, "基差安全范围")
+        self.set_default('strategy2a', 'min_funding_rate', 0.05, True, "最小年化费率（5%，建议0.05-0.30）")
+        self.set_default('strategy2a', 'max_basis_deviation', 0.01, True, "基差安全范围（1%）")
         self.set_default('strategy2a', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
 
         # 策略2B：基差套利
         self.set_default('strategy2b', 'enabled', True, True, "是否启用")
         self.set_default('strategy2b', 'execution_mode', 'manual', False, "执行模式（固定为manual）")
         self.set_default('strategy2b', 'position_size', 8000, True, "默认开仓金额（USDT）")
-        self.set_default('strategy2b', 'daily_return_target', 0.002, True, "目标日化收益率（小数）")
-        self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差")
-        self.set_default('strategy2b', 'target_return', 0.015, True, "目标收益率")
+        self.set_default('strategy2b', 'daily_return_target', 0.002, True, "目标日化收益率（仅用于配置计算辅助）")
+        self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差（筛选阈值）")
+        self.set_default('strategy2b', 'target_return', 0.015, True, "目标收益率（已废弃，保留用于向后兼容）")
         self.set_default('strategy2b', 'max_hold_days', 7, True, "最大持仓天数")
 
         # 风控配置

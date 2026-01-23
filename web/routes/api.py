@@ -84,10 +84,45 @@ def errors():
 def opportunities():
     """当前机会API"""
     opportunity_monitor = current_app.config['OPPORTUNITY_MONITOR']
+    db_manager = current_app.config['DB_MANAGER']
     
     try:
         # 获取最新机会
         opportunities = opportunity_monitor.get_opportunities(limit=20) if opportunity_monitor else []
+        
+        # 获取所有开仓的持仓信息（用于标记哪些机会已开仓）
+        open_positions = {}
+        if db_manager:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, symbol, strategy_type, exchanges, entry_details
+                    FROM positions
+                    WHERE status = 'open'
+                """)
+                import json
+                for row in cursor.fetchall():
+                    pos_id, symbol, strategy_type, exchanges, entry_details = row
+                    entry_details_dict = json.loads(entry_details) if entry_details else {}
+                    
+                    # 生成与机会ID相同的key用于匹配
+                    if strategy_type == 'funding_rate_cross_exchange':
+                        long_ex = entry_details_dict.get('long_exchange', '')
+                        short_ex = entry_details_dict.get('short_exchange', '')
+                        key = f"s1_{symbol}_{long_ex}_{short_ex}"
+                    elif strategy_type == 'funding_rate_spot_futures':
+                        key = f"s2a_{symbol}_{exchanges}"
+                    elif strategy_type == 'basis_arbitrage':
+                        key = f"s2b_{symbol}_{exchanges}"
+                    else:
+                        continue
+                    open_positions[key] = pos_id
+        
+        # 为每个机会添加开仓状态
+        for opp in opportunities:
+            opp['has_open_position'] = opp['id'] in open_positions
+            opp['position_id'] = open_positions.get(opp['id'])
+        
         return jsonify({
             'success': True,
             'data': opportunities
@@ -102,12 +137,13 @@ def opportunities():
 def positions():
     """持仓API"""
     db_manager = current_app.config['DB_MANAGER']
+    data_collector = current_app.config.get('DATA_COLLECTOR')
     
     try:
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, symbol, strategy_type, position_size,
+                SELECT id, symbol, strategy_type, exchanges, position_size, entry_details,
                        current_pnl, realized_pnl, funding_collected,
                        fees_paid, status, open_time, close_time
                 FROM positions
@@ -117,6 +153,33 @@ def positions():
             """)
             columns = [desc[0] for desc in cursor.description]
             positions = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            # 为每个持仓添加实时市场数据
+            if data_collector:
+                import json
+                for pos in positions:
+                    symbol = pos['symbol']
+                    exchanges = pos['exchanges']
+                    entry_details = json.loads(pos['entry_details']) if pos['entry_details'] else {}
+                    
+                    # 获取实时市场数据
+                    market_data = data_collector.get_market_data(symbol)
+                    
+                    if market_data and exchanges in market_data:
+                        exchange_data = market_data[exchanges]
+                        pos['current_spot_price'] = exchange_data.get('spot_price')
+                        pos['current_futures_price'] = exchange_data.get('futures_price')
+                        pos['current_spot_ask'] = exchange_data.get('spot_ask')
+                        pos['current_futures_bid'] = exchange_data.get('futures_bid')
+                        pos['current_funding_rate'] = exchange_data.get('funding_rate')
+                        
+                        # 计算当前基差（如果适用）
+                        if exchange_data.get('spot_ask') and exchange_data.get('futures_bid'):
+                            pos['current_basis'] = (exchange_data['futures_bid'] - exchange_data['spot_ask']) / exchange_data['spot_ask']
+                        
+                        # 计算基差变化（策略2A/2B）
+                        if 'basis' in entry_details and pos.get('current_basis') is not None:
+                            pos['basis_change'] = pos['current_basis'] - entry_details['basis']
 
         return jsonify({'success': True, 'data': positions})
     except Exception as e:
@@ -141,6 +204,61 @@ def close_position(position_id):
             return jsonify({'success': False, 'error': '平仓失败'})
     except Exception as e:
         logger.error(f"Error closing position: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@api_bp.route('/execute_opportunity', methods=['POST'])
+@api_auth_required
+def execute_opportunity():
+    """执行套利机会API"""
+    strategy_executor = current_app.config['STRATEGY_EXECUTOR']
+    
+    try:
+        if not strategy_executor:
+            return jsonify({'success': False, 'error': '策略执行器未初始化'})
+        
+        data = request.get_json()
+        opportunity_id = data.get('opportunity_id')
+        opportunity_data = data.get('opportunity')  # 前端传递的完整机会数据
+        
+        if not opportunity_id:
+            return jsonify({'success': False, 'error': '缺少opportunity_id'})
+        
+        # 优先使用前端传递的机会数据（避免已过期问题）
+        opportunity = opportunity_data
+        
+        # 如果前端没有传递，则从监控器查找
+        if not opportunity:
+            opportunity_monitor = current_app.config['OPPORTUNITY_MONITOR']
+            if not opportunity_monitor:
+                return jsonify({'success': False, 'error': '机会监控器未初始化'})
+            
+            # 从机会列表中查找
+            for opp in opportunity_monitor.opportunities:
+                if opp.get('id') == opportunity_id:
+                    opportunity = opp
+                    break
+        
+        if not opportunity:
+            return jsonify({'success': False, 'error': '机会不存在或已过期'})
+        
+        # 执行套利
+        result = strategy_executor.execute_opportunity(opportunity)
+        
+        if result.get('success'):
+            return jsonify({
+                'success': True, 
+                'message': '开仓成功！',
+                'position_id': result.get('position_id')
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': result.get('error', '开仓失败')
+            })
+            
+    except Exception as e:
+        logger.error(f"Error executing opportunity: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 

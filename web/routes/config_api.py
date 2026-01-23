@@ -45,7 +45,7 @@ def get_config():
                 'execution_mode': config_manager.get('strategy2a', 'execution_mode', 'auto'),
                 'position_size': config_manager.get('strategy2a', 'position_size', 10000),
                 'daily_return_target': config_manager.get('strategy2a', 'daily_return_target', 0.0008),
-                'min_funding_rate': config_manager.get('strategy2a', 'min_funding_rate', 0.30),
+                'min_funding_rate': config_manager.get('strategy2a', 'min_funding_rate', 0.05),
                 'max_basis_deviation': config_manager.get('strategy2a', 'max_basis_deviation', 0.01),
                 'max_position_size': config_manager.get('strategy2a', 'max_position_size', 15000),
             }

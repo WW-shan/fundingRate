@@ -1,143 +1,863 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>机会监控 - 资金费率套利系统</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container { max-width: 1400px; margin: 0 auto; }
-        .header {
-            background: white;
-            border-radius: 10px;
-            padding: 20px 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        h1 { color: #667eea; font-size: 24px; }
-        .nav { display: flex; gap: 15px; }
-        .nav a {
-            color: #667eea;
-            text-decoration: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            transition: all 0.3s;
-        }
-        .nav a:hover, .nav a.active {
-            background: #667eea;
-            color: white;
-        }
-        .content {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-        th {
-            background: #f3f4f6;
-            color: #667eea;
-            font-weight: 600;
-        }
-        tr:hover { background: #f9fafb; }
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .badge-high { background: #4ade80; color: white; }
-        .badge-medium { background: #fbbf24; color: white; }
-        .badge-low { background: #f87171; color: white; }
-        .loading { text-align: center; padding: 40px; color: #666; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .container {
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+      .header {
+        background: white;
+        border-radius: 10px;
+        padding: 20px 30px;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      h1 {
+        color: #667eea;
+        font-size: 24px;
+      }
+      .nav {
+        display: flex;
+        gap: 15px;
+      }
+      .nav a {
+        color: #667eea;
+        text-decoration: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        transition: all 0.3s;
+      }
+      .nav a:hover,
+      .nav a.active {
+        background: #667eea;
+        color: white;
+      }
+      .content {
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      }
+      .stats-bar {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #f9fafb;
+        border-radius: 8px;
+      }
+      .stat-item {
+        flex: 1;
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: #667eea;
+      }
+      .stat-label {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 4px;
+      }
+      .opportunity-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: all 0.3s;
+      }
+      .opportunity-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+      }
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .card-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #1f2937;
+      }
+      .card-subtitle {
+        font-size: 13px;
+        color: #6b7280;
+        margin-top: 4px;
+      }
+      .badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      .badge-strategy1 {
+        background: #dbeafe;
+        color: #1e40af;
+      }
+      .badge-strategy2a {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      .badge-strategy2b {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .badge-high {
+        background: #4ade80;
+        color: white;
+      }
+      .badge-medium {
+        background: #fbbf24;
+        color: white;
+      }
+      .badge-low {
+        background: #f87171;
+        color: white;
+      }
+      .score-badge {
+        font-size: 24px;
+        font-weight: bold;
+        color: #667eea;
+      }
+      .card-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 15px;
+      }
+      .detail-item {
+        padding: 12px;
+        background: #f9fafb;
+        border-radius: 6px;
+      }
+      .detail-label {
+        font-size: 11px;
+        color: #6b7280;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .detail-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1f2937;
+      }
+      .profit-value {
+        color: #10b981;
+        font-size: 20px;
+      }
+      .card-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+      .btn-primary {
+        background: #667eea;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #5568d3;
+        transform: translateY(-1px);
+      }
+      .btn-secondary {
+        background: #e5e7eb;
+        color: #374151;
+      }
+      .btn-secondary:hover {
+        background: #d1d5db;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #9ca3af;
+      }
+      .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+      }
+      .alert {
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        display: none;
+      }
+      .alert-success {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #34d399;
+      }
+      .alert-error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #f87171;
+      }
+      .alert-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+      }
+      .alert-modal.show {
+        display: flex;
+      }
+      .alert-modal-content {
+        background: white;
+        padding: 25px 30px;
+        border-radius: 10px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+      .alert-modal-icon {
+        font-size: 48px;
+        text-align: center;
+        margin-bottom: 15px;
+      }
+      .alert-modal-message {
+        color: #374151;
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-line;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .alert-modal-close {
+        padding: 10px 30px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        width: 100%;
+        transition: all 0.3s;
+      }
+      .alert-modal-close.success {
+        background: #10b981;
+        color: white;
+      }
+      .alert-modal-close.success:hover {
+        background: #059669;
+      }
+      .alert-modal-close.error {
+        background: #ef4444;
+        color: white;
+      }
+      .alert-modal-close.error:hover {
+        background: #dc2626;
+      }
+      .alert-modal-close.info {
+        background: #3b82f6;
+        color: white;
+      }
+      .alert-modal-close.info:hover {
+        background: #2563eb;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <div class="header">
-            <h1>机会监控</h1>
-            <div class="nav">
-                <a href="/">仪表盘</a>
-                <a href="/opportunities" class="active">机会监控</a>
-                <a href="/positions">持仓管理</a>
-                <a href="/config">系统配置</a>
-            </div>
+      <div class="header">
+        <h1>🎯 机会监控</h1>
+        <div class="nav">
+          <a href="/">仪表盘</a>
+          <a href="/opportunities" class="active">机会监控</a>
+          <a href="/positions">持仓管理</a>
+          <a href="/config">系统配置</a>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="alert-container"></div>
+
+        <!-- 提示弹窗 -->
+        <div id="alertModal" class="alert-modal">
+          <div class="alert-modal-content">
+            <div class="alert-modal-icon" id="alertIcon"></div>
+            <div class="alert-modal-message" id="alertMessage"></div>
+            <button
+              class="alert-modal-close"
+              id="alertCloseBtn"
+              onclick="hideAlert()"
+            >
+              确定
+            </button>
+          </div>
         </div>
 
-        <div class="content">
-            <h2>当前套利机会</h2>
-            <div id="opportunities-list">
-                <div class="loading">加载中...</div>
+        <div class="stats-bar">
+          <div class="stat-item">
+            <div class="stat-value" id="total-opportunities">0</div>
+            <div class="stat-label">总机会数</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="high-score-opportunities">0</div>
+            <div class="stat-label">高分机会 (>80)</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="max-return">0%</div>
+            <div class="stat-label">最高收益率</div>
+            <div style="font-size: 10px; color: #9ca3af; margin-top: 2px">
+              策略1/2A: 单期 | 策略2B: 1天
             </div>
+          </div>
         </div>
+
+        <div id="opportunities-list">
+          <div class="loading">⏳ 加载中...</div>
+        </div>
+      </div>
     </div>
 
     <script>
-        async function loadOpportunities() {
-            try {
-                const response = await fetch('/api/opportunities');
-                const result = await response.json();
+      let autoRefresh = true;
+      let existingOpportunities = {}; // 保存已显示的机会
+      let lastUpdateTime = {}; // 记录每个机会的最后更新时间
 
-                if (result.success) {
-                    displayOpportunities(result.data);
-                } else {
-                    document.getElementById('opportunities-list').innerHTML =
-                        '<p class="loading">加载失败: ' + result.error + '</p>';
-                }
-            } catch (error) {
-                document.getElementById('opportunities-list').innerHTML =
-                    '<p class="loading">加载失败</p>';
-            }
+      async function loadOpportunities() {
+        try {
+          const response = await fetch("/api/opportunities");
+          const result = await response.json();
+
+          if (result.success) {
+            displayOpportunities(result.data);
+            updateStats(result.data);
+          } else {
+            document.getElementById("opportunities-list").innerHTML =
+              '<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>加载失败: ' +
+              result.error +
+              "</p></div>";
+          }
+        } catch (error) {
+          console.error("加载机会失败:", error);
+          document.getElementById("opportunities-list").innerHTML =
+            '<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>加载失败，请检查网络连接</p></div>';
+        }
+      }
+
+      function updateStats(opportunities) {
+        document.getElementById("total-opportunities").textContent =
+          opportunities.length;
+
+        const highScore = opportunities.filter((o) => o.score > 80).length;
+        document.getElementById("high-score-opportunities").textContent =
+          highScore;
+
+        if (opportunities.length > 0) {
+          // 显示最高收益率（百分比）
+          const maxReturn = Math.max(
+            ...opportunities.map((o) => o.expected_return_pct || 0),
+          );
+          document.getElementById("max-return").textContent =
+            (maxReturn * 100).toFixed(4) + "%";
+        } else {
+          document.getElementById("max-return").textContent = "0%";
+        }
+      }
+
+      function displayOpportunities(opportunities) {
+        const container = document.getElementById("opportunities-list");
+        const now = Date.now();
+
+        if (
+          opportunities.length === 0 &&
+          Object.keys(existingOpportunities).length === 0
+        ) {
+          container.innerHTML =
+            '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>暂无套利机会，系统正在持续扫描...</p></div>';
+          return;
         }
 
-        function displayOpportunities(opportunities) {
-            if (opportunities.length === 0) {
-                document.getElementById('opportunities-list').innerHTML =
-                    '<p class="loading">暂无套利机会</p>';
-                return;
-            }
-
-            let html = '<table><thead><tr>';
-            html += '<th>交易对</th><th>策略</th><th>预期收益率</th>';
-            html += '<th>评分</th><th>风险等级</th></tr></thead><tbody>';
-
-            opportunities.forEach(opp => {
-                html += '<tr>';
-                html += `<td>${opp.symbol || '-'}</td>`;
-                html += `<td>${opp.strategy_type || '-'}</td>`;
-                html += `<td>${(opp.expected_return * 100).toFixed(3)}%</td>`;
-                html += `<td>${opp.score || 0}</td>`;
-                const riskClass = opp.risk_level === 'low' ? 'badge-high' :
-                                 opp.risk_level === 'medium' ? 'badge-medium' : 'badge-low';
-                html += `<td><span class="badge ${riskClass}">${opp.risk_level || 'unknown'}</span></td>`;
-                html += '</tr>';
-            });
-
-            html += '</tbody></table>';
-            document.getElementById('opportunities-list').innerHTML = html;
+        // 如果是第一次加载，清空loading
+        if (
+          container.querySelector(".loading") ||
+          container.querySelector(".empty-state")
+        ) {
+          container.innerHTML = "";
         }
 
-        loadOpportunities();
-        setInterval(loadOpportunities, 10000); // 每10秒刷新
+        // 标记当前还存在的机会
+        const currentIds = new Set(opportunities.map((o) => o.id));
+
+        // 更新或新增机会
+        opportunities.forEach((opp) => {
+          lastUpdateTime[opp.id] = now;
+
+          if (existingOpportunities[opp.id]) {
+            // 更新已存在的机会
+            updateOpportunityCard(opp);
+          } else {
+            // 新增机会
+            existingOpportunities[opp.id] = opp;
+            addOpportunityCard(opp, container);
+          }
+        });
+
+        // 标记已消失的机会（但不删除，用于继续监控）
+        Object.keys(existingOpportunities).forEach((id) => {
+          if (!currentIds.has(id)) {
+            const opp = existingOpportunities[id];
+            const timeSinceUpdate = now - (lastUpdateTime[id] || now);
+
+            // 如果已开仓，永久保留不标记为已消失
+            if (opp && opp.has_open_position) {
+              markOpportunityAsGone(id); // 会标记为"监控中"
+            } else if (timeSinceUpdate > 30000) {
+              // 未开仓且超过30秒未更新，标记为已消失
+              markOpportunityAsGone(id);
+            }
+          }
+        });
+      }
+
+      function addOpportunityCard(opp, container) {
+        const card = createOpportunityCardHTML(opp);
+        container.insertAdjacentHTML("beforeend", card);
+      }
+
+      function updateOpportunityCard(opp) {
+        const card = document.getElementById(`opp-card-${opp.id}`);
+        if (!card) return;
+
+        // 移除"已消失"和"监控中"标记（如果有）
+        card.classList.remove("opportunity-gone", "opportunity-monitoring");
+        card.style.opacity = "";
+        card.style.border = "";
+        const goneLabel = card.querySelector(".gone-label");
+        if (goneLabel) goneLabel.remove();
+        const monitoringLabel = card.querySelector(".monitoring-label");
+        if (monitoringLabel) monitoringLabel.remove();
+
+        // 更新卡片内容
+        const newCard = createOpportunityCardHTML(opp);
+        const temp = document.createElement("div");
+        temp.innerHTML = newCard;
+        card.innerHTML = temp.firstElementChild.innerHTML;
+
+        // 更新存储的数据
+        existingOpportunities[opp.id] = opp;
+      }
+
+      function markOpportunityAsGone(id) {
+        const card = document.getElementById(`opp-card-${id}`);
+        if (!card || card.classList.contains("opportunity-gone")) return;
+
+        // 检查是否已开仓
+        const opp = existingOpportunities[id];
+        if (opp && opp.has_open_position) {
+          // 已开仓，标记为"监控中"而不是"已消失"
+          card.classList.add("opportunity-monitoring");
+          card.style.opacity = "0.95";
+          card.style.border = "2px solid #3b82f6";
+
+          const titleDiv = card.querySelector(".card-title");
+          if (titleDiv && !card.querySelector(".monitoring-label")) {
+            titleDiv.insertAdjacentHTML(
+              "beforeend",
+              ' <span class="monitoring-label" style="background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;" title="已开仓，持续监控中">📊 监控中</span>',
+            );
+          }
+          return;
+        }
+
+        // 未开仓的机会标记为已消失
+        card.classList.add("opportunity-gone");
+        card.style.opacity = "0.6";
+        card.style.border = "2px dashed #ef4444";
+
+        const titleDiv = card.querySelector(".card-title");
+        if (titleDiv && !card.querySelector(".gone-label")) {
+          titleDiv.insertAdjacentHTML(
+            "beforeend",
+            ' <span class="gone-label" style="background: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;" title="机会已消失但继续显示以便参考">⚠️ 已消失</span>',
+          );
+        }
+      }
+
+      function createOpportunityCardHTML(opp) {
+        const strategyType = getStrategyType(opp.type);
+        const strategyBadge = getStrategyBadge(opp.type);
+        const riskBadge = getRiskBadge(opp.risk_level);
+
+        return `<div class="opportunity-card" id="opp-card-${opp.id}">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">
+                                ${opp.symbol || "-"}
+                                <span class="badge ${strategyBadge}">${strategyType}</span>
+                                <span class="badge ${riskBadge}">${opp.risk_level || "unknown"}</span>
+                            </div>
+                            <div class="card-subtitle">${getStrategyDescription(opp)}</div>
+                        </div>
+                        <div class="score-badge">⭐ ${(opp.score || 0).toFixed(1)}</div>
+                    </div>
+                    
+                    <div class="card-details">
+                        ${getStrategyDetails(opp)}
+                    </div>
+                    
+                    <div class="card-actions">
+                        <button class="btn btn-primary" onclick="executeOpportunity('${opp.id}')" ${opp.has_open_position ? 'disabled style="opacity: 0.6; cursor: not-allowed;" title="已开仓"' : ""}>
+                            ${opp.has_open_position ? "✅ 已开仓" : opp.risk_level === "high" ? "⚠️ 确认开仓" : "🚀 立即开仓"}
+                        </button>
+                    </div>
+                </div>`;
+      }
+
+      function getStrategyType(type) {
+        const types = {
+          funding_rate_cross_exchange: "策略1：跨交易所套利",
+          funding_rate_spot_futures: "策略2A：现货期货套利",
+          basis_arbitrage: "策略2B：基差套利",
+        };
+        return types[type] || type;
+      }
+
+      function getStrategyBadge(type) {
+        if (type === "funding_rate_cross_exchange") return "badge-strategy1";
+        if (type === "funding_rate_spot_futures") return "badge-strategy2a";
+        if (type === "basis_arbitrage") return "badge-strategy2b";
+        return "";
+      }
+
+      function getRiskBadge(level) {
+        if (level === "low") return "badge-high";
+        if (level === "medium") return "badge-medium";
+        return "badge-low";
+      }
+
+      function getStrategyDescription(opp) {
+        if (opp.type === "funding_rate_cross_exchange") {
+          return `${opp.long_exchange?.toUpperCase()} 做多 ↔ ${opp.short_exchange?.toUpperCase()} 做空`;
+        } else if (opp.type === "funding_rate_spot_futures") {
+          return `${opp.exchange?.toUpperCase()} 现货做多 + 期货做空`;
+        } else if (opp.type === "basis_arbitrage") {
+          return `${opp.exchange?.toUpperCase()} 基差套利`;
+        }
+        return "-";
+      }
+
+      function getStrategyDetails(opp) {
+        // 根据策略类型确定周期说明
+        let periodLabel = "";
+        let fundingFreqHours = 8; // 默认8小时
+
+        if (
+          opp.type === "funding_rate_cross_exchange" ||
+          opp.type === "funding_rate_spot_futures"
+        ) {
+          // 动态获取资金费率频率
+          fundingFreqHours = opp.funding_frequency_hours || 8;
+          periodLabel = `单期收益 (每${fundingFreqHours}小时)`;
+        } else if (opp.type === "basis_arbitrage") {
+          periodLabel = "预期总收益 (约1天)";
+        }
+
+        let html = `
+                <div class="detail-item">
+                    <div class="detail-label">${periodLabel}</div>
+                    <div class="detail-value profit-value">
+                        ${opp.expected_return ? opp.expected_return.toFixed(2) : "0.00"} USDT
+                        (${opp.expected_return_pct ? (opp.expected_return_pct * 100).toFixed(4) : "0.0000"}%)
+                    </div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">仓位大小</div>
+                    <div class="detail-value">${opp.position_size ? opp.position_size.toFixed(0) : "0"} USDT</div>
+                </div>
+            `;
+
+        if (opp.type === "funding_rate_cross_exchange") {
+          // 计算年化收益率：单期收益 × 每天次数 × 365天
+          const timesPerDay = opp.times_per_day || 24 / fundingFreqHours;
+          const annualizedReturn = opp.expected_return_pct
+            ? (opp.expected_return_pct * timesPerDay * 365 * 100).toFixed(2)
+            : "0";
+
+          html += `
+                    <div class="detail-item">
+                        <div class="detail-label">年化收益率</div>
+                        <div class="detail-value" style="color: #10b981;">${annualizedReturn}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率频率</div>
+                        <div class="detail-value">每${fundingFreqHours}小时 (${timesPerDay.toFixed(0)}次/天)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">费率差（年化）</div>
+                        <div class="detail-value">${opp.funding_diff_annual ? (opp.funding_diff_annual * 100).toFixed(2) : "0"}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">价格差异</div>
+                        <div class="detail-value">${opp.price_diff_pct ? (opp.price_diff_pct * 100).toFixed(3) : "0"}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">做多价格</div>
+                        <div class="detail-value">${opp.long_entry_price ? opp.long_entry_price.toFixed(2) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">做空价格</div>
+                        <div class="detail-value">${opp.short_entry_price ? opp.short_entry_price.toFixed(2) : "-"}</div>
+                    </div>
+                `;
+        } else if (opp.type === "funding_rate_spot_futures") {
+          // 计算年化收益率：单期收益 × 每天次数 × 365天
+          const timesPerDay = opp.times_per_day || 24 / fundingFreqHours;
+          const annualizedReturn = opp.expected_return_pct
+            ? (opp.expected_return_pct * timesPerDay * 365 * 100).toFixed(2)
+            : "0";
+
+          html += `
+                    <div class="detail-item">
+                        <div class="detail-label">年化收益率</div>
+                        <div class="detail-value" style="color: #10b981;">${annualizedReturn}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率频率</div>
+                        <div class="detail-value">每${fundingFreqHours}小时 (${timesPerDay.toFixed(0)}次/天)</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率（年化）</div>
+                        <div class="detail-value">${opp.annual_funding_rate ? (opp.annual_funding_rate * 100).toFixed(2) : "0"}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">现货价格</div>
+                        <div class="detail-value">${opp.spot_price ? opp.spot_price.toFixed(2) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">期货价格</div>
+                        <div class="detail-value">${opp.futures_price ? opp.futures_price.toFixed(2) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">基差</div>
+                        <div class="detail-value">${opp.basis ? (opp.basis * 100).toFixed(3) : "0"}%</div>
+                    </div>
+                `;
+        } else if (opp.type === "basis_arbitrage") {
+          // 计算年化收益率：(总收益率 / 持仓天数) × 365天
+          const holdDays = opp.estimated_hold_days || 1;
+          const annualizedReturn = opp.expected_return_pct
+            ? ((opp.expected_return_pct / holdDays) * 365 * 100).toFixed(2)
+            : "0";
+
+          // 基差收益和资金费率收益
+          const basisIncome = opp.basis_income
+            ? opp.basis_income.toFixed(2)
+            : "0";
+          const fundingIncome = opp.funding_income
+            ? opp.funding_income.toFixed(2)
+            : "0";
+          const basisIncomePct = opp.basis ? (opp.basis * 100).toFixed(3) : "0";
+          const fundingIncomePct =
+            opp.funding_income && opp.position_size
+              ? ((opp.funding_income / opp.position_size) * 100).toFixed(4)
+              : "0";
+
+          // 单期资金费率收益率
+          const singleFundingRatePct = opp.single_funding_rate_pct
+            ? (opp.single_funding_rate_pct * 100).toFixed(4)
+            : "0";
+
+          // 动态调整价格小数位：根据价格大小决定
+          const getPriceDecimals = (price) => {
+            if (!price) return 2;
+            if (price >= 10000) return 2; // BTC级别：50123.45
+            if (price >= 1000) return 3; // ETH级别：3456.789
+            if (price >= 100) return 4; // 中等价格：234.5678
+            if (price >= 1) return 5; // 小价格：12.34567
+            return 6; // 微小价格：0.123456
+          };
+
+          const spotDecimals = getPriceDecimals(opp.spot_price);
+          const futuresDecimals = getPriceDecimals(opp.futures_price);
+
+          html += `
+                    <div class="detail-item">
+                        <div class="detail-label">年化收益率</div>
+                        <div class="detail-value" style="color: #10b981;">${annualizedReturn}%</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">基差</div>
+                        <div class="detail-value" style="color: ${opp.basis >= 0 ? "#10b981" : "#ef4444"}">
+                            ${opp.basis ? (opp.basis * 100).toFixed(3) : "0"}%
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">基差收敛收益</div>
+                        <div class="detail-value" style="color: #10b981;">
+                            ${basisIncome} USDT (${basisIncomePct}%)
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">单期资金费率</div>
+                        <div class="detail-value" style="color: ${parseFloat(singleFundingRatePct) >= 0 ? "#10b981" : "#ef4444"}">
+                            ${singleFundingRatePct}% / 8h
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率收益(1天)</div>
+                        <div class="detail-value" style="color: ${parseFloat(fundingIncome) >= 0 ? "#10b981" : "#ef4444"}">
+                            ${fundingIncome} USDT (${fundingIncomePct}%)
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">持仓周期</div>
+                        <div class="detail-value">${holdDays} 天</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">现货开仓价 (买入)</div>
+                        <div class="detail-value" style="color: #f59e0b;">${opp.spot_price ? opp.spot_price.toFixed(spotDecimals) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">期货开仓价 (做空)</div>
+                        <div class="detail-value" style="color: #f59e0b;">${opp.futures_price ? opp.futures_price.toFixed(futuresDecimals) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">实际价差</div>
+                        <div class="detail-value" style="color: ${opp.futures_price && opp.spot_price && opp.futures_price - opp.spot_price >= 0 ? "#10b981" : "#ef4444"};">
+                            ${
+                              opp.spot_price && opp.futures_price
+                                ? (opp.futures_price - opp.spot_price).toFixed(
+                                    Math.max(spotDecimals, futuresDecimals),
+                                  )
+                                : "-"
+                            }
+                        </div>
+                    </div>
+                `;
+        }
+
+        return html;
+      }
+
+      async function executeOpportunity(oppId) {
+        // 从已保存的机会中获取数据
+        const opp = existingOpportunities[oppId];
+        if (!opp) {
+          showAlert("❌ 机会不存在或已过期", "error");
+          return;
+        }
+
+        if (!confirm("确认要执行此套利机会吗？")) {
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/execute_opportunity", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              opportunity_id: oppId,
+              opportunity: opp, // 传递完整的机会数据
+            }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showAlert("✅ " + (result.message || "开仓成功！"), "success");
+            setTimeout(loadOpportunities, 2000);
+          } else {
+            showAlert("❌ " + (result.error || "开仓失败"), "error");
+          }
+        } catch (error) {
+          console.error("执行机会失败:", error);
+          showAlert("❌ 执行失败：" + error.message, "error");
+        }
+      }
+
+      function showAlert(message, type, autoDismiss = true) {
+        const alertModal = document.getElementById("alertModal");
+        const alertIcon = document.getElementById("alertIcon");
+        const alertMessage = document.getElementById("alertMessage");
+        const alertCloseBtn = document.getElementById("alertCloseBtn");
+
+        // 设置图标
+        const icons = {
+          success: "✅",
+          error: "❌",
+          info: "ℹ️",
+        };
+        alertIcon.textContent = icons[type] || "ℹ️";
+
+        // 设置消息
+        alertMessage.textContent = message;
+
+        // 设置按钮样式
+        alertCloseBtn.className = `alert-modal-close ${type}`;
+
+        // 显示模态框
+        alertModal.classList.add("show");
+
+        // 如果 autoDismiss 为 true，5秒后自动关闭
+        if (autoDismiss) {
+          setTimeout(() => {
+            hideAlert();
+          }, 5000);
+        }
+      }
+
+      function hideAlert() {
+        document.getElementById("alertModal").classList.remove("show");
+      }
+
+      // 初始加载
+      loadOpportunities();
+
+      // 自动刷新
+      setInterval(() => {
+        if (autoRefresh) {
+          loadOpportunities();
+        }
+      }, 10000);
     </script>
-</body>
+  </body>
 </html>

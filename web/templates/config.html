@@ -203,6 +203,74 @@
         font-size: 13px;
         margin-top: 8px;
       }
+      .alert-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+      }
+      .alert-modal.show {
+        display: flex;
+      }
+      .alert-modal-content {
+        background: white;
+        padding: 25px 30px;
+        border-radius: 10px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+      .alert-modal-icon {
+        font-size: 48px;
+        text-align: center;
+        margin-bottom: 15px;
+      }
+      .alert-modal-message {
+        color: #374151;
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-line;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .alert-modal-close {
+        padding: 10px 30px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        width: 100%;
+        transition: all 0.3s;
+      }
+      .alert-modal-close.success {
+        background: #10b981;
+        color: white;
+      }
+      .alert-modal-close.success:hover {
+        background: #059669;
+      }
+      .alert-modal-close.error {
+        background: #ef4444;
+        color: white;
+      }
+      .alert-modal-close.error:hover {
+        background: #dc2626;
+      }
+      .alert-modal-close.info {
+        background: #3b82f6;
+        color: white;
+      }
+      .alert-modal-close.info:hover {
+        background: #2563eb;
+      }
     </style>
   </head>
   <body>
@@ -504,7 +572,7 @@
               onchange="autoCalculateStrategy2B()"
             />
             <small style="color: #6b7280; font-size: 12px"
-              >例如：0.2% = 年化 73%，填写 0.2</small
+              >仅用于辅助计算最小基差，不作为筛选条件</small
             >
             <button
               type="button"
@@ -520,27 +588,24 @@
                 font-size: 12px;
               "
             >
-              🔄 根据日化收益率自动计算
+              🔄 根据日化收益率自动计算最小基差
             </button>
           </div>
           <div class="form-group">
-            <label>最小基差</label>
+            <label>最小基差 (%)</label>
             <input
               type="number"
               step="0.01"
               id="strategy2b_min_basis"
-              placeholder="0.02"
+              placeholder="2"
             />
+            <small style="color: #6b7280; font-size: 12px"
+              >核心筛选条件：基差收敛至0的收益 - 手续费 >
+              0。建议设置2%以上</small
+            >
           </div>
-          <div class="form-group">
-            <label>目标收益率</label>
-            <input
-              type="number"
-              step="0.001"
-              id="strategy2b_target_return"
-              placeholder="0.015"
-            />
-          </div>
+          <!-- 目标收益率已废弃，隐藏但保留用于向后兼容 -->
+          <input type="hidden" id="strategy2b_target_return" value="0.015" />
           <div class="form-group">
             <label>最大持仓天数</label>
             <input
@@ -594,6 +659,21 @@
           style="margin-top: 20px"
         >
           💾 保存所有配置
+        </button>
+      </div>
+    </div>
+
+    <!-- 提示弹窗 -->
+    <div id="alertModal" class="alert-modal">
+      <div class="alert-modal-content">
+        <div class="alert-modal-icon" id="alertIcon"></div>
+        <div class="alert-modal-message" id="alertMessage"></div>
+        <button
+          class="alert-modal-close"
+          id="alertCloseBtn"
+          onclick="hideAlert()"
+        >
+          确定
         </button>
       </div>
     </div>
@@ -818,7 +898,7 @@
               document.getElementById("funding_refresh_interval").value =
                 config.global.funding_refresh_interval || 300;
               document.getElementById("opportunity_scan_interval").value =
-                config.global.opportunity_scan_interval || 300;
+                config.global.opportunity_scan_interval || 10;
             }
 
             // 策略1 配置
@@ -880,8 +960,9 @@
                 (
                   (config.strategy2b.daily_return_target || 0.002) * 100
                 ).toFixed(2);
-              document.getElementById("strategy2b_min_basis").value =
-                config.strategy2b.min_basis || 0.02;
+              document.getElementById("strategy2b_min_basis").value = (
+                (config.strategy2b.min_basis || 0.02) * 100
+              ).toFixed(2); // 转换为百分比显示
               document.getElementById("strategy2b_target_return").value =
                 config.strategy2b.target_return || 0.015;
               document.getElementById("strategy2b_max_hold_days").value =
@@ -1079,9 +1160,10 @@
           {
             category: "strategy2b",
             key: "min_basis",
-            value: parseFloat(
-              document.getElementById("strategy2b_min_basis").value,
-            ),
+            value:
+              parseFloat(
+                document.getElementById("strategy2b_min_basis").value,
+              ) / 100, // 界面显示百分比，存储为小数
           },
           {
             category: "strategy2b",
@@ -1157,15 +1239,38 @@
       }
 
       function showAlert(message, type, autoDismiss = true) {
-        const alertHtml = `<div class="alert alert-${type}">${message.replace(/\n/g, "<br>")}</div>`;
-        document.getElementById("alert-container").innerHTML = alertHtml;
+        const alertModal = document.getElementById("alertModal");
+        const alertIcon = document.getElementById("alertIcon");
+        const alertMessage = document.getElementById("alertMessage");
+        const alertCloseBtn = document.getElementById("alertCloseBtn");
 
-        // 如果 autoDismiss 为 true，3秒后自动消失
+        // 设置图标
+        const icons = {
+          success: "✅",
+          error: "❌",
+          info: "ℹ️",
+        };
+        alertIcon.textContent = icons[type] || "ℹ️";
+
+        // 设置消息
+        alertMessage.textContent = message;
+
+        // 设置按钮样式
+        alertCloseBtn.className = `alert-modal-close ${type}`;
+
+        // 显示模态框
+        alertModal.classList.add("show");
+
+        // 如果 autoDismiss 为 true，5秒后自动关闭
         if (autoDismiss) {
           setTimeout(() => {
-            document.getElementById("alert-container").innerHTML = "";
-          }, 3000);
+            hideAlert();
+          }, 5000);
         }
+      }
+
+      function hideAlert() {
+        document.getElementById("alertModal").classList.remove("show");
       }
 
       // 策略1: 根据日化收益率自动计算参数
@@ -1255,42 +1360,39 @@
         );
       }
 
-      // 策略2B: 根据日化收益率自动计算参数
+      // 策略2B: 根据日化收益率自动计算最小基差
       function autoCalculateStrategy2B() {
         const dailyReturn =
           parseFloat(
             document.getElementById("strategy2b_daily_return_target").value,
           ) / 100;
-        const maxHoldDays =
-          parseInt(document.getElementById("strategy2b_max_hold_days").value) ||
-          7;
+        const estimatedHoldDays = 1; // 假设1天内基差收敛
 
         if (!dailyReturn || dailyReturn <= 0) {
           showAlert("请先填写有效的日化收益率", "error");
           return;
         }
 
-        // 总收益目标 = 日化收益 × 最大持仓天数
-        const totalReturn = dailyReturn * maxHoldDays;
+        // 1天的目标收益
+        const targetReturn = dailyReturn * estimatedHoldDays;
 
-        // 最小基差 = 总收益目标 × 1.3 (留20-30%安全边际)
-        const minBasis = totalReturn * 1.3;
+        // 最小基差 = 目标收益 + 手续费(约0.16%) + 安全边际(30%)
+        // 手续费 = 4次交易 × 0.04% = 0.16%
+        const tradingFee = 0.0008;
+        const minBasis = (targetReturn + tradingFee) * 1.3;
 
-        // 目标收益率 = 总收益目标
-        const targetReturn = totalReturn;
-
-        // 填充计算结果
-        document.getElementById("strategy2b_min_basis").value =
-          minBasis.toFixed(6);
-        document.getElementById("strategy2b_target_return").value =
-          targetReturn.toFixed(6);
+        // 填充计算结果（转换为百分比显示）
+        document.getElementById("strategy2b_min_basis").value = (
+          minBasis * 100
+        ).toFixed(2);
 
         showAlert(
           `✅ 已自动计算：\n` +
-            `• 最小基差: ${(minBasis * 100).toFixed(4)}%\n` +
-            `• 目标收益率: ${(targetReturn * 100).toFixed(4)}%\n` +
-            `• 持仓周期: ${maxHoldDays} 天\n` +
-            `• 预计年化: ${(dailyReturn * 365 * 100).toFixed(2)}%`,
+            `• 日化收益目标: ${(dailyReturn * 100).toFixed(2)}%\n` +
+            `• 手续费成本: ${(tradingFee * 100).toFixed(2)}%\n` +
+            `• 最小基差(含安全边际): ${(minBasis * 100).toFixed(2)}%\n` +
+            `• 预计年化: ${(dailyReturn * 365 * 100).toFixed(2)}%\n\n` +
+            `说明：基差套利收益 = 基差收敛收益 + 资金费率收益 - 手续费`,
           "success",
         );
       }

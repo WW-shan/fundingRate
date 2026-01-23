@@ -87,7 +87,7 @@ class StrategyExecutor:
             logger.info(f"Opportunity requires manual confirmation: {opportunity['symbol']} - {strategy_type}")
             self._trigger_callback('opportunity_found', opportunity)
 
-    def execute_opportunity(self, opportunity: Dict[str, Any]) -> bool:
+    def execute_opportunity(self, opportunity: Dict[str, Any]) -> Dict[str, Any]:
         """执行套利机会"""
         try:
             # 风控检查
@@ -99,7 +99,7 @@ class StrategyExecutor:
                     'opportunity': opportunity,
                     'reason': risk_check['reason']
                 })
-                return False
+                return {'success': False, 'error': risk_check['reason']}
 
             # 调整仓位（如果需要）
             adjusted_size = risk_check['adjusted_position_size']
@@ -111,20 +111,22 @@ class StrategyExecutor:
             strategy_type = opportunity['type']
 
             if strategy_type == 'funding_rate_cross_exchange':
-                return self._execute_cross_exchange_funding(opportunity)
+                result = self._execute_cross_exchange_funding(opportunity)
             elif strategy_type == 'funding_rate_spot_futures':
-                return self._execute_spot_futures_funding(opportunity)
+                result = self._execute_spot_futures_funding(opportunity)
             elif strategy_type == 'basis_arbitrage':
-                return self._execute_basis_arbitrage(opportunity)
+                result = self._execute_basis_arbitrage(opportunity)
             else:
                 logger.error(f"Unknown strategy type: {strategy_type}")
-                return False
+                return {'success': False, 'error': f'未知的策略类型: {strategy_type}'}
+            
+            return result
 
         except Exception as e:
             logger.error(f"Error executing opportunity: {e}")
-            return False
+            return {'success': False, 'error': str(e)}
 
-    def _execute_cross_exchange_funding(self, opportunity: Dict[str, Any]) -> bool:
+    def _execute_cross_exchange_funding(self, opportunity: Dict[str, Any]) -> Dict[str, Any]:
         """执行跨交易所资金费率套利"""
         try:
             symbol = opportunity['symbol']
@@ -180,7 +182,7 @@ class StrategyExecutor:
                     (position_id,)
                 )
                 logger.error("Failed to execute cross-exchange orders")
-                return False
+                return {'success': False, 'error': '订单执行失败'}
 
             logger.info(f"✅ Cross-exchange funding arbitrage executed: Position #{position_id}")
 
@@ -191,13 +193,13 @@ class StrategyExecutor:
                 'orders': orders
             })
 
-            return True
+            return {'success': True, 'position_id': position_id}
 
         except Exception as e:
             logger.error(f"Error executing cross-exchange funding: {e}")
-            return False
+            return {'success': False, 'error': str(e)}
 
-    def _execute_spot_futures_funding(self, opportunity: Dict[str, Any]) -> bool:
+    def _execute_spot_futures_funding(self, opportunity: Dict[str, Any]) -> Dict[str, Any]:
         """执行现货-期货资金费率套利"""
         try:
             symbol = opportunity['symbol']
@@ -250,7 +252,7 @@ class StrategyExecutor:
                     (position_id,)
                 )
                 logger.error("Failed to execute spot-futures orders")
-                return False
+                return {'success': False, 'error': '订单执行失败'}
 
             logger.info(f"✅ Spot-futures funding arbitrage executed: Position #{position_id}")
 
@@ -260,28 +262,29 @@ class StrategyExecutor:
                 'orders': orders
             })
 
-            return True
+            return {'success': True, 'position_id': position_id}
 
         except Exception as e:
             logger.error(f"Error executing spot-futures funding: {e}")
-            return False
+            return {'success': False, 'error': str(e)}
 
-    def _execute_basis_arbitrage(self, opportunity: Dict[str, Any]) -> bool:
+    def _execute_basis_arbitrage(self, opportunity: Dict[str, Any]) -> Dict[str, Any]:
         """执行基差套利"""
         try:
             symbol = opportunity['symbol']
             exchange = opportunity['exchange']
             position_size = opportunity['position_size']
 
-            # 计算交易数量
-            spot_price = opportunity['spot_price']
+            # 计算交易数量（使用实际开仓价）
+            spot_price = opportunity.get('spot_entry_price', opportunity['spot_price'])  # 优先使用买入价
+            futures_price = opportunity.get('futures_entry_price', opportunity['futures_price'])  # 优先使用做空价
             amount = position_size / spot_price
 
             # 创建持仓记录
             entry_details = {
                 'exchange': exchange,
                 'spot_price': spot_price,
-                'futures_price': opportunity['futures_price'],
+                'futures_price': futures_price,
                 'basis': opportunity['basis'],
                 'expected_return': opportunity['expected_return'],
                 'estimated_hold_days': opportunity.get('estimated_hold_days', 3)
@@ -319,7 +322,7 @@ class StrategyExecutor:
                     (position_id,)
                 )
                 logger.error("Failed to execute basis arbitrage orders")
-                return False
+                return {'success': False, 'error': '订单执行失败'}
 
             logger.info(f"✅ Basis arbitrage executed: Position #{position_id}")
 
@@ -329,11 +332,11 @@ class StrategyExecutor:
                 'orders': orders
             })
 
-            return True
+            return {'success': True, 'position_id': position_id}
 
         except Exception as e:
             logger.error(f"Error executing basis arbitrage: {e}")
-            return False
+            return {'success': False, 'error': str(e)}
 
     def close_position(self, position_id: int) -> bool:
         """平仓"""

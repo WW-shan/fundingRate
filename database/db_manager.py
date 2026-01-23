@@ -141,6 +141,29 @@ class DatabaseManager:
                 ON funding_rates(exchange, symbol, timestamp)
             """)
 
+            # 市场价格数据表（新增）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exchange VARCHAR(20),
+                    symbol VARCHAR(20),
+                    timestamp BIGINT,
+                    spot_bid DECIMAL(18,8),
+                    spot_ask DECIMAL(18,8),
+                    spot_price DECIMAL(18,8),
+                    futures_bid DECIMAL(18,8),
+                    futures_ask DECIMAL(18,8),
+                    futures_price DECIMAL(18,8),
+                    maker_fee DECIMAL(10,6),
+                    taker_fee DECIMAL(10,6),
+                    UNIQUE(exchange, symbol, timestamp)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_market_prices
+                ON market_prices(exchange, symbol, timestamp)
+            """)
+
             # 订单记录表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS orders (

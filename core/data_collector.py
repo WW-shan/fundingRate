@@ -27,6 +27,7 @@ class DataCollector:
         self.exchanges = {}
         self.exchange_symbols = {}  # 每个交易所支持的交易对: {exchange: {'futures': set(), 'spot': set()}}
         self.market_data = {}  # 存储最新的市场数据
+        self.trading_fees_cache = {}  # 缓存交易手续费: {exchange: {symbol: {'maker': float, 'taker': float}}}
         self._init_exchanges()
 
     def _init_exchanges(self):
@@ -110,9 +111,35 @@ class DataCollector:
             }
             logger.info(f"Cached {len(futures_symbols)} futures and {len(spot_symbols)} spot symbols for {exchange_name}")
             
+            # 缓存手续费（只缓存同时有现货和期货的币种）
+            self._cache_trading_fees(exchange_name, futures_symbols & spot_symbols)
+            
         except Exception as e:
             logger.error(f"Error caching symbols for {exchange_name}: {e}")
             self.exchange_symbols[exchange_name] = {'futures': set(), 'spot': set()}
+
+    def _cache_trading_fees(self, exchange_name: str, symbols: set):
+        """缓存交易手续费"""
+        if exchange_name not in self.trading_fees_cache:
+            self.trading_fees_cache[exchange_name] = {}
+        
+        exchange = self.exchanges.get(exchange_name)
+        if not exchange:
+            return
+        
+        cached_count = 0
+        for symbol in symbols:
+            try:
+                fees = exchange.get_trading_fees(symbol)
+                self.trading_fees_cache[exchange_name][symbol] = {
+                    'maker': fees.get('maker', 0.001),
+                    'taker': fees.get('taker', 0.001)
+                }
+                cached_count += 1
+            except Exception as e:
+                logger.debug(f"Error caching fees for {symbol} on {exchange_name}: {e}")
+        
+        logger.info(f"Cached trading fees for {cached_count} symbols on {exchange_name}")
 
     def reload_exchanges(self):
         """重新加载交易所连接（支持热更新）"""
@@ -124,6 +151,7 @@ class DataCollector:
         # 关闭旧连接
         self.exchanges.clear()
         self.exchange_symbols.clear()
+        self.trading_fees_cache.clear()
         
         # 重新初始化
         self._init_exchanges()
@@ -134,6 +162,9 @@ class DataCollector:
         """启动数据采集"""
         logger.info("Starting data collector...")
         self.running = True
+        
+        # 启动前先从数据库加载最近的数据（避免冷启动无数据）
+        self._load_recent_data_from_db()
 
         # 启动价格采集线程
         threading.Thread(target=self._price_collection_loop, daemon=True).start()
@@ -147,6 +178,79 @@ class DataCollector:
         """停止数据采集"""
         logger.info("Stopping data collector...")
         self.running = False
+
+    def _load_recent_data_from_db(self, max_age_minutes: int = 10):
+        """从数据库加载最近的数据到内存（程序启动时使用）"""
+        try:
+            current_time = int(time.time() * 1000)
+            min_timestamp = current_time - (max_age_minutes * 60 * 1000)
+            
+            # 加载价格数据
+            price_rows = self.db.execute_query(
+                """
+                SELECT exchange, symbol, timestamp,
+                       spot_bid, spot_ask, spot_price,
+                       futures_bid, futures_ask, futures_price,
+                       maker_fee, taker_fee
+                FROM market_prices
+                WHERE timestamp > ?
+                """,
+                (min_timestamp,)
+            )
+            
+            # 加载资金费率数据
+            funding_rows = self.db.execute_query(
+                """
+                SELECT exchange, symbol, funding_rate, next_funding_time, timestamp
+                FROM funding_rates
+                WHERE timestamp > ?
+                """,
+                (min_timestamp,)
+            )
+            
+            # 构建market_data
+            loaded_count = 0
+            for row in price_rows:
+                symbol = row['symbol']
+                exchange = row['exchange']
+                
+                if symbol not in self.market_data:
+                    self.market_data[symbol] = {}
+                if exchange not in self.market_data[symbol]:
+                    self.market_data[symbol][exchange] = {}
+                
+                self.market_data[symbol][exchange].update({
+                    'spot_bid': row['spot_bid'],
+                    'spot_ask': row['spot_ask'],
+                    'spot_price': row['spot_price'],
+                    'futures_bid': row['futures_bid'],
+                    'futures_ask': row['futures_ask'],
+                    'futures_price': row['futures_price'],
+                    'maker_fee': row['maker_fee'],
+                    'taker_fee': row['taker_fee'],
+                    'timestamp': row['timestamp']
+                })
+                loaded_count += 1
+            
+            # 合并资金费率数据
+            for row in funding_rows:
+                symbol = row['symbol']
+                exchange = row['exchange']
+                
+                if symbol not in self.market_data:
+                    self.market_data[symbol] = {}
+                if exchange not in self.market_data[symbol]:
+                    self.market_data[symbol][exchange] = {}
+                
+                self.market_data[symbol][exchange].update({
+                    'funding_rate': row['funding_rate'],
+                    'next_funding_time': row['next_funding_time']
+                })
+            
+            logger.info(f"从数据库加载了 {len(self.market_data)} 个币种的历史数据（最近{max_age_minutes}分钟）")
+            
+        except Exception as e:
+            logger.error(f"从数据库加载历史数据失败: {e}")
 
     def _price_collection_loop(self):
         """价格采集循环"""
@@ -173,115 +277,258 @@ class DataCollector:
                 time.sleep(interval)
 
     def _collect_prices(self):
-        """采集所有交易对的价格数据"""
-        # 获取需要监控的交易对
-        symbols = self._get_monitored_symbols()
-
-        for symbol in symbols:
-            for exchange_name, exchange in self.exchanges.items():
-                # 检查该交易所是否支持该交易对
+        """采集所有交易对的价格数据（批量模式，采集所有期货币种+现货币种）"""
+        start_time = time.time()
+        
+        for exchange_name, exchange in self.exchanges.items():
+            try:
                 exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
-                supports_futures = symbol in exchange_support.get('futures', set())
-                supports_spot = symbol in exchange_support.get('spot', set())
+                futures_symbols = exchange_support.get('futures', set())
+                spot_symbols = exchange_support.get('spot', set())
                 
-                # 如果该交易所不支持该交易对的任何市场，跳过
-                if not supports_futures and not supports_spot:
+                if not futures_symbols:
                     continue
                 
+                logger.info(f"开始批量采集 {exchange_name}: {len(futures_symbols)} 个期货, {len(spot_symbols)} 个现货...")
+                
+                # ⚡ 批量获取所有期货ticker（1次API调用）
+                futures_tickers = {}
                 try:
-                    # 初始化symbol数据结构
-                    if symbol not in self.market_data:
-                        self.market_data[symbol] = {}
-                    if exchange_name not in self.market_data[symbol]:
-                        self.market_data[symbol][exchange_name] = {}
-
-                    # 只在支持现货时采集现货数据
-                    if supports_spot:
-                        spot_ticker = exchange.get_spot_ticker(symbol)
-                        if spot_ticker:
-                            self.market_data[symbol][exchange_name]['spot_bid'] = spot_ticker.get('bid')
-                            self.market_data[symbol][exchange_name]['spot_ask'] = spot_ticker.get('ask')
-                            self.market_data[symbol][exchange_name]['spot_price'] = spot_ticker.get('last')
-
-                        # 获取现货订单簿深度
-                        spot_orderbook = exchange.get_order_book(symbol, is_futures=False, limit=5)
-                        self.market_data[symbol][exchange_name]['spot_depth_5'] = spot_orderbook.get('bid_depth', 0)
-
-                    # 只在支持期货时采集期货数据
-                    if supports_futures:
-                        futures_ticker = exchange.get_futures_ticker(symbol)
-                        if futures_ticker:
-                            self.market_data[symbol][exchange_name]['futures_bid'] = futures_ticker.get('bid')
-                            self.market_data[symbol][exchange_name]['futures_ask'] = futures_ticker.get('ask')
-                            self.market_data[symbol][exchange_name]['futures_price'] = futures_ticker.get('last')
-
-                        # 获取期货订单簿深度
-                        futures_orderbook = exchange.get_order_book(symbol, is_futures=True, limit=5)
-                        self.market_data[symbol][exchange_name]['futures_depth_5'] = futures_orderbook.get('bid_depth', 0)
-
-                    # 获取交易手续费
-                    fees = exchange.get_trading_fees(symbol)
-                    self.market_data[symbol][exchange_name]['maker_fee'] = fees.get('maker', 0.001)
-                    self.market_data[symbol][exchange_name]['taker_fee'] = fees.get('taker', 0.001)
-
-                    # 添加时间戳
-                    self.market_data[symbol][exchange_name]['timestamp'] = int(time.time() * 1000)
-
+                    all_futures_tickers = exchange.exchange.fetch_tickers(params={'type': 'swap'})
+                    for symbol, ticker in all_futures_tickers.items():
+                        base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                        if base_symbol in futures_symbols:
+                            futures_tickers[base_symbol] = ticker
+                    logger.info(f"批量获取了 {len(futures_tickers)} 个期货ticker")
                 except Exception as e:
-                    logger.debug(f"Error collecting price for {symbol} on {exchange_name}: {e}")
-
-        logger.debug(f"Collected prices for {len(symbols)} symbols across {len(self.exchanges)} exchanges")
-
-    def _collect_funding_rates(self):
-        """采集资金费率数据并存储到数据库"""
-        symbols = self._get_monitored_symbols()
-        timestamp = int(time.time() * 1000)
-
-        for symbol in symbols:
-            for exchange_name, exchange in self.exchanges.items():
-                # 检查该交易所是否支持该交易对的期货
-                exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
-                supports_futures = symbol in exchange_support.get('futures', set())
+                    logger.warning(f"批量获取期货ticker失败: {e}")
                 
-                # 资金费率只在期货市场，如果不支持期货则跳过
-                if not supports_futures:
-                    continue
-                
+                # ⚡ 批量获取所有现货ticker（1次API调用）
+                spot_tickers = {}
                 try:
-                    funding_data = exchange.get_funding_rate(symbol)
-                    if funding_data and funding_data.get('funding_rate') is not None:
-                        # 更新内存中的数据
+                    all_spot_tickers = exchange.exchange.fetch_tickers(params={'type': 'spot'})
+                    spot_tickers = {k: v for k, v in all_spot_tickers.items() if k in spot_symbols}
+                    logger.info(f"批量获取了 {len(spot_tickers)} 个现货ticker")
+                except Exception as e:
+                    logger.warning(f"批量获取现货ticker失败: {e}")
+                
+                # 处理每个期货币种的数据
+                success_count = 0
+                error_count = 0
+                
+                for symbol in futures_symbols:
+                    try:
+                        # 初始化数据结构
                         if symbol not in self.market_data:
                             self.market_data[symbol] = {}
                         if exchange_name not in self.market_data[symbol]:
                             self.market_data[symbol][exchange_name] = {}
-
-                        self.market_data[symbol][exchange_name]['funding_rate'] = funding_data.get('funding_rate')
-                        self.market_data[symbol][exchange_name]['predicted_funding_rate'] = funding_data.get('predicted_rate')
-                        self.market_data[symbol][exchange_name]['next_funding_time'] = funding_data.get('next_funding_time')
-
+                        
+                        # 期货数据（必须有）
+                        if symbol in futures_tickers:
+                            ticker = futures_tickers[symbol]
+                            self.market_data[symbol][exchange_name]['futures_bid'] = ticker.get('bid')
+                            self.market_data[symbol][exchange_name]['futures_ask'] = ticker.get('ask')
+                            self.market_data[symbol][exchange_name]['futures_price'] = ticker.get('last')
+                        
+                        # 现货数据（如果有）
+                        if symbol in spot_tickers:
+                            ticker = spot_tickers[symbol]
+                            self.market_data[symbol][exchange_name]['spot_bid'] = ticker.get('bid')
+                            self.market_data[symbol][exchange_name]['spot_ask'] = ticker.get('ask')
+                            self.market_data[symbol][exchange_name]['spot_price'] = ticker.get('last')
+                        
+                        # 使用缓存的手续费
+                        cached_fees = self.trading_fees_cache.get(exchange_name, {}).get(symbol)
+                        if cached_fees:
+                            self.market_data[symbol][exchange_name]['maker_fee'] = cached_fees['maker']
+                            self.market_data[symbol][exchange_name]['taker_fee'] = cached_fees['taker']
+                        else:
+                            self.market_data[symbol][exchange_name]['maker_fee'] = 0.001
+                            self.market_data[symbol][exchange_name]['taker_fee'] = 0.001
+                        
+                        # 添加时间戳
+                        timestamp = int(time.time() * 1000)
+                        self.market_data[symbol][exchange_name]['timestamp'] = timestamp
+                        
                         # 存储到数据库
                         self.db.execute_query(
                             """
-                            INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO market_prices (
+                                exchange, symbol, timestamp,
+                                spot_bid, spot_ask, spot_price,
+                                futures_bid, futures_ask, futures_price,
+                                maker_fee, taker_fee
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
-                                funding_rate = excluded.funding_rate,
-                                next_funding_time = excluded.next_funding_time
+                                spot_bid = excluded.spot_bid,
+                                spot_ask = excluded.spot_ask,
+                                spot_price = excluded.spot_price,
+                                futures_bid = excluded.futures_bid,
+                                futures_ask = excluded.futures_ask,
+                                futures_price = excluded.futures_price,
+                                maker_fee = excluded.maker_fee,
+                                taker_fee = excluded.taker_fee
                             """,
                             (
                                 exchange_name,
                                 symbol,
                                 timestamp,
-                                funding_data.get('funding_rate'),
-                                funding_data.get('next_funding_time')
+                                self.market_data[symbol][exchange_name].get('spot_bid'),
+                                self.market_data[symbol][exchange_name].get('spot_ask'),
+                                self.market_data[symbol][exchange_name].get('spot_price'),
+                                self.market_data[symbol][exchange_name].get('futures_bid'),
+                                self.market_data[symbol][exchange_name].get('futures_ask'),
+                                self.market_data[symbol][exchange_name].get('futures_price'),
+                                self.market_data[symbol][exchange_name].get('maker_fee'),
+                                self.market_data[symbol][exchange_name].get('taker_fee')
                             )
                         )
+                        
+                        success_count += 1
+                        
+                    except Exception as e:
+                        error_count += 1
+                        logger.debug(f"处理 {symbol} 数据失败: {e}")
+                
+                elapsed = time.time() - start_time
+                logger.info(f"{exchange_name} 采集完成: {len(futures_symbols)} 个期货币种, 成功 {success_count}, 失败 {error_count}, 耗时 {elapsed:.2f}秒")
+                
+            except Exception as e:
+                logger.error(f"采集 {exchange_name} 价格数据失败: {e}")
 
+    def _collect_funding_rates(self):
+        """采集资金费率数据并存储到数据库（批量模式）"""
+        start_time = time.time()
+        timestamp = int(time.time() * 1000)
+        
+        for exchange_name, exchange in self.exchanges.items():
+            try:
+                # 获取该交易所支持期货的币种
+                exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
+                futures_symbols = exchange_support.get('futures', set())
+                
+                if not futures_symbols:
+                    continue
+                
+                logger.info(f"开始批量采集 {exchange_name} 的 {len(futures_symbols)} 个币种资金费率...")
+                
+                success_count = 0
+                error_count = 0
+                
+                # ⚡ 尝试批量获取资金费率
+                try:
+                    # 某些交易所支持批量获取资金费率
+                    # 例如：fetch_funding_rates() 或通过 fetch_tickers 包含资金费率
+                    all_funding_rates = {}
+                    
+                    # 方法1：尝试使用 fetch_funding_rates (如果支持)
+                    if hasattr(exchange.exchange, 'fetch_funding_rates'):
+                        all_funding_rates = exchange.exchange.fetch_funding_rates()
+                        logger.info(f"使用 fetch_funding_rates 批量获取了 {len(all_funding_rates)} 个资金费率")
+                    
+                    # 方法2：通过 fetch_tickers 获取（包含资金费率信息）
+                    elif hasattr(exchange.exchange, 'fetch_tickers'):
+                        all_tickers = exchange.exchange.fetch_tickers(params={'type': 'swap'})
+                        for symbol, ticker in all_tickers.items():
+                            base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                            if base_symbol in futures_symbols and 'info' in ticker:
+                                # 从ticker的info中提取资金费率（交易所特定）
+                                info = ticker.get('info', {})
+                                funding_rate = info.get('fundingRate') or info.get('funding_rate')
+                                if funding_rate is not None:
+                                    all_funding_rates[base_symbol] = {
+                                        'funding_rate': float(funding_rate),
+                                        'next_funding_time': info.get('nextFundingTime') or info.get('next_funding_time')
+                                    }
+                        logger.info(f"通过 fetch_tickers 提取了 {len(all_funding_rates)} 个资金费率")
+                    
+                    # 批量处理结果
+                    if all_funding_rates:
+                        for symbol, funding_data in all_funding_rates.items():
+                            try:
+                                # 标准化symbol格式
+                                base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                                
+                                if base_symbol not in futures_symbols:
+                                    continue
+                                
+                                # 更新内存中的数据
+                                if base_symbol not in self.market_data:
+                                    self.market_data[base_symbol] = {}
+                                if exchange_name not in self.market_data[base_symbol]:
+                                    self.market_data[base_symbol][exchange_name] = {}
+                                
+                                # 处理不同的数据格式
+                                if isinstance(funding_data, dict):
+                                    funding_rate = funding_data.get('fundingRate') or funding_data.get('funding_rate')
+                                    next_funding_time = funding_data.get('nextFundingTime') or funding_data.get('next_funding_time')
+                                else:
+                                    funding_rate = funding_data
+                                    next_funding_time = None
+                                
+                                self.market_data[base_symbol][exchange_name]['funding_rate'] = funding_rate
+                                self.market_data[base_symbol][exchange_name]['next_funding_time'] = next_funding_time
+                                
+                                # 存储到数据库
+                                self.db.execute_query(
+                                    """
+                                    INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
+                                    VALUES (?, ?, ?, ?, ?)
+                                    ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
+                                        funding_rate = excluded.funding_rate,
+                                        next_funding_time = excluded.next_funding_time
+                                    """,
+                                    (exchange_name, base_symbol, timestamp, funding_rate, next_funding_time)
+                                )
+                                success_count += 1
+                                
+                            except Exception as e:
+                                error_count += 1
+                                logger.debug(f"处理 {symbol} 资金费率失败: {e}")
+                    
+                    else:
+                        # 如果批量获取失败，回退到逐个获取
+                        logger.warning(f"{exchange_name} 不支持批量获取资金费率，改为逐个获取...")
+                        for symbol in futures_symbols:
+                            try:
+                                funding_data = exchange.get_funding_rate(symbol)
+                                if funding_data and funding_data.get('funding_rate') is not None:
+                                    # 更新内存
+                                    if symbol not in self.market_data:
+                                        self.market_data[symbol] = {}
+                                    if exchange_name not in self.market_data[symbol]:
+                                        self.market_data[symbol][exchange_name] = {}
+                                    
+                                    self.market_data[symbol][exchange_name]['funding_rate'] = funding_data.get('funding_rate')
+                                    self.market_data[symbol][exchange_name]['next_funding_time'] = funding_data.get('next_funding_time')
+                                    
+                                    # 存储到数据库
+                                    self.db.execute_query(
+                                        """
+                                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time)
+                                        VALUES (?, ?, ?, ?, ?)
+                                        ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
+                                            funding_rate = excluded.funding_rate,
+                                            next_funding_time = excluded.next_funding_time
+                                        """,
+                                        (exchange_name, symbol, timestamp, funding_data.get('funding_rate'), funding_data.get('next_funding_time'))
+                                    )
+                                    success_count += 1
+                            except Exception as e:
+                                error_count += 1
+                                logger.debug(f"Error collecting funding rate for {symbol}: {e}")
+                
                 except Exception as e:
-                    logger.debug(f"Error collecting funding rate for {symbol} on {exchange_name}: {e}")
-
-        logger.info(f"Collected funding rates for {len(symbols)} symbols")
+                    logger.error(f"批量获取 {exchange_name} 资金费率失败: {e}")
+                    error_count = len(futures_symbols)
+                
+                elapsed = time.time() - start_time
+                logger.info(f"{exchange_name} 资金费率采集完成: {len(futures_symbols)} 个币种, 成功 {success_count}, 失败 {error_count}, 耗时 {elapsed:.2f}秒")
+                
+            except Exception as e:
+                logger.error(f"采集 {exchange_name} 资金费率时出错: {e}")
 
     def _get_monitored_symbols(self) -> List[str]:
         """获取需要监控的交易对列表"""
