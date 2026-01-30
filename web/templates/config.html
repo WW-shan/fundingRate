@@ -1125,11 +1125,14 @@
                 (config.strategy3.stop_loss_pct || 0.05) * 100
               ).toFixed(2);
               document.getElementById("strategy3_check_basis").value = String(
-                 config.strategy3.check_basis !== undefined ? config.strategy3.check_basis : true
+                config.strategy3.check_basis !== undefined
+                  ? config.strategy3.check_basis
+                  : true,
               ).toLowerCase();
-              document.getElementById("strategy3_short_exit_threshold").value = (
-                (config.strategy3.short_exit_threshold || 0.0) * 100
-              ).toFixed(3);
+              document.getElementById("strategy3_short_exit_threshold").value =
+                ((config.strategy3.short_exit_threshold || 0.0) * 100).toFixed(
+                  3,
+                );
               document.getElementById("strategy3_long_exit_threshold").value = (
                 (config.strategy3.long_exit_threshold || 0.0) * 100
               ).toFixed(3);
@@ -1161,7 +1164,7 @@
         if (saveBtn.disabled) return;
         saveBtn.disabled = true;
         saveBtn.textContent = "⏳ 保存中...";
-        
+
         try {
           const updates = [
             // 全局配置
@@ -1170,291 +1173,314 @@
               key: "total_capital",
               value: parseFloat(document.getElementById("total_capital").value),
             },
-          {
-            category: "global",
-            key: "max_capital_usage",
-            value: parseFloat(
-              document.getElementById("max_capital_usage").value,
-            ),
-          },
-          {
-            category: "global",
-            key: "max_positions",
-            value: parseInt(document.getElementById("max_positions").value),
-          },
-          {
-            category: "global",
-            key: "price_refresh_interval",
-            value: parseInt(
-              document.getElementById("price_refresh_interval").value,
-            ),
-          },
-          {
-            category: "global",
-            key: "funding_refresh_interval",
-            value: parseInt(
-              document.getElementById("funding_refresh_interval").value,
-            ),
-          },
-          {
-            category: "global",
-            key: "opportunity_scan_interval",
-            value: parseInt(
-              document.getElementById("opportunity_scan_interval").value,
-            ),
-          },
-          // 策略1 配置
-          {
-            category: "strategy1",
-            key: "enabled",
-            value:
-              document.getElementById("strategy1_enabled").value === "true",
-          },
-          {
-            category: "strategy1",
-            key: "execution_mode",
-            value: document.getElementById("strategy1_execution_mode").value,
-          },
-          {
-            category: "strategy1",
-            key: "position_size",
-            value: parseFloat(
-              document.getElementById("strategy1_position_size").value,
-            ),
-          },
-          // 百分比字段：前端输入百分比，后端存小数
-          {
-            category: "strategy1",
-            key: "min_funding_diff",
-            value:
-              parseFloat(
-                document.getElementById("strategy1_min_funding_diff").value,
-              ) / 100,
-          },
-          {
-            category: "strategy1",
-            key: "min_profit_rate",
-            value:
-              parseFloat(
-                document.getElementById("strategy1_min_profit_rate").value,
-              ) / 100,
-          },
-          {
-            category: "strategy1",
-            key: "max_price_diff",
-            value:
-              parseFloat(
-                document.getElementById("strategy1_max_price_diff").value,
-              ) / 100,
-          },
-          {
-            category: "strategy1",
-            key: "max_position_size",
-            value: parseFloat(
-              document.getElementById("strategy1_max_position_size").value,
-            ),
-          },
-          // 策略2A 配置
-          {
-            category: "strategy2a",
-            key: "enabled",
-            value:
-              document.getElementById("strategy2a_enabled").value === "true",
-          },
-          {
-            category: "strategy2a",
-            key: "execution_mode",
-            value: document.getElementById("strategy2a_execution_mode").value,
-          },
-          {
-            category: "strategy2a",
-            key: "position_size",
-            value: parseFloat(
-              document.getElementById("strategy2a_position_size").value,
-            ),
-          },
-          // 百分比字段：前端输入百分比，后端存小数
-          {
-            category: "strategy2a",
-            key: "min_funding_rate",
-            value:
-              parseFloat(
-                document.getElementById("strategy2a_min_funding_rate").value,
-              ) / 100,
-          },
-          {
-            category: "strategy2a",
-            key: "max_basis_deviation",
-            value:
-              parseFloat(
-                document.getElementById("strategy2a_max_basis_deviation").value,
-              ) / 100,
-          },
-          {
-            category: "strategy2a",
-            key: "min_annual_net_return",
-            value:
-              parseFloat(
-                document.getElementById("strategy2a_min_annual_net_return")
-                  .value,
-              ) / 100,
-          },
-          {
-            category: "strategy2a",
-            key: "max_position_size",
-            value: parseFloat(
-              document.getElementById("strategy2a_max_position_size").value,
-            ),
-          },
-          // 策略2B 配置
-          {
-            category: "strategy2b",
-            key: "enabled",
-            value:
-              document.getElementById("strategy2b_enabled").value === "true",
-          },
-          {
-            category: "strategy2b",
-            key: "execution_mode",
-            value: document.getElementById("strategy2b_execution_mode").value,
-          },
-          {
-            category: "strategy2b",
-            key: "position_size",
-            value: parseFloat(
-              document.getElementById("strategy2b_position_size").value,
-            ),
-          },
-          // 百分比字段：前端输入百分比，后端存小数
-          {
-            category: "strategy2b",
-            key: "min_basis",
-            value:
-              parseFloat(
-                document.getElementById("strategy2b_min_basis").value,
-              ) / 100,
-          },
-          {
-            category: "strategy2b",
-            key: "target_return",
-            value: parseFloat(
-              document.getElementById("strategy2b_target_return").value,
-            ),
-          },
-          {
-            category: "strategy2b",
-            key: "max_hold_days",
-            value: parseInt(
-              document.getElementById("strategy2b_max_hold_days").value,
-            ),
-          },
-          // 策略3 配置
-          {
-            category: "strategy3",
-            key: "enabled",
-            value: document.getElementById("strategy3_enabled").value === "true",
-          },
-          {
-            category: "strategy3",
-            key: "position_pct",
-            value: parseFloat(document.getElementById("strategy3_position_pct").value) / 100,
-          },
-          {
-            category: "strategy3",
-            key: "min_funding_rate",
-            value: parseFloat(document.getElementById("strategy3_min_funding_rate").value) / 100,
-          },
-          {
-            category: "strategy3",
-            key: "stop_loss_pct",
-            value: parseFloat(document.getElementById("strategy3_stop_loss_pct").value) / 100,
-          },
-          {
-            category: "strategy3",
-            key: "check_basis",
-            value: document.getElementById("strategy3_check_basis").value === "true",
-          },
-          {
-            category: "strategy3",
-            key: "short_exit_threshold",
-            value: parseFloat(document.getElementById("strategy3_short_exit_threshold").value) / 100,
-          },
-          {
-            category: "strategy3",
-            key: "long_exit_threshold",
-            value: parseFloat(document.getElementById("strategy3_long_exit_threshold").value) / 100,
-          },
-          // 风控配置 - 百分比字段：前端输入百分比，后端存小数
-          {
-            category: "risk",
-            key: "max_loss_per_trade",
-            value:
-              parseFloat(
-                document.getElementById("risk_max_loss_per_trade").value,
-              ) / 100,
-          },
-          {
-            category: "risk",
-            key: "max_drawdown",
-            value:
-              parseFloat(document.getElementById("risk_max_drawdown").value) /
-              100,
-          },
-          {
-            category: "risk",
-            key: "max_position_per_exchange",
-            value: parseFloat(
-              document.getElementById("risk_max_position_per_exchange").value,
-            ),
-          },
-          {
-            category: "risk",
-            key: "dynamic_position_enabled",
-            value:
-              document.getElementById("risk_dynamic_position_enabled").value ===
-              "true",
-          },
-        ];
+            {
+              category: "global",
+              key: "max_capital_usage",
+              value: parseFloat(
+                document.getElementById("max_capital_usage").value,
+              ),
+            },
+            {
+              category: "global",
+              key: "max_positions",
+              value: parseInt(document.getElementById("max_positions").value),
+            },
+            {
+              category: "global",
+              key: "price_refresh_interval",
+              value: parseInt(
+                document.getElementById("price_refresh_interval").value,
+              ),
+            },
+            {
+              category: "global",
+              key: "funding_refresh_interval",
+              value: parseInt(
+                document.getElementById("funding_refresh_interval").value,
+              ),
+            },
+            {
+              category: "global",
+              key: "opportunity_scan_interval",
+              value: parseInt(
+                document.getElementById("opportunity_scan_interval").value,
+              ),
+            },
+            // 策略1 配置
+            {
+              category: "strategy1",
+              key: "enabled",
+              value:
+                document.getElementById("strategy1_enabled").value === "true",
+            },
+            {
+              category: "strategy1",
+              key: "execution_mode",
+              value: document.getElementById("strategy1_execution_mode").value,
+            },
+            {
+              category: "strategy1",
+              key: "position_size",
+              value: parseFloat(
+                document.getElementById("strategy1_position_size").value,
+              ),
+            },
+            // 百分比字段：前端输入百分比，后端存小数
+            {
+              category: "strategy1",
+              key: "min_funding_diff",
+              value:
+                parseFloat(
+                  document.getElementById("strategy1_min_funding_diff").value,
+                ) / 100,
+            },
+            {
+              category: "strategy1",
+              key: "min_profit_rate",
+              value:
+                parseFloat(
+                  document.getElementById("strategy1_min_profit_rate").value,
+                ) / 100,
+            },
+            {
+              category: "strategy1",
+              key: "max_price_diff",
+              value:
+                parseFloat(
+                  document.getElementById("strategy1_max_price_diff").value,
+                ) / 100,
+            },
+            {
+              category: "strategy1",
+              key: "max_position_size",
+              value: parseFloat(
+                document.getElementById("strategy1_max_position_size").value,
+              ),
+            },
+            // 策略2A 配置
+            {
+              category: "strategy2a",
+              key: "enabled",
+              value:
+                document.getElementById("strategy2a_enabled").value === "true",
+            },
+            {
+              category: "strategy2a",
+              key: "execution_mode",
+              value: document.getElementById("strategy2a_execution_mode").value,
+            },
+            {
+              category: "strategy2a",
+              key: "position_size",
+              value: parseFloat(
+                document.getElementById("strategy2a_position_size").value,
+              ),
+            },
+            // 百分比字段：前端输入百分比，后端存小数
+            {
+              category: "strategy2a",
+              key: "min_funding_rate",
+              value:
+                parseFloat(
+                  document.getElementById("strategy2a_min_funding_rate").value,
+                ) / 100,
+            },
+            {
+              category: "strategy2a",
+              key: "max_basis_deviation",
+              value:
+                parseFloat(
+                  document.getElementById("strategy2a_max_basis_deviation")
+                    .value,
+                ) / 100,
+            },
+            {
+              category: "strategy2a",
+              key: "min_annual_net_return",
+              value:
+                parseFloat(
+                  document.getElementById("strategy2a_min_annual_net_return")
+                    .value,
+                ) / 100,
+            },
+            {
+              category: "strategy2a",
+              key: "max_position_size",
+              value: parseFloat(
+                document.getElementById("strategy2a_max_position_size").value,
+              ),
+            },
+            // 策略2B 配置
+            {
+              category: "strategy2b",
+              key: "enabled",
+              value:
+                document.getElementById("strategy2b_enabled").value === "true",
+            },
+            {
+              category: "strategy2b",
+              key: "execution_mode",
+              value: document.getElementById("strategy2b_execution_mode").value,
+            },
+            {
+              category: "strategy2b",
+              key: "position_size",
+              value: parseFloat(
+                document.getElementById("strategy2b_position_size").value,
+              ),
+            },
+            // 百分比字段：前端输入百分比，后端存小数
+            {
+              category: "strategy2b",
+              key: "min_basis",
+              value:
+                parseFloat(
+                  document.getElementById("strategy2b_min_basis").value,
+                ) / 100,
+            },
+            {
+              category: "strategy2b",
+              key: "target_return",
+              value: parseFloat(
+                document.getElementById("strategy2b_target_return").value,
+              ),
+            },
+            {
+              category: "strategy2b",
+              key: "max_hold_days",
+              value: parseInt(
+                document.getElementById("strategy2b_max_hold_days").value,
+              ),
+            },
+            // 策略3 配置
+            {
+              category: "strategy3",
+              key: "enabled",
+              value:
+                document.getElementById("strategy3_enabled").value === "true",
+            },
+            {
+              category: "strategy3",
+              key: "position_pct",
+              value:
+                parseFloat(
+                  document.getElementById("strategy3_position_pct").value,
+                ) / 100,
+            },
+            {
+              category: "strategy3",
+              key: "min_funding_rate",
+              value:
+                parseFloat(
+                  document.getElementById("strategy3_min_funding_rate").value,
+                ) / 100,
+            },
+            {
+              category: "strategy3",
+              key: "stop_loss_pct",
+              value:
+                parseFloat(
+                  document.getElementById("strategy3_stop_loss_pct").value,
+                ) / 100,
+            },
+            {
+              category: "strategy3",
+              key: "check_basis",
+              value:
+                document.getElementById("strategy3_check_basis").value ===
+                "true",
+            },
+            {
+              category: "strategy3",
+              key: "short_exit_threshold",
+              value:
+                parseFloat(
+                  document.getElementById("strategy3_short_exit_threshold")
+                    .value,
+                ) / 100,
+            },
+            {
+              category: "strategy3",
+              key: "long_exit_threshold",
+              value:
+                parseFloat(
+                  document.getElementById("strategy3_long_exit_threshold")
+                    .value,
+                ) / 100,
+            },
+            // 风控配置 - 百分比字段：前端输入百分比，后端存小数
+            {
+              category: "risk",
+              key: "max_loss_per_trade",
+              value:
+                parseFloat(
+                  document.getElementById("risk_max_loss_per_trade").value,
+                ) / 100,
+            },
+            {
+              category: "risk",
+              key: "max_drawdown",
+              value:
+                parseFloat(document.getElementById("risk_max_drawdown").value) /
+                100,
+            },
+            {
+              category: "risk",
+              key: "max_position_per_exchange",
+              value: parseFloat(
+                document.getElementById("risk_max_position_per_exchange").value,
+              ),
+            },
+            {
+              category: "risk",
+              key: "dynamic_position_enabled",
+              value:
+                document.getElementById("risk_dynamic_position_enabled")
+                  .value === "true",
+            },
+          ];
 
-        let success = true;
-        let errors = [];
+          let success = true;
+          let errors = [];
 
-        for (const update of updates) {
-          try {
-            const response = await fetch("/api/config/update", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(update),
-            });
-            const result = await response.json();
-            if (!result.success) {
+          for (const update of updates) {
+            try {
+              const response = await fetch("/api/config/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(update),
+              });
+              const result = await response.json();
+              if (!result.success) {
+                success = false;
+                errors.push(
+                  `${update.category}.${update.key}: ${result.error}`,
+                );
+              }
+            } catch (error) {
               success = false;
-              errors.push(`${update.category}.${update.key}: ${result.error}`);
+              errors.push(`${update.category}.${update.key}: ${error.message}`);
             }
-          } catch (error) {
-            success = false;
-            errors.push(`${update.category}.${update.key}: ${error.message}`);
           }
-        }
 
-        if (success) {
-          showAlert("✅ 配置保存成功！更改将立即生效", "success");
-        } else {
-          showAlert("❌ 配置保存失败:\n" + errors.join("\n"), "error");
+          if (success) {
+            showAlert("✅ 配置保存成功！更改将立即生效", "success");
+          } else {
+            showAlert("❌ 配置保存失败:\n" + errors.join("\n"), "error");
+          }
+        } catch (error) {
+          console.error("保存配置时出错:", error);
+          showAlert("❌ 保存配置时出错: " + error.message, "error");
+        } finally {
+          // 恢复按钮状态
+          saveBtn.disabled = false;
+          saveBtn.textContent = "💾 保存所有配置";
         }
-      } catch (error) {
-        console.error("保存配置时出错:", error);
-        showAlert("❌ 保存配置时出错: " + error.message, "error");
-      } finally {
-        // 恢复按钮状态
-        saveBtn.disabled = false;
-        saveBtn.textContent = "💾 保存所有配置";
       }
-    }
 
       function showAlert(message, type, autoDismiss = true) {
         console.log("showAlert called:", message, type); // 调试日志
-        
+
         // 使用 setTimeout 确保在当前执行栈完成后显示弹窗
         setTimeout(() => {
           const alertModal = document.getElementById("alertModal");
@@ -1483,7 +1509,7 @@
           alertCloseBtn.className = `alert-modal-close ${type}`;
 
           // 强制触发重绘，确保显示
-          alertModal.style.display = 'flex';
+          alertModal.style.display = "flex";
           alertModal.classList.add("show");
           console.log("Modal should now be visible"); // 调试日志
 
@@ -1500,7 +1526,7 @@
         const alertModal = document.getElementById("alertModal");
         if (alertModal) {
           alertModal.classList.remove("show");
-          alertModal.style.display = 'none';
+          alertModal.style.display = "none";
         }
       }
 
