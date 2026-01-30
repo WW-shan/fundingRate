@@ -234,38 +234,34 @@ def create_app(config_manager, db_manager, data_collector, opportunity_monitor, 
                 configs['strategy1'] = {
                     'enabled': config_manager.get('strategy1', 'enabled', True),
                     'execution_mode': config_manager.get('strategy1', 'execution_mode', 'auto'),
-                    'position_size': config_manager.get('strategy1', 'position_size', 10000),
+                    'position_size': config_manager.get('strategy1', 'position_size', 10),
                     'min_funding_diff': config_manager.get('strategy1', 'min_funding_diff', 0.0005),
-                    'min_profit_rate': config_manager.get('strategy1', 'min_profit_rate', 0.0003),
                     'max_price_diff': config_manager.get('strategy1', 'max_price_diff', 0.02),
-                    'max_position_size': config_manager.get('strategy1', 'max_position_size', 15000),
+                    'max_position_size': config_manager.get('strategy1', 'max_position_size', 15),
                 }
                 
                 # 策略2A配置
                 configs['strategy2a'] = {
                     'enabled': config_manager.get('strategy2a', 'enabled', True),
                     'execution_mode': config_manager.get('strategy2a', 'execution_mode', 'auto'),
-                    'position_size': config_manager.get('strategy2a', 'position_size', 10000),
-                    'min_funding_rate': config_manager.get('strategy2a', 'min_funding_rate', 0.30),
+                    'position_size': config_manager.get('strategy2a', 'position_size', 10),
+                    'min_funding_rate': config_manager.get('strategy2a', 'min_funding_rate', 0.0005),
                     'max_basis_deviation': config_manager.get('strategy2a', 'max_basis_deviation', 0.01),
-                    'max_position_size': config_manager.get('strategy2a', 'max_position_size', 15000),
+                    'max_position_size': config_manager.get('strategy2a', 'max_position_size', 15),
                 }
                 
                 # 策略2B配置
                 configs['strategy2b'] = {
                     'enabled': config_manager.get('strategy2b', 'enabled', True),
                     'execution_mode': config_manager.get('strategy2b', 'execution_mode', 'manual'),
-                    'position_size': config_manager.get('strategy2b', 'position_size', 8000),
+                    'position_size': config_manager.get('strategy2b', 'position_size', 8),
                     'min_basis': config_manager.get('strategy2b', 'min_basis', 0.02),
-                    'target_return': config_manager.get('strategy2b', 'target_return', 0.015),
-                    'max_hold_days': config_manager.get('strategy2b', 'max_hold_days', 7),
                 }
                 
                 # 风控配置
                 configs['risk'] = {
-                    'max_loss_per_trade': config_manager.get('risk', 'max_loss_per_trade', 0.02),
+                    'max_position_size_per_trade': config_manager.get('risk', 'max_position_size_per_trade', 30),
                     'max_drawdown': config_manager.get('risk', 'max_drawdown', 0.10),
-                    'max_position_per_exchange': config_manager.get('risk', 'max_position_per_exchange', 30000),
                     'dynamic_position_enabled': config_manager.get('risk', 'dynamic_position_enabled', True),
                 }
                 

@@ -125,6 +125,10 @@
         background: #fef3c7;
         color: #92400e;
       }
+      .badge-strategy3 {
+        background: #e0e7ff;
+        color: #4338ca;
+      }
       .badge-high {
         background: #4ade80;
         color: white;
@@ -555,6 +559,7 @@
           funding_rate_cross_exchange: "策略1：跨交易所套利",
           funding_rate_spot_futures: "策略2A：现货期货套利",
           basis_arbitrage: "策略2B：基差套利",
+          directional_funding: "策略3：单边资金费率趋势",
         };
         return types[type] || type;
       }
@@ -563,6 +568,7 @@
         if (type === "funding_rate_cross_exchange") return "badge-strategy1";
         if (type === "funding_rate_spot_futures") return "badge-strategy2a";
         if (type === "basis_arbitrage") return "badge-strategy2b";
+        if (type === "directional_funding") return "badge-strategy3";
         return "";
       }
 
@@ -579,6 +585,10 @@
           return `${opp.exchange?.toUpperCase()} 现货做多 + 期货做空`;
         } else if (opp.type === "basis_arbitrage") {
           return `${opp.exchange?.toUpperCase()} 基差套利`;
+        } else if (opp.type === "directional_funding") {
+          const directionText =
+            opp.direction === "short" ? "做空收取资金费率" : "做多收取资金费率";
+          return `${opp.exchange?.toUpperCase()} ${directionText}`;
         }
         return "-";
       }
@@ -813,6 +823,87 @@
                                 : "-"
                             }
                         </div>
+                    </div>
+`;
+        } else if (opp.type === "directional_funding") {
+          // 策略3：单边资金费率趋势策略
+          const fundingFreqHours = opp.funding_frequency_hours || 8;
+          const timesPerDay = opp.times_per_day || 3;
+          const holdingDays = opp.details?.holding_days || 7;
+
+          // 单期资金费率（使用funding_rate字段）
+          const singleFundingRate = opp.funding_rate || 0;
+          const singleFundingRatePct = (singleFundingRate * 100).toFixed(4);
+
+          // 年化资金费率
+          const annualFundingRate = opp.annual_funding_rate || 0;
+          const annualFundingRatePct = (annualFundingRate * 100).toFixed(2);
+
+          // 预期净收益率（已经是百分比形式）
+          const expectedReturnPct = opp.expected_return_pct || 0;
+          const expectedReturn = opp.expected_return || 0;
+
+          // 方向标识
+          const directionIcon = opp.direction === "short" ? "📉" : "📈";
+          const directionText =
+            opp.direction === "short"
+              ? "做空 (收取资金费率)"
+              : "做多 (收取资金费率)";
+          const directionColor =
+            opp.direction === "short" ? "#ef4444" : "#10b981";
+
+          // 动态调整价格小数位
+          const getPriceDecimals = (price) => {
+            if (!price) return 2;
+            if (price >= 10000) return 2;
+            if (price >= 1000) return 3;
+            if (price >= 100) return 4;
+            if (price >= 1) return 5;
+            return 6;
+          };
+
+          const priceDecimals = getPriceDecimals(opp.entry_price);
+
+          html += `
+                    <div class="detail-item">
+                        <div class="detail-label">交易方向</div>
+                        <div class="detail-value" style="color: ${directionColor}; font-weight: 600; font-size: 16px;">
+                            ${directionIcon} ${directionText}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">单期资金费率</div>
+                        <div class="detail-value" style="color: ${parseFloat(singleFundingRatePct) >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">
+                            ${singleFundingRatePct}%
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率周期</div>
+                        <div class="detail-value" style="color: #6b7280;">每${fundingFreqHours}小时 · ${timesPerDay}次/天</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">资金费率（年化）</div>
+                        <div class="detail-value" style="color: #10b981; font-weight: 600;">
+                            ${annualFundingRatePct}%
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">预期收益（${holdingDays}天）</div>
+                        <div class="detail-value" style="color: #10b981;">
+                            ${expectedReturn.toFixed(2)} USDT (${expectedReturnPct.toFixed(3)}%)
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">建议持仓周期</div>
+                        <div class="detail-value" style="color: #6b7280;">${holdingDays} 天</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">入场价格</div>
+                        <div class="detail-value" style="font-family: 'Courier New', monospace; color: ${directionColor};">\$${opp.entry_price ? opp.entry_price.toFixed(priceDecimals) : "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">仓位规模</div>
+                        <div class="detail-value" style="color: #6b7280;">${opp.position_size?.toFixed(2) || 0} USDT</div>
                     </div>
                 `;
         }

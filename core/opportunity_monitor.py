@@ -4,7 +4,7 @@
 """
 import time
 import threading
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from loguru import logger
 from config import ConfigManager
@@ -48,12 +48,6 @@ class OpportunityMonitor:
     def register_callback(self, callback):
         """注册机会发现回调函数"""
         self.opportunity_callbacks.append(callback)
-
-    def get_opportunities(self, limit: int = None) -> List[Dict[str, Any]]:
-        """获取当前机会列表"""
-        if limit:
-            return self.opportunities[:limit]
-        return self.opportunities.copy()
 
     def _get_funding_frequency(self, long_data: Dict, short_data: Dict) -> int:
         """从两个交易所数据中获取资金费率频率（小时）"""
@@ -259,7 +253,6 @@ class OpportunityMonitor:
         # 获取配置
         pair_config = self.config.get_pair_config(symbol, strategy_prefix='s1')
         min_funding_diff = pair_config.get('s1_min_funding_diff', 0.0005)
-        min_profit_rate = self.config.get('strategy1', 'min_profit_rate', 0.0003)
         position_size = pair_config.get('s1_position_size', 10000)
         max_price_diff = self.config.get('strategy1', 'max_price_diff', 0.02)
 
@@ -314,9 +307,6 @@ class OpportunityMonitor:
                         long_slippage=long_slippage,
                         short_slippage=short_slippage
                     )
-
-                    if profit['net_profit_pct'] < min_profit_rate:
-                        continue
 
                     # 计算评分
                     score = calculate_score(
@@ -382,7 +372,7 @@ class OpportunityMonitor:
 
                 # 获取配置
                 pair_config = self.config.get_pair_config(symbol, exchange, 's2a')
-                min_funding_rate = pair_config.get('s2a_min_funding_rate', 0.05)  # 年化5% (原来是30%太高了)
+                min_funding_rate = pair_config.get('s2a_min_funding_rate', 0.0005)  # 单次费率0.05%
                 max_basis_deviation = pair_config.get('s2a_max_basis_deviation', 0.01)
                 position_size = pair_config.get('s2a_position_size', 10000)
 
@@ -390,14 +380,11 @@ class OpportunityMonitor:
                 funding_frequency_hours = self._get_funding_frequency_single(data, exchange)
                 times_per_day = 24 / funding_frequency_hours
 
-                # 计算年化资金费率
-                annual_funding_rate = data['funding_rate'] * times_per_day * 365
-
                 # 策略2A只做正费率(做空期货收费)的情况
                 # 负费率需要反向操作(做空现货+做多期货),暂不支持
-                if annual_funding_rate < min_funding_rate:
+                if data['funding_rate'] < min_funding_rate:
                     low_funding += 1
-                    logger.debug(f"策略2A {exchange} {symbol}: 年化资金费率{annual_funding_rate:.2%} < {min_funding_rate:.2%}, 跳过")
+                    logger.debug(f"策略2A {exchange} {symbol}: 单次资金费率{data['funding_rate']:.4%} < {min_funding_rate:.4%}, 跳过")
                     continue
 
                 # 计算基差(使用实际交易价格:期货做空价 - 现货买入价)
@@ -418,23 +405,13 @@ class OpportunityMonitor:
                     futures_maker_fee=data['maker_fee']
                 )
 
-                # 改为年化净收益检查:允许单期小亏,但年化必须为正
-                # 年化净收益计算:
-                # - 年化资金费收入 = funding_rate * times_per_day * 3 (3天收益预估)
-                # - 开平仓总成本 = maker_fee * 4 (现货买卖各1次 + 期货买卖各1次，总共4笔，只算一次)
-                # - 年化净收益率 = 年化资金费收入 - 开平仓成本
-                # 注意：开平仓成本是一次性的，不是每天都有
-                annual_net_return = (data['funding_rate'] * times_per_day * 3) - (data['maker_fee'] * 4)
-                min_annual_net_return = float(self.config.get('strategy2a', 'min_annual_net_return', 0.001))
-
-                if annual_net_return < min_annual_net_return:
-                    low_net_return += 1
-                    continue
-
                 # 通过所有检查,生成机会
-                # 计算评分 (使用年化净收益而不是单期收益)
+                # 计算年化资金费率用于评分和显示
+                annual_funding_rate = data['funding_rate'] * times_per_day * 365
+                
+                # 计算评分 (使用单次资金费率)
                 score = calculate_score(
-                    annual_net_return,  # 改用年化净收益
+                    data['funding_rate'],  # 使用单次资金费率
                     abs(basis),
                     annual_funding_rate
                 )
@@ -457,7 +434,6 @@ class OpportunityMonitor:
                     'position_size': position_size,
                     'expected_return': profit['net_profit'],  # 单期净收益（USDT）
                     'expected_return_pct': profit['net_profit_pct'],  # 单期净收益率
-                    'annual_net_return': annual_net_return,  # 年化净收益率
                     'spot_price': data['spot_ask'],  # 现货价格（买入价）
                     'futures_price': data['futures_bid'],  # 期货价格（做空价）
                     'spot_entry_price': data['spot_ask'],  # 现货开仓价（买入价）
@@ -467,7 +443,7 @@ class OpportunityMonitor:
                     'status': 'pending'
                 }
 
-                logger.info(f"✅ 发现策略2A机会: {exchange} {symbol} 年化{annual_funding_rate:.2%} 净收益{annual_net_return:.2%} 基差{basis:.4%}")
+                logger.info(f"✅ 发现策略2A机会: {exchange} {symbol} 年化{annual_funding_rate:.2%} 单次{data['funding_rate']:.4%} 基差{basis:.4%}")
                 opportunities.append(opportunity)
 
             except Exception as e:
@@ -587,11 +563,7 @@ class OpportunityMonitor:
                 pair_config = self.config.get_pair_config(symbol, exchange, 's3')
                 min_funding_rate = pair_config.get('s3_min_funding_rate', 0.0001)
                 check_basis = pair_config.get('s3_check_basis', True)
-
-                # 获取可用余额（这里需要与交易所交互获取，暂时使用配置的百分比计算名义仓位）
-                total_capital = self.config.get('global', 'total_capital', 10000)
-                position_pct = pair_config.get('s3_position_pct', 0.1)
-                position_size = total_capital * position_pct
+                position_size = max(pair_config.get('s3_position_size', 10), 5)  # 固定金额，最小5 USDT
 
                 funding_rate = data['funding_rate']
 
@@ -659,6 +631,8 @@ class OpportunityMonitor:
                     'direction': direction,
                     'funding_rate': funding_rate,
                     'annual_funding_rate': annual_funding_rate,
+                    'funding_frequency_hours': funding_frequency_hours,  # 提升到顶层
+                    'times_per_day': times_per_day,  # 提升到顶层
                     'position_size': position_size,
                     'entry_price': entry_price,
                     'expected_return': position_size * (net_return_pct / 100), # 估算
@@ -666,8 +640,6 @@ class OpportunityMonitor:
                     'detected_at': datetime.now().isoformat(),
                     'status': 'pending',
                     'details': {
-                        'funding_frequency_hours': funding_frequency_hours,
-                        'times_per_day': times_per_day,
                         'holding_days': holding_days
                     }
                 }
@@ -679,7 +651,7 @@ class OpportunityMonitor:
 
         return opportunities
 
-    def get_opportunities(self, limit: int = None, min_score: float = None) -> List[Dict[str, Any]]:
+    def get_opportunities(self, limit: Optional[int] = None, min_score: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         获取机会列表
         limit: 返回数量限制

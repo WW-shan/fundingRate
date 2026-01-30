@@ -350,9 +350,21 @@ class StrategyExecutor:
             position_size = opportunity['position_size']
             direction = opportunity['direction'] # 'long' or 'short'
 
-            # 计算数量
+            # 检查最小订单金额（交易所最小要求 5 USDT）
+            if position_size < 5:
+                logger.warning(f"订单金额 {position_size} USDT 小于最小要求 5 USDT，跳过执行")
+                return {'success': False, 'error': f'订单金额小于最小要求 5 USDT'}
+
+            # 计算数量（确保精度足够，避免订单价值低于5 USDT）
             entry_price = opportunity['entry_price']
             amount = position_size / entry_price
+            
+            # 验证计算出的amount对应的订单价值
+            estimated_value = amount * entry_price
+            if estimated_value < 5:
+                # 如果因为精度问题导致价值不足，增加amount
+                amount = 5.0 / entry_price
+                logger.warning(f"调整amount以确保订单价值≥5 USDT: {amount} @ {entry_price} = {amount * entry_price:.2f} USDT")
 
             # 确定订单方向
             # 如果是short策略，我们要开空单 -> side='sell'
@@ -545,6 +557,12 @@ class StrategyExecutor:
 
                 for position in positions:
                     strategy_type = position['strategy_type']
+                    
+                    # 检查是否需要紧急平仓
+                    if position['status'] == 'emergency_close_pending':
+                        logger.warning(f"🚨 执行紧急平仓 Position #{position['id']}")
+                        self.close_position(position['id'])
+                        continue
 
                     if strategy_type == 'directional_funding':
                         self._check_directional_position(position)

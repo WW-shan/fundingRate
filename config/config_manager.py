@@ -115,19 +115,18 @@ class ConfigManager:
             'strategy2b_enabled': True,
             's1_execution_mode': 'auto',
             's1_min_funding_diff': self.get('strategy1', 'min_funding_diff', 0.0005),
-            's1_position_size': self.get('strategy1', 'position_size', 10000),
+            's1_position_size': self.get('strategy1', 'position_size', 10),
             's1_target_exchanges': ['binance', 'okx', 'bybit'],
             's2a_execution_mode': 'auto',
-            's2a_min_funding_rate': self.get('strategy2a', 'min_funding_rate', 0.05),
-            's2a_position_size': self.get('strategy2a', 'position_size', 10000),
+            's2a_min_funding_rate': self.get('strategy2a', 'min_funding_rate', 0.0005),  # 单次费率0.05%
+            's2a_position_size': self.get('strategy2a', 'position_size', 10),
             's2a_max_basis_deviation': self.get('strategy2a', 'max_basis_deviation', 0.01),
             's2b_execution_mode': 'manual',
             's2b_min_basis': self.get('strategy2b', 'min_basis', 0.02),
-            's2b_position_size': self.get('strategy2b', 'position_size', 8000),
-            's2b_target_return': self.get('strategy2b', 'target_return', 0.015),
+            's2b_position_size': self.get('strategy2b', 'position_size', 8),
             's3_enabled': self.get('strategy3', 'enabled', False),
             's3_min_funding_rate': self.get('strategy3', 'min_funding_rate', 0.0001),
-            's3_position_pct': self.get('strategy3', 'position_pct', 0.1),
+            's3_position_size': self.get('strategy3', 'position_size', 10),
             's3_stop_loss_pct': self.get('strategy3', 'stop_loss_pct', 0.05),
             's3_check_basis': self.get('strategy3', 'check_basis', True),
             's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
@@ -142,7 +141,7 @@ class ConfigManager:
         logger.info("Initializing default configurations...")
 
         # 全局配置
-        self.set_default('global', 'total_capital', 100000, True, "总资金池（USDT）")
+        self.set_default('global', 'total_capital', 100, True, "总资金池（USDT）")
         self.set_default('global', 'max_capital_usage', 0.8, True, "最大资金使用率")
         self.set_default('global', 'max_positions', 10, True, "最大同时持仓数")
         self.set_default('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
@@ -152,44 +151,37 @@ class ConfigManager:
         # 策略1：跨交易所资金费率套利
         self.set_default('strategy1', 'enabled', True, True, "是否启用")
         self.set_default('strategy1', 'execution_mode', 'auto', True, "执行模式（auto/manual）")
-        self.set_default('strategy1', 'position_size', 10000, True, "默认开仓金额（USDT）")
-        self.set_default('strategy1', 'daily_return_target', 0.001, True, "目标日化收益率（小数）")
+        self.set_default('strategy1', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差（单期，0.05%）")
-        self.set_default('strategy1', 'min_profit_rate', 0.0003, True, "最小净收益率（单期）")
         self.set_default('strategy1', 'max_price_diff', 0.02, True, "最大价差容忍（2%）")
-        self.set_default('strategy1', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
+        self.set_default('strategy1', 'max_position_size', 15, True, "单笔最大仓位（USDT）")
 
         # 策略2A：现货期货资金费率套利
         self.set_default('strategy2a', 'enabled', True, True, "是否启用")
         self.set_default('strategy2a', 'execution_mode', 'auto', True, "执行模式")
-        self.set_default('strategy2a', 'position_size', 10000, True, "默认开仓金额（USDT）")
-        self.set_default('strategy2a', 'daily_return_target', 0.0008, True, "目标日化收益率（小数）")
-        self.set_default('strategy2a', 'min_funding_rate', 0.05, True, "最小年化费率（5%，建议0.05-0.30）")
+        self.set_default('strategy2a', 'position_size', 10, True, "默认开仓金额（USDT）")
+        self.set_default('strategy2a', 'min_funding_rate', 0.0005, True, "最小资金费率（单次，0.05%）")
         self.set_default('strategy2a', 'max_basis_deviation', 0.01, True, "基差安全范围（1%）")
-        self.set_default('strategy2a', 'max_position_size', 15000, True, "单笔最大仓位（USDT）")
+        self.set_default('strategy2a', 'max_position_size', 15, True, "单笔最大仓位（USDT）")
 
         # 策略2B：基差套利
         self.set_default('strategy2b', 'enabled', True, True, "是否启用")
         self.set_default('strategy2b', 'execution_mode', 'manual', False, "执行模式（固定为manual）")
-        self.set_default('strategy2b', 'position_size', 8000, True, "默认开仓金额（USDT）")
-        self.set_default('strategy2b', 'daily_return_target', 0.002, True, "目标日化收益率（仅用于配置计算辅助）")
+        self.set_default('strategy2b', 'position_size', 8, True, "默认开仓金额（USDT）")
         self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差（筛选阈值）")
-        self.set_default('strategy2b', 'target_return', 0.015, True, "目标收益率（已废弃，保留用于向后兼容）")
-        self.set_default('strategy2b', 'max_hold_days', 7, True, "最大持仓天数")
 
         # 策略3：单边资金费率趋势策略
         self.set_default('strategy3', 'enabled', False, True, "是否启用")
         self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
-        self.set_default('strategy3', 'position_pct', 0.1, True, "仓位大小（余额百分比）")
+        self.set_default('strategy3', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy3', 'stop_loss_pct', 0.05, True, "止损比例（5%）")
         self.set_default('strategy3', 'check_basis', True, True, "是否检查基差方向")
         self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
         self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
 
         # 风控配置
-        self.set_default('risk', 'max_loss_per_trade', 0.02, True, "单笔最大亏损")
+        self.set_default('risk', 'max_position_size_per_trade', 30, True, "单笔最大仓位（USDT）")
         self.set_default('risk', 'max_drawdown', 0.10, True, "总资金最大回撤")
-        self.set_default('risk', 'max_position_per_exchange', 30000, True, "单交易所最大仓位")
         self.set_default('risk', 'warning_threshold', 0.005, True, "警告级别浮亏阈值")
         self.set_default('risk', 'critical_threshold', 0.010, True, "严重级别浮亏阈值")
         self.set_default('risk', 'emergency_threshold', 0.015, True, "紧急级别浮亏阈值")

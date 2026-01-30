@@ -78,9 +78,20 @@ class RiskManager:
             self._trigger_risk_event(
                 level='emergency',
                 event_type='position_loss',
-                description=f"Position #{position_id} 紧急预警：浮亏 {pnl_pct*100:.2f}%",
+                description=f"Position #{position_id} 紧急预警：浮亏 {pnl_pct*100:.2f}%，触发自动平仓",
                 position_id=position_id
             )
+            # 紧急情况下自动平仓
+            try:
+                logger.warning(f"🚨 触发紧急止损，自动平仓 Position #{position_id}")
+                # 这里需要从strategy_executor获取close_position方法
+                # 暂时只标记需要平仓，由外部处理
+                self.db.execute_update(
+                    "UPDATE positions SET status = 'emergency_close_pending' WHERE id = ?",
+                    (position_id,)
+                )
+            except Exception as e:
+                logger.error(f"自动平仓失败 Position #{position_id}: {e}")
         elif pnl_pct < -critical_threshold:
             self._trigger_risk_event(
                 level='critical',
@@ -130,9 +141,35 @@ class RiskManager:
         symbol = opportunity['symbol']
         position_size = opportunity['position_size']
         strategy_type = opportunity['type']
+        # 0. 检查总账户亏损率（防止加仓亏损）
+        max_drawdown = self.config.get('risk', 'max_drawdown', 0.1)
+        total_capital = self.config.get('global', 'total_capital', 100)
+        
+        # 计算当前总盈亏
+        total_pnl_result = self.db.execute_query(
+            "SELECT SUM(current_pnl) as total_pnl FROM positions WHERE status = 'open'"
+        )
+        total_pnl = float(total_pnl_result[0]['total_pnl'] or 0)
+        total_loss_pct = total_pnl / total_capital if total_capital > 0 else 0
+        
+        # 如果当前总亏损率超过最大回撤限制，禁止新开仓
+        if total_loss_pct < -max_drawdown:
+            return {
+                'passed': False,
+                'reason': f'当前总亏损率 {abs(total_loss_pct)*100:.2f}% 超过限制 {max_drawdown*100:.0f}%，禁止开仓',
+                'adjusted_position_size': position_size
+            }
 
+        # 检查单笔交易最大仓位限制
+        max_position_size = self.config.get('risk', 'max_position_size_per_trade', 1000)
+        if position_size > max_position_size:
+            return {
+                'passed': True,
+                'reason': f'单笔仓位过大，调整至 {max_position_size:.2f} USDT',
+                'adjusted_position_size': max_position_size
+            }
         # 1. 检查资金使用率
-        total_capital = self.config.get('global', 'total_capital', 100000)
+        total_capital = self.config.get('global', 'total_capital', 100)
         max_capital_usage = self.config.get('global', 'max_capital_usage', 0.8)
 
         # 计算当前已用资金
@@ -210,9 +247,9 @@ class RiskManager:
             if score > 85:
                 adjusted_size = min(position_size * high_score_multiplier, available_capital)
             elif score > 60:
-                adjusted_size = position_size * medium_score_multiplier
+                adjusted_size = min(position_size * medium_score_multiplier, available_capital)
             else:
-                adjusted_size = position_size * low_score_multiplier
+                adjusted_size = min(position_size * low_score_multiplier, available_capital)
 
             if adjusted_size != position_size:
                 return {

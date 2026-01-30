@@ -4,9 +4,10 @@
 """
 import time
 import threading
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from loguru import logger
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import ConfigManager, ExchangeAccountManager
 from database import DatabaseManager
 from exchanges import (
@@ -400,10 +401,10 @@ class DataCollector:
 
     def _collect_funding_rates(self):
         """采集资金费率数据并存储到数据库（批量模式）"""
-        start_time = time.time()
         timestamp = int(time.time() * 1000)
         
         for exchange_name, exchange in self.exchanges.items():
+            start_time = time.time()
             try:
                 # 获取该交易所支持期货的币种
                 exchange_support = self.exchange_symbols.get(exchange_name, {'futures': set(), 'spot': set()})
@@ -412,130 +413,38 @@ class DataCollector:
                 if not futures_symbols:
                     continue
                 
-                logger.info(f"开始批量采集 {exchange_name} 的 {len(futures_symbols)} 个币种资金费率...")
+                total = len(futures_symbols)
+                logger.info(f"开始并发采集 {exchange_name} 的 {total} 个币种资金费率...")
                 
                 success_count = 0
                 error_count = 0
                 
-                # ⚡ 尝试批量获取资金费率
-                try:
-                    # 某些交易所支持批量获取资金费率
-                    # 例如：fetch_funding_rates() 或通过 fetch_tickers 包含资金费率
-                    all_funding_rates = {}
+                def fetch_funding_rate(symbol):
+                    """获取单个币种的资金费率"""
+                    try:
+                        return symbol, exchange.get_funding_rate(symbol)
+                    except Exception as e:
+                        logger.debug(f"{symbol} 获取失败: {e}")
+                        return symbol, None
+                
+                # 使用线程池并发获取（10个并发线程）
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    future_tasks = {executor.submit(fetch_funding_rate, sym): sym for sym in futures_symbols}
                     
-                    # 方法1：尝试使用 fetch_funding_rates (如果支持)
-                    if hasattr(exchange.exchange, 'fetch_funding_rates'):
-                        all_funding_rates = exchange.exchange.fetch_funding_rates()
-                        logger.info(f"使用 fetch_funding_rates 批量获取了 {len(all_funding_rates)} 个资金费率")
-
-                    # 方法2：通过 fetch_tickers 获取（包含资金费率信息）
-                    elif hasattr(exchange.exchange, 'fetch_tickers'):
-                        all_tickers = exchange.exchange.fetch_tickers(params={'type': 'swap'})
-                        for symbol, ticker in all_tickers.items():
-                            base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
-                            if base_symbol in futures_symbols and 'info' in ticker:
-                                # 从ticker的info中提取资金费率（交易所特定）
-                                info = ticker.get('info', {})
-                                funding_rate = info.get('fundingRate') or info.get('funding_rate')
-                                if funding_rate is not None:
-                                    all_funding_rates[base_symbol] = {
-                                        'funding_rate': float(funding_rate),
-                                        'next_funding_time': info.get('nextFundingTime') or info.get('next_funding_time'),
-                                        'funding_interval': info.get('fundingInterval') or info.get('funding_interval') or info.get('fundingIntervalHours')
-                                    }
-                        logger.info(f"通过 fetch_tickers 提取了 {len(all_funding_rates)} 个资金费率")
-                    
-                    # 批量处理结果
-                    if all_funding_rates:
-                        for symbol, funding_data in all_funding_rates.items():
+                    for idx, future in enumerate(as_completed(future_tasks), 1):
+                        symbol, funding_data = future.result()
+                        
+                        if funding_data and funding_data.get('funding_rate') is not None:
+                            # 更新内存
+                            if symbol not in self.market_data:
+                                self.market_data[symbol] = {}
+                            if exchange_name not in self.market_data[symbol]:
+                                self.market_data[symbol][exchange_name] = {}
+                            
+                            self.market_data[symbol][exchange_name].update(funding_data)
+                            
+                            # 存储到数据库
                             try:
-                                # 标准化symbol格式
-                                base_symbol = symbol.split(':')[0] if ':' in symbol else symbol
-                                
-                                if base_symbol not in futures_symbols:
-                                    continue
-                                
-                                # 更新内存中的数据
-                                if base_symbol not in self.market_data:
-                                    self.market_data[base_symbol] = {}
-                                if exchange_name not in self.market_data[base_symbol]:
-                                    self.market_data[base_symbol][exchange_name] = {}
-                                
-                                # 处理不同的数据格式
-                                if isinstance(funding_data, dict):
-                                    funding_rate = funding_data.get('fundingRate') or funding_data.get('funding_rate')
-                                    next_funding_time = funding_data.get('fundingTimestamp') or funding_data.get('nextFundingTime') or funding_data.get('next_funding_time')
-
-                                    # 优先使用 CCXT 规范化的 interval 字段 (格式: "8h")
-                                    funding_interval = None
-                                    interval_str = funding_data.get('interval')
-
-                                    if interval_str:
-                                        # 将 "8h", "4h" 等转换为毫秒
-                                        try:
-                                            interval_str_clean = str(interval_str).lower().replace('h', '').strip()
-                                            hours = int(interval_str_clean)
-                                            if hours > 0:
-                                                funding_interval = hours * 3600 * 1000
-                                        except (ValueError, AttributeError, TypeError):
-                                            logger.debug(f"无法解析interval: {interval_str}")
-
-                                    # 如果CCXT字段没有,尝试fundingInterval
-                                    if not funding_interval:
-                                        funding_interval = funding_data.get('fundingInterval') or funding_data.get('funding_interval')
-
-                                    # 如果还是没有,尝试从info中获取
-                                    if not funding_interval and 'info' in funding_data:
-                                        info = funding_data.get('info', {})
-                                        # Bybit: fundingIntervalHour, Bitget: fundingRateInterval (小时)
-                                        interval_hours = info.get('fundingIntervalHour') or info.get('fundingIntervalHours') or info.get('fundingRateInterval')
-                                        if interval_hours:
-                                            try:
-                                                hours = float(interval_hours)
-                                                if hours > 0:
-                                                    funding_interval = int(hours * 3600 * 1000)
-                                            except (ValueError, TypeError):
-                                                logger.debug(f"无法解析interval_hours: {interval_hours}")
-
-                                        # Gate: funding_interval (秒)
-                                        if not funding_interval:
-                                            interval_seconds = info.get('funding_interval')
-                                            if interval_seconds:
-                                                try:
-                                                    seconds = float(interval_seconds)
-                                                    if seconds > 0:
-                                                        funding_interval = int(seconds * 1000)
-                                                except (ValueError, TypeError):
-                                                    logger.debug(f"无法解析interval_seconds: {interval_seconds}")
-
-                                    # 如果还是没有,尝试通过调用exchange的get_funding_rate方法
-                                    # 该方法内部会通过历史数据计算(仅对第一个符号尝试,避免过多API调用)
-                                    if not funding_interval and base_symbol in list(all_funding_rates.keys())[:1]:
-                                        try:
-                                            detailed_data = exchange.get_funding_rate(base_symbol)
-                                            funding_interval = detailed_data.get('funding_interval')
-                                            if funding_interval:
-                                                logger.info(f"通过历史数据计算 {exchange_name} 的资金费率间隔: {funding_interval}ms")
-                                                # 将这个间隔应用到所有该交易所的币种
-                                                self._cached_funding_intervals = getattr(self, '_cached_funding_intervals', {})
-                                                self._cached_funding_intervals[exchange_name] = funding_interval
-                                        except Exception as e:
-                                            logger.debug(f"无法通过历史数据获取间隔: {e}")
-
-                                    # 使用缓存的间隔(对于Binance等不返回interval的交易所)
-                                    if not funding_interval:
-                                        self._cached_funding_intervals = getattr(self, '_cached_funding_intervals', {})
-                                        funding_interval = self._cached_funding_intervals.get(exchange_name)
-                                else:
-                                    funding_rate = funding_data
-                                    next_funding_time = None
-                                    funding_interval = None
-                                
-                                self.market_data[base_symbol][exchange_name]['funding_rate'] = funding_rate
-                                self.market_data[base_symbol][exchange_name]['next_funding_time'] = next_funding_time
-                                self.market_data[base_symbol][exchange_name]['funding_interval'] = funding_interval
-                                
-                                # 存储到数据库
                                 self.db.execute_query(
                                     """
                                     INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval)
@@ -545,51 +454,21 @@ class DataCollector:
                                         next_funding_time = excluded.next_funding_time,
                                         funding_interval = excluded.funding_interval
                                     """,
-                                    (exchange_name, base_symbol, timestamp, funding_rate, next_funding_time, funding_interval)
+                                    (exchange_name, symbol, timestamp, 
+                                     funding_data.get('funding_rate'),
+                                     funding_data.get('next_funding_time'),
+                                     funding_data.get('funding_interval'))
                                 )
                                 success_count += 1
-                                
                             except Exception as e:
                                 error_count += 1
-                                logger.debug(f"处理 {symbol} 资金费率失败: {e}")
-                    
-                    else:
-                        # 如果批量获取失败，回退到逐个获取
-                        logger.warning(f"{exchange_name} 不支持批量获取资金费率，改为逐个获取...")
-                        for symbol in futures_symbols:
-                            try:
-                                funding_data = exchange.get_funding_rate(symbol)
-                                if funding_data and funding_data.get('funding_rate') is not None:
-                                    # 更新内存
-                                    if symbol not in self.market_data:
-                                        self.market_data[symbol] = {}
-                                    if exchange_name not in self.market_data[symbol]:
-                                        self.market_data[symbol][exchange_name] = {}
-                                    
-                                    self.market_data[symbol][exchange_name]['funding_rate'] = funding_data.get('funding_rate')
-                                    self.market_data[symbol][exchange_name]['next_funding_time'] = funding_data.get('next_funding_time')
-                                    self.market_data[symbol][exchange_name]['funding_interval'] = funding_data.get('funding_interval')
-                                    
-                                    # 存储到数据库
-                                    self.db.execute_query(
-                                        """
-                                        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                        ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
-                                            funding_rate = excluded.funding_rate,
-                                            next_funding_time = excluded.next_funding_time,
-                                            funding_interval = excluded.funding_interval
-                                        """,
-                                        (exchange_name, symbol, timestamp, funding_data.get('funding_rate'), funding_data.get('next_funding_time'), funding_data.get('funding_interval'))
-                                    )
-                                    success_count += 1
-                            except Exception as e:
-                                error_count += 1
-                                logger.debug(f"Error collecting funding rate for {symbol}: {e}")
-                
-                except Exception as e:
-                    logger.error(f"批量获取 {exchange_name} 资金费率失败: {e}")
-                    error_count = len(futures_symbols)
+                                logger.debug(f"{symbol} 数据库插入失败: {e}")
+                        else:
+                            error_count += 1
+                        
+                        # 每100个币种打印进度
+                        if idx % 100 == 0 or idx == total:
+                            logger.info(f"进度: {idx}/{total} ({idx*100//total}%) - 成功: {success_count}, 失败: {error_count}")
                 
                 elapsed = time.time() - start_time
                 logger.info(f"{exchange_name} 资金费率采集完成: {len(futures_symbols)} 个币种, 成功 {success_count}, 失败 {error_count}, 耗时 {elapsed:.2f}秒")
@@ -648,7 +527,7 @@ class DataCollector:
 
         return symbols_list
 
-    def get_market_data(self, symbol: str = None, exchange: str = None) -> Dict[str, Any]:
+    def get_market_data(self, symbol: Optional[str] = None, exchange: Optional[str] = None) -> Dict[str, Any]:
         """
         获取市场数据
         如果指定symbol和exchange，返回该交易对在该交易所的数据
