@@ -795,8 +795,9 @@
         </div>
 
         <button
+          id="saveConfigBtn"
           class="btn btn-primary"
-          onclick="saveConfig()"
+          onclick="saveConfig(event)"
           style="margin-top: 20px"
         >
           💾 保存所有配置
@@ -1155,13 +1156,20 @@
       }
 
       async function saveConfig() {
-        const updates = [
-          // 全局配置
-          {
-            category: "global",
-            key: "total_capital",
-            value: parseFloat(document.getElementById("total_capital").value),
-          },
+        // 防止重复提交
+        const saveBtn = event.target;
+        if (saveBtn.disabled) return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = "⏳ 保存中...";
+        
+        try {
+          const updates = [
+            // 全局配置
+            {
+              category: "global",
+              key: "total_capital",
+              value: parseFloat(document.getElementById("total_capital").value),
+            },
           {
             category: "global",
             key: "max_capital_usage",
@@ -1432,43 +1440,68 @@
         if (success) {
           showAlert("✅ 配置保存成功！更改将立即生效", "success");
         } else {
-          showAlert("❌ 配置保存失败: " + errors.join("; "), "error");
+          showAlert("❌ 配置保存失败:\n" + errors.join("\n"), "error");
         }
+      } catch (error) {
+        console.error("保存配置时出错:", error);
+        showAlert("❌ 保存配置时出错: " + error.message, "error");
+      } finally {
+        // 恢复按钮状态
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 保存所有配置";
       }
+    }
 
       function showAlert(message, type, autoDismiss = true) {
-        const alertModal = document.getElementById("alertModal");
-        const alertIcon = document.getElementById("alertIcon");
-        const alertMessage = document.getElementById("alertMessage");
-        const alertCloseBtn = document.getElementById("alertCloseBtn");
+        console.log("showAlert called:", message, type); // 调试日志
+        
+        // 使用 setTimeout 确保在当前执行栈完成后显示弹窗
+        setTimeout(() => {
+          const alertModal = document.getElementById("alertModal");
+          const alertIcon = document.getElementById("alertIcon");
+          const alertMessage = document.getElementById("alertMessage");
+          const alertCloseBtn = document.getElementById("alertCloseBtn");
 
-        // 设置图标
-        const icons = {
-          success: "✅",
-          error: "❌",
-          info: "ℹ️",
-        };
-        alertIcon.textContent = icons[type] || "ℹ️";
+          if (!alertModal) {
+            console.error("alertModal element not found!");
+            alert(message); // 如果找不到模态框，使用浏览器原生alert
+            return;
+          }
 
-        // 设置消息
-        alertMessage.textContent = message;
+          // 设置图标
+          const icons = {
+            success: "✅",
+            error: "❌",
+            info: "ℹ️",
+          };
+          alertIcon.textContent = icons[type] || "ℹ️";
 
-        // 设置按钮样式
-        alertCloseBtn.className = `alert-modal-close ${type}`;
+          // 设置消息
+          alertMessage.textContent = message;
 
-        // 显示模态框
-        alertModal.classList.add("show");
+          // 设置按钮样式
+          alertCloseBtn.className = `alert-modal-close ${type}`;
 
-        // 如果 autoDismiss 为 true，5秒后自动关闭
-        if (autoDismiss) {
-          setTimeout(() => {
-            hideAlert();
-          }, 5000);
-        }
+          // 强制触发重绘，确保显示
+          alertModal.style.display = 'flex';
+          alertModal.classList.add("show");
+          console.log("Modal should now be visible"); // 调试日志
+
+          // 如果 autoDismiss 为 true，5秒后自动关闭
+          if (autoDismiss) {
+            setTimeout(() => {
+              hideAlert();
+            }, 5000);
+          }
+        }, 0);
       }
 
       function hideAlert() {
-        document.getElementById("alertModal").classList.remove("show");
+        const alertModal = document.getElementById("alertModal");
+        if (alertModal) {
+          alertModal.classList.remove("show");
+          alertModal.style.display = 'none';
+        }
       }
 
       // 页面加载时执行
