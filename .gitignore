@@ -32,11 +32,9 @@ env/
 *.db
 *.sqlite
 *.sqlite3
-data/database.db
-data/backups/*.db
 
-# Encryption key (CRITICAL - DO NOT COMMIT)
-data/.encryption_key
+# Data folder - exclude all contents
+data/
 
 # Logs
 logs/*.log
@@ -60,10 +58,6 @@ temp/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
-# Data
-data/historical/*.csv
-data/historical/*.json
 
 # Backtest results
 backtest_results/
