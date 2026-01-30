@@ -1443,24 +1443,56 @@
           let success = true;
           let errors = [];
 
-          for (const update of updates) {
-            try {
-              const response = await fetch("/api/config/update", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(update),
-              });
-              const result = await response.json();
-              if (!result.success) {
-                success = false;
-                errors.push(
-                  `${update.category}.${update.key}: ${result.error}`,
-                );
+          // 添加重试函数
+          async function updateConfigWithRetry(update, maxRetries = 3) {
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                const response = await fetch("/api/config/update", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(update),
+                });
+                const result = await response.json();
+                if (result.success) {
+                  return { success: true };
+                } else if (
+                  result.error &&
+                  result.error.includes("database is locked")
+                ) {
+                  // 数据库锁定，等待后重试
+                  if (attempt < maxRetries) {
+                    await new Promise((resolve) =>
+                      setTimeout(resolve, 100 * attempt),
+                    );
+                    continue;
+                  }
+                }
+                return { success: false, error: result.error };
+              } catch (error) {
+                if (
+                  attempt < maxRetries &&
+                  error.message.includes("database is locked")
+                ) {
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, 100 * attempt),
+                  );
+                  continue;
+                }
+                return { success: false, error: error.message };
               }
-            } catch (error) {
-              success = false;
-              errors.push(`${update.category}.${update.key}: ${error.message}`);
             }
+            return { success: false, error: "重试次数已用完" };
+          }
+
+          // 逐个更新配置，避免并发导致数据库锁定
+          for (const update of updates) {
+            const result = await updateConfigWithRetry(update);
+            if (!result.success) {
+              success = false;
+              errors.push(`${update.category}.${update.key}: ${result.error}`);
+            }
+            // 添加小延迟，避免请求过快
+            await new Promise((resolve) => setTimeout(resolve, 10));
           }
 
           if (success) {
