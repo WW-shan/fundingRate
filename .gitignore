@@ -67,3 +67,7 @@ data/historical/*.json
 
 # Backtest results
 backtest_results/
+
+# Claude AI
+.claude/
+*SOLUTION*.md

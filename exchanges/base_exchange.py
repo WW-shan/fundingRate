@@ -156,7 +156,16 @@ class BaseExchange(ABC):
                 'funding_interval': funding_interval
             }
         except Exception as e:
-            logger.error(f"Error fetching funding rate for {symbol}: {e}")
+            # 记录详细错误信息用于调试
+            error_msg = str(e)
+            # 常见的正常错误（币种不支持）使用DEBUG，其他错误使用WARNING
+            if 'does not have market symbol' in error_msg or 'not found' in error_msg.lower():
+                logger.debug(f"Symbol {symbol} not available for funding rate: {error_msg}")
+            elif 'rate limit' in error_msg.lower():
+                logger.warning(f"Rate limit hit for {symbol}: {error_msg}")
+            else:
+                # 其他未知错误，暂时用WARNING记录，方便调试
+                logger.warning(f"Error fetching funding rate for {symbol}: {error_msg}")
             return {}
 
     def get_order_book(self, symbol: str, is_futures: bool = False, limit: int = 5) -> Dict[str, Any]:
@@ -281,20 +290,42 @@ class BaseExchange(ABC):
             return []
 
     def create_market_order(self, symbol: str, side: str, amount: float,
-                           is_futures: bool = False) -> Optional[Dict[str, Any]]:
+                           is_futures: bool = False, cost: Optional[float] = None, 
+                           reduce_only: bool = False) -> Optional[Dict[str, Any]]:
         """
         创建市价单
+        amount: 币的数量
+        cost: 订单金额（USDT），仅用于现货买入订单
+        reduce_only: 是否仅平仓（True=平仓，False=开仓）
         """
         try:
             if is_futures:
                 symbol = self._convert_to_futures_symbol(symbol)
 
-            order = self.exchange.create_order(
-                symbol=symbol,
-                type='market',
-                side=side,  # 'buy' or 'sell'
-                amount=amount
-            )
+            # cost方式仅用于现货买入（期货不支持）
+            if cost is not None and cost >= 5 and not is_futures and side == 'buy':
+                # 现货市价买入可以按金额下单
+                params = {'createMarketBuyOrderRequiresPrice': False}
+                order = self.exchange.create_market_buy_order_with_cost(symbol, cost, params)
+            else:
+                # 期货订单或卖出订单使用amount
+                params = {}
+                if is_futures:
+                    # Bitget期货单向持仓模式
+                    # 在CCXT中，Bitget期货使用side来表示开平仓+方向
+                    # 但在单向持仓模式下，需要明确指定是开仓还是平仓
+                    # 开仓：使用'open'参数，或者默认就是开仓
+                    params = {
+                        'timeInForce': 'IOC',  # 立即成交或取消（市价单推荐）
+                    }
+                
+                order = self.exchange.create_order(
+                    symbol=symbol,
+                    type='market',
+                    side=side,
+                    amount=amount,
+                    params=params
+                )
             logger.info(f"Market order created: {order}")
             return order
         except Exception as e:
@@ -310,12 +341,20 @@ class BaseExchange(ABC):
             if is_futures:
                 symbol = self._convert_to_futures_symbol(symbol)
 
+            params = {}
+            if is_futures:
+                # Bitget期货限价单参数
+                params = {
+                    'timeInForce': 'GTC',  # Good Till Cancel
+                }
+
             order = self.exchange.create_order(
                 symbol=symbol,
                 type='limit',
                 side=side,
                 amount=amount,
-                price=price
+                price=price,
+                params=params
             )
             logger.info(f"Limit order created: {order}")
             return order
