@@ -94,6 +94,14 @@ class DatabaseManager:
                     s2b_position_size DECIMAL(18,2),
                     s2b_target_return DECIMAL(10,6),
 
+                    strategy3_enabled BOOLEAN DEFAULT FALSE,
+                    s3_min_funding_rate DECIMAL(10,6),
+                    s3_position_pct DECIMAL(10,4),
+                    s3_stop_loss_pct DECIMAL(10,4),
+                    s3_check_basis BOOLEAN DEFAULT TRUE,
+                    s3_short_exit_threshold DECIMAL(10,6),
+                    s3_long_exit_threshold DECIMAL(10,6),
+
                     max_positions INTEGER DEFAULT 3,
                     priority INTEGER DEFAULT 5,
                     is_active BOOLEAN DEFAULT TRUE,

@@ -125,6 +125,13 @@ class ConfigManager:
             's2b_min_basis': self.get('strategy2b', 'min_basis', 0.02),
             's2b_position_size': self.get('strategy2b', 'position_size', 8000),
             's2b_target_return': self.get('strategy2b', 'target_return', 0.015),
+            's3_enabled': self.get('strategy3', 'enabled', False),
+            's3_min_funding_rate': self.get('strategy3', 'min_funding_rate', 0.0001),
+            's3_position_pct': self.get('strategy3', 'position_pct', 0.1),
+            's3_stop_loss_pct': self.get('strategy3', 'stop_loss_pct', 0.05),
+            's3_check_basis': self.get('strategy3', 'check_basis', True),
+            's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
+            's3_long_exit_threshold': self.get('strategy3', 'long_exit_threshold', 0.0),
             'max_positions': 3,
             'priority': 5,
             'is_active': True
@@ -169,6 +176,15 @@ class ConfigManager:
         self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差（筛选阈值）")
         self.set_default('strategy2b', 'target_return', 0.015, True, "目标收益率（已废弃，保留用于向后兼容）")
         self.set_default('strategy2b', 'max_hold_days', 7, True, "最大持仓天数")
+
+        # 策略3：单边资金费率趋势策略
+        self.set_default('strategy3', 'enabled', False, True, "是否启用")
+        self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
+        self.set_default('strategy3', 'position_pct', 0.1, True, "仓位大小（余额百分比）")
+        self.set_default('strategy3', 'stop_loss_pct', 0.05, True, "止损比例（5%）")
+        self.set_default('strategy3', 'check_basis', True, True, "是否检查基差方向")
+        self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
+        self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
 
         # 风控配置
         self.set_default('risk', 'max_loss_per_trade', 0.02, True, "单笔最大亏损")

@@ -60,7 +60,18 @@ def get_config():
                 'target_return': config_manager.get('strategy2b', 'target_return', 0.015),
                 'max_hold_days': config_manager.get('strategy2b', 'max_hold_days', 7),
             }
-            
+
+            # 策略3配置
+            configs['strategy3'] = {
+                'enabled': config_manager.get('strategy3', 'enabled', False),
+                'min_funding_rate': config_manager.get('strategy3', 'min_funding_rate', 0.0001),
+                'position_pct': config_manager.get('strategy3', 'position_pct', 0.1),
+                'stop_loss_pct': config_manager.get('strategy3', 'stop_loss_pct', 0.05),
+                'check_basis': config_manager.get('strategy3', 'check_basis', True),
+                'short_exit_threshold': config_manager.get('strategy3', 'short_exit_threshold', 0.0),
+                'long_exit_threshold': config_manager.get('strategy3', 'long_exit_threshold', 0.0),
+            }
+
             # 风控配置
             configs['risk'] = {
                 'max_loss_per_trade': config_manager.get('risk', 'max_loss_per_trade', 0.02),

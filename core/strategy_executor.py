@@ -75,6 +75,8 @@ class StrategyExecutor:
             execution_mode = pair_config.get('s2a_execution_mode', 'auto')
         elif strategy_type == 'basis_arbitrage':
             execution_mode = 'manual'  # 基差套利固定为手动模式
+        elif strategy_type == 'directional_funding':
+            execution_mode = 'auto'  # 策略3默认自动执行
         else:
             execution_mode = 'manual'
 
@@ -116,6 +118,8 @@ class StrategyExecutor:
                 result = self._execute_spot_futures_funding(opportunity)
             elif strategy_type == 'basis_arbitrage':
                 result = self._execute_basis_arbitrage(opportunity)
+            elif strategy_type == 'directional_funding':
+                result = self._execute_directional_strategy(opportunity)
             else:
                 logger.error(f"Unknown strategy type: {strategy_type}")
                 return {'success': False, 'error': f'未知的策略类型: {strategy_type}'}
@@ -338,6 +342,83 @@ class StrategyExecutor:
             logger.error(f"Error executing basis arbitrage: {e}")
             return {'success': False, 'error': str(e)}
 
+    def _execute_directional_strategy(self, opportunity: Dict[str, Any]) -> Dict[str, Any]:
+        """执行单边资金费率趋势策略"""
+        try:
+            symbol = opportunity['symbol']
+            exchange = opportunity['exchange']
+            position_size = opportunity['position_size']
+            direction = opportunity['direction'] # 'long' or 'short'
+
+            # 计算数量
+            entry_price = opportunity['entry_price']
+            amount = position_size / entry_price
+
+            # 确定订单方向
+            # 如果是short策略，我们要开空单 -> side='sell'
+            # 如果是long策略，我们要开多单 -> side='buy'
+            side = 'sell' if direction == 'short' else 'buy'
+
+            # 创建持仓记录
+            entry_details = {
+                'exchange': exchange,
+                'direction': direction,
+                'entry_price': entry_price,
+                'funding_rate': opportunity['funding_rate'],
+                'expected_return': opportunity['expected_return']
+            }
+
+            position_id = self.db.execute_insert(
+                """
+                INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
+                                     position_size, current_pnl, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    'directional_funding',
+                    symbol,
+                    json.dumps([exchange]),
+                    json.dumps(entry_details),
+                    position_size,
+                    0,
+                    'open'
+                )
+            )
+
+            # 执行单边订单
+            order = self.order_manager.create_order(
+                exchange=exchange,
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                order_type='market',
+                is_futures=True,
+                strategy_id=position_id,
+                strategy_type='directional_funding'
+            )
+
+            if not order:
+                self.db.execute_update(
+                    "UPDATE positions SET status = 'failed' WHERE id = ?",
+                    (position_id,)
+                )
+                logger.error("Failed to execute directional strategy order")
+                return {'success': False, 'error': '订单执行失败'}
+
+            logger.info(f"✅ Directional funding strategy executed: Position #{position_id} ({direction})")
+
+            self._trigger_callback('position_opened', {
+                'position_id': position_id,
+                'opportunity': opportunity,
+                'orders': {'main_order': order}
+            })
+
+            return {'success': True, 'position_id': position_id}
+
+        except Exception as e:
+            logger.error(f"Error executing directional strategy: {e}")
+            return {'success': False, 'error': str(e)}
+
     def close_position(self, position_id: int) -> bool:
         """平仓"""
         try:
@@ -383,6 +464,29 @@ class StrategyExecutor:
                     amount=amount,
                     strategy_id=position_id
                 )
+
+            elif strategy_type == 'directional_funding':
+                exchange = entry_details['exchange']
+                direction = entry_details['direction']
+                amount = float(position['position_size']) / entry_details['entry_price']
+
+                # 平仓方向相反
+                # 开空(short) -> 开空单(sell) -> 平仓买入(buy)
+                # 开多(long)  -> 开多单(buy)  -> 平仓卖出(sell)
+                side = 'buy' if direction == 'short' else 'sell'
+
+                order = self.order_manager.create_order(
+                    exchange=exchange,
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    order_type='market',
+                    is_futures=True,
+                    strategy_id=position_id,
+                    strategy_type='close_position'
+                )
+
+                orders = {'success': True if order else False}
 
             else:
                 logger.error(f"Unknown strategy type: {strategy_type}")
@@ -437,15 +541,102 @@ class StrategyExecutor:
         """持仓监控循环"""
         while self.running:
             try:
-                # TODO: 监控持仓，检查平仓条件
-                # - 资金费率变化
-                # - 基差变化
-                # - 止损触发
-                # - 达到目标收益
+                positions = self.get_open_positions()
+
+                for position in positions:
+                    strategy_type = position['strategy_type']
+
+                    if strategy_type == 'directional_funding':
+                        self._check_directional_position(position)
+
                 time.sleep(60)
             except Exception as e:
                 logger.error(f"Error in position monitoring loop: {e}")
                 time.sleep(60)
+
+    def _check_directional_position(self, position: Dict[str, Any]):
+        """检查单边策略持仓"""
+        try:
+            position_id = position['id']
+            symbol = position['symbol']
+            entry_details = json.loads(position['entry_details'])
+            exchange = entry_details['exchange']
+            direction = entry_details['direction']
+
+            # 获取配置
+            pair_config = self.config.get_pair_config(symbol, exchange, 's3')
+            stop_loss_pct = pair_config.get('s3_stop_loss_pct', 0.05)
+            short_exit_threshold = pair_config.get('s3_short_exit_threshold', 0.0)
+            long_exit_threshold = pair_config.get('s3_long_exit_threshold', 0.0)
+
+            # 获取最新价格和资金费率
+            market_data = self.db.execute_query(
+                """
+                SELECT futures_price, funding_rate
+                FROM market_prices
+                WHERE exchange = ? AND symbol = ?
+                ORDER BY timestamp DESC LIMIT 1
+                """,
+                (exchange, symbol)
+            )
+
+            if not market_data:
+                return
+
+            current_data = market_data[0]
+            current_price = current_data['futures_price']
+            current_funding_rate = current_data['funding_rate']
+
+            entry_price = float(entry_details['entry_price'])
+
+            # 1. 计算当前PnL (估算)
+            if direction == 'short':
+                # 做空收益 = (开仓价 - 当前价) / 开仓价
+                pnl_pct = (entry_price - current_price) / entry_price
+            else:
+                # 做多收益 = (当前价 - 开仓价) / 开仓价
+                pnl_pct = (current_price - entry_price) / entry_price
+
+            # 更新数据库中的current_pnl (用于显示)
+            current_pnl = float(position['position_size']) * pnl_pct
+            self.db.execute_update(
+                "UPDATE positions SET current_pnl = ? WHERE id = ?",
+                (current_pnl, position_id)
+            )
+
+            # 2. 检查止损
+            if pnl_pct <= -stop_loss_pct:
+                logger.warning(f"Stop loss triggered for position #{position_id}: {pnl_pct:.2%}")
+                self.close_position(position_id)
+                self._trigger_callback('risk_alert', {
+                    'type': 'stop_loss',
+                    'position_id': position_id,
+                    'message': f"止损触发: {symbol} 亏损 {pnl_pct:.2%}"
+                })
+                return
+
+            # 3. 检查资金费率退出条件
+            should_close = False
+            if direction == 'short':
+                # 做空时，如果费率跌破阈值（比如变成负数或0），平仓
+                if current_funding_rate <= short_exit_threshold:
+                    logger.info(f"Funding rate exit for position #{position_id} (Short): Rate {current_funding_rate} <= {short_exit_threshold}")
+                    should_close = True
+            else:
+                # 做多时，如果费率涨破阈值（比如变成正数或0），平仓
+                if current_funding_rate >= long_exit_threshold:
+                    logger.info(f"Funding rate exit for position #{position_id} (Long): Rate {current_funding_rate} >= {long_exit_threshold}")
+                    should_close = True
+
+            if should_close:
+                self.close_position(position_id)
+                self._trigger_callback('strategy_exit', {
+                    'position_id': position_id,
+                    'message': f"费率条件触发平仓: {symbol} 费率 {current_funding_rate}"
+                })
+
+        except Exception as e:
+            logger.error(f"Error checking position #{position['id']}: {e}")
 
     def _trigger_callback(self, event_type: str, data: Any):
         """触发回调"""

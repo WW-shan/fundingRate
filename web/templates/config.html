@@ -644,6 +644,102 @@
         </div>
 
         <div class="section">
+          <h3>策略3: 单边资金费率趋势策略 (风险较高)</h3>
+          <div class="form-group">
+            <label>启用状态</label>
+            <select id="strategy3_enabled">
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>仓位大小 (余额百分比)</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="1"
+                id="strategy3_position_pct"
+                placeholder="10"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >占总资金的百分比，输入10表示10%</small
+            >
+          </div>
+          <div class="form-group">
+            <label>最小资金费率 (单期)</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.001"
+                id="strategy3_min_funding_rate"
+                placeholder="0.01"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >开仓门槛，输入0.01表示0.01%</small
+            >
+          </div>
+          <div class="form-group">
+            <label>止损比例</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.1"
+                id="strategy3_stop_loss_pct"
+                placeholder="5"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >硬止损线，亏损达到此比例立即平仓</small
+            >
+          </div>
+          <div class="form-group">
+            <label>是否检查基差方向</label>
+            <select id="strategy3_check_basis">
+              <option value="true">是 (推荐)</option>
+              <option value="false">否 (仅看费率)</option>
+            </select>
+            <small style="color: #6b7280; font-size: 12px"
+              >做空时要求期货价格>现货价格，增加胜率</small
+            >
+          </div>
+          <div class="form-group">
+            <label>做空退出费率阈值</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.001"
+                id="strategy3_short_exit_threshold"
+                placeholder="0.000"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >做空时，如果费率跌破此值(如0)则平仓</small
+            >
+          </div>
+          <div class="form-group">
+            <label>做多退出费率阈值</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.001"
+                id="strategy3_long_exit_threshold"
+                placeholder="0.000"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >做多时，如果费率涨破此值(如0)则平仓</small
+            >
+          </div>
+        </div>
+
+        <div class="section">
           <h3>风控配置</h3>
           <div class="form-group">
             <label>单笔最大亏损率</label>
@@ -1013,6 +1109,31 @@
                 config.strategy2b.max_hold_days || 7;
             }
 
+            // 策略3 配置
+            if (config.strategy3) {
+              document.getElementById("strategy3_enabled").value = String(
+                config.strategy3.enabled || false,
+              ).toLowerCase();
+              document.getElementById("strategy3_position_pct").value = (
+                (config.strategy3.position_pct || 0.1) * 100
+              ).toFixed(0);
+              document.getElementById("strategy3_min_funding_rate").value = (
+                (config.strategy3.min_funding_rate || 0.0001) * 100
+              ).toFixed(4);
+              document.getElementById("strategy3_stop_loss_pct").value = (
+                (config.strategy3.stop_loss_pct || 0.05) * 100
+              ).toFixed(2);
+              document.getElementById("strategy3_check_basis").value = String(
+                 config.strategy3.check_basis !== undefined ? config.strategy3.check_basis : true
+              ).toLowerCase();
+              document.getElementById("strategy3_short_exit_threshold").value = (
+                (config.strategy3.short_exit_threshold || 0.0) * 100
+              ).toFixed(3);
+              document.getElementById("strategy3_long_exit_threshold").value = (
+                (config.strategy3.long_exit_threshold || 0.0) * 100
+              ).toFixed(3);
+            }
+
             // 风控配置
             if (config.risk) {
               // 百分比字段：后端存小数，前端显示百分比
@@ -1218,6 +1339,42 @@
             value: parseInt(
               document.getElementById("strategy2b_max_hold_days").value,
             ),
+          },
+          // 策略3 配置
+          {
+            category: "strategy3",
+            key: "enabled",
+            value: document.getElementById("strategy3_enabled").value === "true",
+          },
+          {
+            category: "strategy3",
+            key: "position_pct",
+            value: parseFloat(document.getElementById("strategy3_position_pct").value) / 100,
+          },
+          {
+            category: "strategy3",
+            key: "min_funding_rate",
+            value: parseFloat(document.getElementById("strategy3_min_funding_rate").value) / 100,
+          },
+          {
+            category: "strategy3",
+            key: "stop_loss_pct",
+            value: parseFloat(document.getElementById("strategy3_stop_loss_pct").value) / 100,
+          },
+          {
+            category: "strategy3",
+            key: "check_basis",
+            value: document.getElementById("strategy3_check_basis").value === "true",
+          },
+          {
+            category: "strategy3",
+            key: "short_exit_threshold",
+            value: parseFloat(document.getElementById("strategy3_short_exit_threshold").value) / 100,
+          },
+          {
+            category: "strategy3",
+            key: "long_exit_threshold",
+            value: parseFloat(document.getElementById("strategy3_long_exit_threshold").value) / 100,
           },
           // 风控配置 - 百分比字段：前端输入百分比，后端存小数
           {

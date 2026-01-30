@@ -232,6 +232,11 @@ class OpportunityMonitor:
                 opps = self._calculate_basis_arbitrage_opportunities(symbol, exchanges_data_snapshot)
                 new_opportunities.extend(opps)
 
+            # 策略3：单边资金费率趋势策略
+            if self.config.get('strategy3', 'enabled', False):
+                opps = self._calculate_directional_opportunities(symbol, exchanges_data_snapshot)
+                new_opportunities.extend(opps)
+
         # 更新机会列表 - 按预期收益率降序排序
         self.opportunities = sorted(new_opportunities, key=lambda x: x.get('expected_return_pct', 0), reverse=True)
 
@@ -562,6 +567,115 @@ class OpportunityMonitor:
 
             except Exception as e:
                 logger.debug(f"Error calculating basis arbitrage opportunity: {e}")
+
+        return opportunities
+
+    def _calculate_directional_opportunities(
+        self, symbol: str, exchanges_data: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """计算单边资金费率趋势机会 (Strategy 3)"""
+        opportunities = []
+
+        for exchange, data in exchanges_data.items():
+            try:
+                # 检查数据完整性
+                required_fields = ['futures_ask', 'futures_bid', 'funding_rate', 'taker_fee', 'maker_fee']
+                if not all(k in data for k in required_fields):
+                    continue
+
+                # 获取配置
+                pair_config = self.config.get_pair_config(symbol, exchange, 's3')
+                min_funding_rate = pair_config.get('s3_min_funding_rate', 0.0001)
+                check_basis = pair_config.get('s3_check_basis', True)
+
+                # 获取可用余额（这里需要与交易所交互获取，暂时使用配置的百分比计算名义仓位）
+                total_capital = self.config.get('global', 'total_capital', 10000)
+                position_pct = pair_config.get('s3_position_pct', 0.1)
+                position_size = total_capital * position_pct
+
+                funding_rate = data['funding_rate']
+
+                # 只有费率绝对值大于阈值才考虑
+                if abs(funding_rate) < min_funding_rate:
+                    continue
+
+                direction = None # 'short' or 'long'
+                entry_price = 0
+
+                # 判断方向
+                if funding_rate > 0:
+                    # 正费率，做空 (Short)
+                    direction = 'short'
+                    entry_price = data['futures_bid']
+
+                    # 检查基差 (期货 > 现货)
+                    if check_basis and 'spot_ask' in data:
+                        if data['futures_bid'] <= data['spot_ask']:
+                            continue
+
+                else:
+                    # 负费率，做多 (Long)
+                    direction = 'long'
+                    entry_price = data['futures_ask']
+
+                    # 检查基差 (期货 < 现货)
+                    if check_basis and 'spot_bid' in data:
+                        if data['futures_ask'] >= data['spot_bid']:
+                            continue
+
+                if not direction:
+                    continue
+
+                # 计算预期收益 (年化)
+                funding_frequency_hours = self._get_funding_frequency_single(data, exchange)
+                times_per_day = 24 / funding_frequency_hours
+                annual_funding_rate = abs(funding_rate) * times_per_day * 365
+
+                # 简单估算年化净收益 (扣除开平仓手续费，假设持仓7天)
+                holding_days = 7
+                funding_income_pct = abs(funding_rate) * times_per_day * holding_days
+                fees_pct = (data['taker_fee'] + data['maker_fee'])  # 开仓Taker，平仓Maker
+                net_return_pct = funding_income_pct - fees_pct
+
+                # 转换为年化
+                annual_net_return = (net_return_pct / holding_days) * 365
+
+                # 计算评分
+                score = calculate_score(
+                    annual_net_return / 365,  # 传入日化
+                    0,  # 风险因子暂定为0，因为是单边
+                    annual_funding_rate
+                )
+
+                stable_id = f"s3_{symbol}_{exchange}_{direction}"
+
+                opportunity = {
+                    'id': stable_id,
+                    'type': 'directional_funding',  # Strategy 3
+                    'risk_level': 'high',  # 单边策略风险较高
+                    'score': score,
+                    'symbol': symbol,
+                    'exchange': exchange,
+                    'direction': direction,
+                    'funding_rate': funding_rate,
+                    'annual_funding_rate': annual_funding_rate,
+                    'position_size': position_size,
+                    'entry_price': entry_price,
+                    'expected_return': position_size * (net_return_pct / 100), # 估算
+                    'expected_return_pct': net_return_pct,
+                    'detected_at': datetime.now().isoformat(),
+                    'status': 'pending',
+                    'details': {
+                        'funding_frequency_hours': funding_frequency_hours,
+                        'times_per_day': times_per_day,
+                        'holding_days': holding_days
+                    }
+                }
+
+                opportunities.append(opportunity)
+
+            except Exception as e:
+                logger.debug(f"Error calculating directional opportunity: {e}")
 
         return opportunities
 
