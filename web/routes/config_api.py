@@ -71,6 +71,9 @@ def get_config():
                 'max_position_size_per_trade': config_manager.get('risk', 'max_position_size_per_trade', 30),
                 'max_drawdown': config_manager.get('risk', 'max_drawdown', 0.10),
                 'dynamic_position_enabled': config_manager.get('risk', 'dynamic_position_enabled', True),
+                'warning_threshold': config_manager.get('risk', 'warning_threshold', 0.005),
+                'critical_threshold': config_manager.get('risk', 'critical_threshold', 0.01),
+                'emergency_threshold': config_manager.get('risk', 'emergency_threshold', 0.015),
             }
             
         return jsonify({'success': True, 'data': configs})

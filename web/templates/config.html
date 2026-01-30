@@ -708,6 +708,51 @@
               <option value="false">禁用</option>
             </select>
           </div>
+          <div class="form-group">
+            <label>警告阈值</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.01"
+                id="risk_warning_threshold"
+                placeholder="0.5"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >单个持仓亏损警告阈值，输入0.5表示0.5%</small
+            >
+          </div>
+          <div class="form-group">
+            <label>危险阈值</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.01"
+                id="risk_critical_threshold"
+                placeholder="1.0"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >单个持仓亏损危险阈值，输入1.0表示1.0%</small
+            >
+          </div>
+          <div class="form-group">
+            <label>紧急止损阈值</label>
+            <div class="input-group">
+              <input
+                type="number"
+                step="0.01"
+                id="risk_emergency_threshold"
+                placeholder="1.5"
+              />
+              <span class="unit">%</span>
+            </div>
+            <small style="color: #6b7280; font-size: 12px"
+              >单个持仓亏损紧急止损阈值，输入1.5表示1.5%，达到此阈值将自动平仓</small
+            >
+          </div>
         </div>
 
         <button
@@ -1055,6 +1100,15 @@
               ).toFixed(2);
               document.getElementById("risk_dynamic_position_enabled").value =
                 String(config.risk.dynamic_position_enabled).toLowerCase();
+              document.getElementById("risk_warning_threshold").value = (
+                (config.risk.warning_threshold || 0.005) * 100
+              ).toFixed(2);
+              document.getElementById("risk_critical_threshold").value = (
+                (config.risk.critical_threshold || 0.01) * 100
+              ).toFixed(2);
+              document.getElementById("risk_emergency_threshold").value = (
+                (config.risk.emergency_threshold || 0.015) * 100
+              ).toFixed(2);
             }
           }
         } catch (error) {
@@ -1310,6 +1364,30 @@
               value:
                 document.getElementById("risk_dynamic_position_enabled")
                   .value === "true",
+            },
+            {
+              category: "risk",
+              key: "warning_threshold",
+              value:
+                parseFloat(
+                  document.getElementById("risk_warning_threshold").value,
+                ) / 100,
+            },
+            {
+              category: "risk",
+              key: "critical_threshold",
+              value:
+                parseFloat(
+                  document.getElementById("risk_critical_threshold").value,
+                ) / 100,
+            },
+            {
+              category: "risk",
+              key: "emergency_threshold",
+              value:
+                parseFloat(
+                  document.getElementById("risk_emergency_threshold").value,
+                ) / 100,
             },
           ];
 

@@ -27,6 +27,7 @@ class StrategyExecutor:
         self.paused = False  # 暂停状态
         self.pending_opportunities = []  # 待处理的机会队列
         self.execution_callbacks = []  # 执行回调
+        self.last_position_sync = 0  # 上次持仓同步时间
 
     def start(self):
         """启动策略执行器"""
@@ -38,6 +39,9 @@ class StrategyExecutor:
 
         # 启动持仓监控线程
         threading.Thread(target=self._position_monitoring_loop, daemon=True).start()
+        
+        # 启动持仓同步线程
+        threading.Thread(target=self._position_sync_loop, daemon=True).start()
 
         logger.info("Strategy executor started")
 
@@ -155,8 +159,8 @@ class StrategyExecutor:
             position_id = self.db.execute_insert(
                 """
                 INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
-                                     position_size, current_pnl, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                     position_size, current_pnl, realized_pnl, funding_collected, fees_paid, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     'funding_rate_cross_exchange',
@@ -164,6 +168,9 @@ class StrategyExecutor:
                     json.dumps([long_exchange, short_exchange]),
                     json.dumps(entry_details),
                     position_size,
+                    0,
+                    0,
+                    0,
                     0,
                     'open'
                 )
@@ -186,6 +193,16 @@ class StrategyExecutor:
                     (position_id,)
                 )
                 logger.error("Failed to execute cross-exchange orders")
+                return {'success': False, 'error': 'Order execution failed'}
+            
+            # 保存开仓手续费
+            total_fee = orders.get('total_fee', 0)
+            if total_fee > 0:
+                self.db.execute_update(
+                    "UPDATE positions SET fees_paid = ? WHERE id = ?",
+                    (total_fee, position_id)
+                )
+                logger.info(f"💰 开仓手续费已记录: ${total_fee:.4f}")
                 return {'success': False, 'error': '订单执行失败'}
 
             logger.info(f"✅ Cross-exchange funding arbitrage executed: Position #{position_id}")
@@ -227,8 +244,8 @@ class StrategyExecutor:
             position_id = self.db.execute_insert(
                 """
                 INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
-                                     position_size, current_pnl, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                     position_size, current_pnl, realized_pnl, funding_collected, fees_paid, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     'funding_rate_spot_futures',
@@ -236,6 +253,9 @@ class StrategyExecutor:
                     json.dumps([exchange]),
                     json.dumps(entry_details),
                     position_size,
+                    0,
+                    0,
+                    0,
                     0,
                     'open'
                 )
@@ -257,6 +277,15 @@ class StrategyExecutor:
                 )
                 logger.error("Failed to execute spot-futures orders")
                 return {'success': False, 'error': '订单执行失败'}
+            
+            # 保存开仓手续费
+            total_fee = orders.get('total_fee', 0)
+            if total_fee > 0:
+                self.db.execute_update(
+                    "UPDATE positions SET fees_paid = ? WHERE id = ?",
+                    (total_fee, position_id)
+                )
+                logger.info(f"💰 开仓手续费已记录: ${total_fee:.4f}")
 
             logger.info(f"✅ Spot-futures funding arbitrage executed: Position #{position_id}")
 
@@ -297,15 +326,18 @@ class StrategyExecutor:
             position_id = self.db.execute_insert(
                 """
                 INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
-                                     position_size, current_pnl, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                     position_size, current_pnl, realized_pnl, funding_collected, fees_paid, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     'basis_arbitrage',
                     symbol,
-                    json.dumps([exchange]),
+                    exchange,
                     json.dumps(entry_details),
                     position_size,
+                    0,
+                    0,
+                    0,
                     0,
                     'open'
                 )
@@ -383,15 +415,18 @@ class StrategyExecutor:
             position_id = self.db.execute_insert(
                 """
                 INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
-                                     position_size, current_pnl, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                     position_size, current_pnl, realized_pnl, funding_collected, fees_paid, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     'directional_funding',
                     symbol,
-                    json.dumps([exchange]),
+                    exchange,
                     json.dumps(entry_details),
                     position_size,
+                    0,
+                    0,
+                    0,
                     0,
                     'open'
                 )
@@ -563,6 +598,9 @@ class StrategyExecutor:
                         logger.warning(f"🚨 执行紧急平仓 Position #{position['id']}")
                         self.close_position(position['id'])
                         continue
+                    
+                    # 更新持仓的资金费和手续费（每次监控都更新）
+                    self._update_position_fees(position)
 
                     if strategy_type == 'directional_funding':
                         self._check_directional_position(position)
@@ -571,6 +609,247 @@ class StrategyExecutor:
             except Exception as e:
                 logger.error(f"Error in position monitoring loop: {e}")
                 time.sleep(60)
+    
+    def _update_position_fees(self, position: Dict[str, Any]):
+        """更新持仓的资金费和手续费 - 从数据库直接计算"""
+        try:
+            position_id = position['id']
+            symbol = position['symbol']
+            entry_details = json.loads(position['entry_details'])
+            position_size = float(position.get('position_size', 0))
+            
+            # 获取交易所信息
+            exchanges_str = position.get('exchanges', '[]')
+            try:
+                exchanges_list = json.loads(exchanges_str) if isinstance(exchanges_str, str) else exchanges_str
+                if isinstance(exchanges_list, list) and exchanges_list:
+                    exchange = exchanges_list[0] if isinstance(exchanges_list[0], str) else entry_details.get('exchange')
+                else:
+                    exchange = exchanges_str if isinstance(exchanges_str, str) else entry_details.get('exchange')
+            except:
+                exchange = entry_details.get('exchange')
+            
+            if not exchange or position_size == 0:
+                return
+            
+            # 获取开仓时间
+            open_time_str = position.get('open_time')
+            if not open_time_str:
+                return
+            
+            from datetime import datetime, timezone
+            
+            # 解析开仓时间
+            if open_time_str.endswith('Z'):
+                open_time = datetime.fromisoformat(open_time_str.replace('Z', '+00:00'))
+            else:
+                open_time = datetime.fromisoformat(open_time_str)
+                if open_time.tzinfo is None:
+                    open_time = open_time.replace(tzinfo=timezone.utc)
+            
+            now = datetime.now(timezone.utc)
+            hours_held = (now - open_time).total_seconds() / 3600
+            
+            funding_collected = 0
+            
+            # 只要持仓超过30分钟就尝试计算资金费（避免刚开仓就计算）
+            if hours_held > 0.5:
+                # 策略1需要查询两个交易所的费率
+                if position['strategy_type'] == 'funding_rate_cross_exchange':
+                    long_exchange = entry_details.get('long_exchange')
+                    short_exchange = entry_details.get('short_exchange')
+                    
+                    if long_exchange and short_exchange:
+                        funding_collected = self._calculate_cross_exchange_funding(
+                            symbol, long_exchange, short_exchange, 
+                            position_size, open_time, now
+                        )
+                else:
+                    # 其他策略使用单交易所费率计算
+                    funding_collected = self._calculate_single_exchange_funding(
+                        position, exchange, symbol, position_size, 
+                        open_time, now, entry_details
+                    )
+            
+            # 获取当前手续费（开仓时已记录）
+            current_fees = float(position.get('fees_paid', 0) or 0)
+            
+            # 只有当数据发生变化时才更新数据库
+            if abs(funding_collected - float(position.get('funding_collected', 0) or 0)) > 0.0001 or abs(current_fees - float(position.get('fees_paid', 0) or 0)) > 0.0001:
+                self.db.execute_query(
+                    """
+                    UPDATE positions
+                    SET funding_collected = ?,
+                        fees_paid = ?
+                    WHERE id = ?
+                    """,
+                    (funding_collected, current_fees, position_id)
+                )
+                
+        except Exception as e:
+            logger.error(f"Error updating position fees for #{position.get('id')}: {e}")
+    
+    def _calculate_single_exchange_funding(self, position, exchange, symbol, position_size, 
+                                           open_time, now, entry_details):
+        """计算单交易所的资金费（策略2A/2B/3）"""
+        try:
+            position_id = position['id']
+            open_time_ms = int(open_time.timestamp() * 1000)
+            now_ms = int(now.timestamp() * 1000)
+            
+            # 先获取结算周期
+            latest_funding = self.db.execute_query(
+                """
+                SELECT funding_interval
+                FROM funding_rates
+                WHERE exchange = ? AND symbol = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (exchange, symbol)
+            )
+            
+            if not latest_funding or len(latest_funding) == 0:
+                return 0
+            
+            funding_interval_ms = latest_funding[0].get('funding_interval', 28800000)
+            funding_interval_hours = funding_interval_ms / 3600000
+            
+            # 获取持仓期间已经结算过的所有资金费率记录
+            funding_history = self.db.execute_query(
+                """
+                SELECT funding_rate, timestamp, next_funding_time
+                FROM funding_rates
+                WHERE exchange = ? AND symbol = ?
+                AND next_funding_time > ?
+                AND next_funding_time <= ?
+                ORDER BY next_funding_time ASC
+                """,
+                (exchange, symbol, open_time_ms, now_ms)
+            )
+            
+            if not funding_history or len(funding_history) == 0:
+                return 0
+            
+            # 使用数据库中的 next_funding_time 来识别实际的结算时间点
+            settlement_records = {}  # {next_funding_time: (rate, timestamp)}
+            
+            for row in funding_history:
+                next_funding_time = row.get('next_funding_time')
+                if next_funding_time:
+                    timestamp = row.get('timestamp', 0)
+                    if next_funding_time not in settlement_records or timestamp > settlement_records[next_funding_time][1]:
+                        settlement_records[next_funding_time] = (float(row['funding_rate']), timestamp)
+            
+            funding_collected = 0
+            
+            # 按时间排序并累加资金费
+            for settlement_time in sorted(settlement_records.keys()):
+                rate, _ = settlement_records[settlement_time]
+                
+                # 累加这次结算的资金费
+                if position['strategy_type'] in ['funding_rate_spot_futures', 'basis_arbitrage']:
+                    # 策略2A/2B：期货做空，收取正资金费
+                    funding_collected += position_size * rate
+                elif position['strategy_type'] == 'directional_funding':
+                    # 策略3：单边持仓
+                    direction = entry_details.get('direction', 'short')
+                    if direction == 'short':
+                        funding_collected += position_size * rate
+                    else:
+                        funding_collected -= position_size * rate
+            
+            if len(settlement_records) > 0:
+                logger.debug(f"📊 持仓 #{position_id} 资金费计算: {len(settlement_records)}次结算 ({funding_interval_hours}h周期), 累计${funding_collected:.4f}")
+            
+            return funding_collected
+            
+        except Exception as e:
+            logger.error(f"Error calculating single exchange funding: {e}")
+            return 0
+    
+    def _calculate_cross_exchange_funding(self, symbol, long_exchange, short_exchange, 
+                                         position_size, open_time, now):
+        """计算跨交易所套利的资金费（策略1）- 使用实际费率差"""
+        try:
+            open_time_ms = int(open_time.timestamp() * 1000)
+            now_ms = int(now.timestamp() * 1000)
+            
+            # 获取做多交易所的费率历史
+            long_history = self.db.execute_query(
+                """
+                SELECT funding_rate, timestamp, next_funding_time
+                FROM funding_rates
+                WHERE exchange = ? AND symbol = ?
+                AND next_funding_time > ?
+                AND next_funding_time <= ?
+                ORDER BY next_funding_time ASC
+                """,
+                (long_exchange, symbol, open_time_ms, now_ms)
+            )
+            
+            # 获取做空交易所的费率历史
+            short_history = self.db.execute_query(
+                """
+                SELECT funding_rate, timestamp, next_funding_time
+                FROM funding_rates
+                WHERE exchange = ? AND symbol = ?
+                AND next_funding_time > ?
+                AND next_funding_time <= ?
+                ORDER BY next_funding_time ASC
+                """,
+                (short_exchange, symbol, open_time_ms, now_ms)
+            )
+            
+            if not long_history or not short_history:
+                logger.warning(f"跨交易所套利 {symbol}: 缺少费率数据")
+                return 0
+            
+            # 整理两个交易所的结算记录
+            long_settlements = {}  # {next_funding_time: (rate, timestamp)}
+            for row in long_history:
+                next_funding_time = row.get('next_funding_time')
+                if next_funding_time:
+                    timestamp = row.get('timestamp', 0)
+                    if next_funding_time not in long_settlements or timestamp > long_settlements[next_funding_time][1]:
+                        long_settlements[next_funding_time] = (float(row['funding_rate']), timestamp)
+            
+            short_settlements = {}  # {next_funding_time: (rate, timestamp)}
+            for row in short_history:
+                next_funding_time = row.get('next_funding_time')
+                if next_funding_time:
+                    timestamp = row.get('timestamp', 0)
+                    if next_funding_time not in short_settlements or timestamp > short_settlements[next_funding_time][1]:
+                        short_settlements[next_funding_time] = (float(row['funding_rate']), timestamp)
+            
+            # 找出共同的结算时间点
+            common_settlements = set(long_settlements.keys()) & set(short_settlements.keys())
+            
+            if not common_settlements:
+                logger.warning(f"跨交易所套利 {symbol}: 两个交易所的结算时间点不匹配")
+                return 0
+            
+            funding_collected = 0
+            
+            # 对每个共同的结算时间点，计算费率差收益
+            for settlement_time in sorted(common_settlements):
+                long_rate, _ = long_settlements[settlement_time]
+                short_rate, _ = short_settlements[settlement_time]
+                
+                # 做多交易所支付费用（如果费率为正）或收取（如果为负）
+                # 做空交易所收取费用（如果费率为正）或支付（如果为负）
+                # 净收益 = 做空端收益 - 做多端成本 = position_size * (short_rate - long_rate)
+                rate_diff = short_rate - long_rate
+                funding_collected += position_size * rate_diff
+            
+            if len(common_settlements) > 0:
+                logger.debug(f"📊 跨交易所套利 {symbol} ({long_exchange}/{short_exchange}) 资金费计算: {len(common_settlements)}次结算, 累计${funding_collected:.4f}")
+            
+            return funding_collected
+            
+        except Exception as e:
+            logger.error(f"Error calculating cross exchange funding: {e}")
+            return 0
 
     def _check_directional_position(self, position: Dict[str, Any]):
         """检查单边策略持仓"""
@@ -587,23 +866,33 @@ class StrategyExecutor:
             short_exit_threshold = pair_config.get('s3_short_exit_threshold', 0.0)
             long_exit_threshold = pair_config.get('s3_long_exit_threshold', 0.0)
 
-            # 获取最新价格和资金费率
-            market_data = self.db.execute_query(
+            # 获取最新价格
+            price_data = self.db.execute_query(
                 """
-                SELECT futures_price, funding_rate
+                SELECT futures_price
                 FROM market_prices
                 WHERE exchange = ? AND symbol = ?
                 ORDER BY timestamp DESC LIMIT 1
                 """,
                 (exchange, symbol)
             )
+            
+            # 获取最新资金费率
+            funding_data = self.db.execute_query(
+                """
+                SELECT funding_rate
+                FROM funding_rates
+                WHERE exchange = ? AND symbol = ?
+                ORDER BY timestamp DESC LIMIT 1
+                """,
+                (exchange, symbol)
+            )
 
-            if not market_data:
+            if not price_data or not funding_data:
                 return
 
-            current_data = market_data[0]
-            current_price = current_data['futures_price']
-            current_funding_rate = current_data['funding_rate']
+            current_price = price_data[0]['futures_price']
+            current_funding_rate = funding_data[0]['funding_rate']
 
             entry_price = float(entry_details['entry_price'])
 
@@ -691,3 +980,190 @@ class StrategyExecutor:
             'total_size': total_size,
             'by_strategy': by_strategy
         }
+
+    def _position_sync_loop(self):
+        """持仓同步循环 - 启动时立即执行一次，然后每1分钟与交易所真实持仓对比"""
+        # 启动时先同步一次
+        logger.info("🔄 启动时执行持仓同步...")
+        try:
+            self._sync_positions_with_exchange()
+        except Exception as e:
+            logger.error(f"Error in initial position sync: {e}")
+        
+        while self.running:
+            try:
+                current_time = time.time()
+                # 每1分钟同步一次
+                if current_time - self.last_position_sync < 60:
+                    time.sleep(10)
+                    continue
+                
+                self.last_position_sync = current_time
+                self._sync_positions_with_exchange()
+                
+            except Exception as e:
+                logger.error(f"Error in position sync loop: {e}")
+                time.sleep(30)
+    
+    def _sync_positions_with_exchange(self):
+        """同步数据库持仓与交易所真实持仓（自动修正）"""
+        try:
+            # 获取数据库中的持仓
+            db_positions = self.get_open_positions()
+            
+            if not db_positions:
+                return
+            
+            # 按交易所分组
+            positions_by_exchange = {}
+            for pos in db_positions:
+                entry_details = json.loads(pos['entry_details'])
+                exchange = entry_details.get('exchange', '')
+                symbol = pos['symbol']
+                
+                if exchange not in positions_by_exchange:
+                    positions_by_exchange[exchange] = {}
+                if symbol not in positions_by_exchange[exchange]:
+                    positions_by_exchange[exchange][symbol] = []
+                positions_by_exchange[exchange][symbol].append(pos)
+            
+            # 从交易所获取真实持仓
+            for exchange_name, symbols in positions_by_exchange.items():
+                exchange_adapter = self.order_manager.exchanges.get(exchange_name.lower())
+                if not exchange_adapter:
+                    continue
+                
+                try:
+                    # 获取交易所所有持仓
+                    real_positions = exchange_adapter.get_positions()
+                    
+                    # 构建真实持仓字典 {symbol: position_data}
+                    real_positions_dict = {}
+                    for rp in real_positions:
+                        symbol = rp.get('symbol', '').replace(':USDT', '')
+                        side = rp.get('side', '')  # long/short
+                        contracts = float(rp.get('contracts', 0))
+                        
+                        if contracts > 0:
+                            key = f"{symbol}_{side}"
+                            real_positions_dict[key] = rp
+                    
+                    # 检查数据库持仓是否在交易所存在
+                    for symbol, db_pos_list in symbols.items():
+                        for db_pos in db_pos_list:
+                            entry_details = json.loads(db_pos['entry_details'])
+                            direction = entry_details.get('direction', '')  # long/short
+                            position_size = float(db_pos.get('position_size', 0))
+                            entry_price = float(db_pos.get('entry_price', 0))
+                            
+                            key = f"{symbol}_{direction}"
+                            
+                            if key not in real_positions_dict:
+                                # 数据库有持仓但交易所没有 - 自动标记为已平仓
+                                logger.warning(
+                                    f"🔄 自动同步: 持仓 #{db_pos['id']} {exchange_name} {symbol} {direction} "
+                                    f"在交易所不存在，自动标记为已平仓"
+                                )
+                                
+                                # 更新为已平仓状态
+                                self.db.execute_query(
+                                    """
+                                    UPDATE positions 
+                                    SET status = 'closed',
+                                        exit_details = ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                    """,
+                                    (json.dumps({
+                                        'reason': 'auto_sync',
+                                        'note': '交易所持仓不存在，自动同步为已平仓',
+                                        'sync_time': time.strftime('%Y-%m-%d %H:%M:%S')
+                                    }), db_pos['id'])
+                                )
+                                
+                                self._trigger_callback('position_auto_closed', {
+                                    'position_id': db_pos['id'],
+                                    'exchange': exchange_name,
+                                    'symbol': symbol,
+                                    'direction': direction
+                                })
+                                
+                            else:
+                                # 检查数量和价格是否一致
+                                real_contracts = float(real_positions_dict[key].get('contracts', 0))
+                                real_entry_price = float(real_positions_dict[key].get('entryPrice', 0))
+                                
+                                # 数量或价格不一致 - 自动更新
+                                if abs(real_contracts - position_size) > 0.0001 or abs(real_entry_price - entry_price) > 0.0001:
+                                    logger.warning(
+                                        f"🔄 自动同步: 持仓 #{db_pos['id']} {exchange_name} {symbol} {direction} "
+                                        f"数据不一致 - 数据库: {position_size}张@{entry_price}, "
+                                        f"交易所: {real_contracts}张@{real_entry_price}"
+                                    )
+                                    
+                                    # 更新entry_details
+                                    entry_details['entry_price'] = real_entry_price
+                                    
+                                    # 更新数据库
+                                    self.db.execute_query(
+                                        """
+                                        UPDATE positions 
+                                        SET position_size = ?,
+                                            entry_price = ?,
+                                            entry_details = ?,
+                                            updated_at = CURRENT_TIMESTAMP
+                                        WHERE id = ?
+                                        """,
+                                        (real_contracts, real_entry_price, json.dumps(entry_details), db_pos['id'])
+                                    )
+                                    
+                                    logger.info(f"✅ 已自动更新持仓 #{db_pos['id']} 的数量和价格")
+                                    
+                                    self._trigger_callback('position_updated', {
+                                        'position_id': db_pos['id'],
+                                        'old_size': position_size,
+                                        'new_size': real_contracts,
+                                        'old_price': entry_price,
+                                        'new_price': real_entry_price
+                                    })
+                    
+                    # 检查交易所是否有未记录的持仓
+                    for key, real_pos in real_positions_dict.items():
+                        symbol_side = key.split('_')
+                        if len(symbol_side) != 2:
+                            continue
+                        symbol, side = symbol_side
+                        
+                        # 检查数据库是否有这个持仓
+                        found = False
+                        if symbol in symbols:
+                            for db_pos in symbols[symbol]:
+                                entry_details = json.loads(db_pos['entry_details'])
+                                if entry_details.get('direction') == side:
+                                    found = True
+                                    break
+                        
+                        if not found:
+                            contracts = float(real_pos.get('contracts', 0))
+                            entry_price_real = float(real_pos.get('entryPrice', 0))
+                            logger.warning(
+                                f"⚠️ 发现未记录持仓: {exchange_name} {symbol} {side} "
+                                f"{contracts}张@{entry_price_real} (可能是手动开仓，暂不自动添加到数据库)"
+                            )
+                            self._trigger_callback('position_mismatch', {
+                                'type': 'not_in_database',
+                                'exchange': exchange_name,
+                                'symbol': symbol,
+                                'side': side,
+                                'contracts': contracts,
+                                'entry_price': entry_price_real,
+                                'real_position': real_pos
+                            })
+                
+                except Exception as e:
+                    logger.error(f"Error syncing positions for {exchange_name}: {e}")
+            
+            logger.info(f"✅ 持仓自动同步完成，检查了 {len(db_positions)} 个持仓")
+                
+        except Exception as e:
+            logger.error(f"Error syncing positions with exchange: {e}")

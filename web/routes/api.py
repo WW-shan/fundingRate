@@ -147,20 +147,48 @@ def positions():
                        current_pnl, realized_pnl, funding_collected,
                        fees_paid, status, open_time, close_time
                 FROM positions
-                WHERE status = 'open'
+                WHERE status IN ('open', 'emergency_close_pending')
                 ORDER BY open_time DESC
-                LIMIT 50
+                LIMIT 100
             """)
             columns = [desc[0] for desc in cursor.description]
             positions = [dict(zip(columns, row)) for row in cursor.fetchall()]
             
-            # 为每个持仓添加实时市场数据
+            # 确保所有数值字段都有默认值（处理NULL）
+            for pos in positions:
+                pos['position_size'] = float(pos.get('position_size') or 0)
+                pos['current_pnl'] = float(pos.get('current_pnl') or 0)
+                pos['realized_pnl'] = float(pos.get('realized_pnl') or 0)
+                pos['funding_collected'] = float(pos.get('funding_collected') or 0)
+                pos['fees_paid'] = float(pos.get('fees_paid') or 0)
+            
+            # 为每个持仓添加实时市场数据和准确计算
             if data_collector:
                 import json
                 for pos in positions:
                     symbol = pos['symbol']
                     exchanges = pos['exchanges']
                     entry_details = json.loads(pos['entry_details']) if pos['entry_details'] else {}
+                    position_size = float(pos.get('position_size', 0))
+                    
+                    # 从entry_details提取entry_price
+                    entry_price = 0
+                    if pos['strategy_type'] == 'funding_rate_cross_exchange':
+                        # 策略1: 使用long_price和short_price的平均值
+                        long_price = float(entry_details.get('long_price', 0))
+                        short_price = float(entry_details.get('short_price', 0))
+                        entry_price = (long_price + short_price) / 2 if (long_price + short_price) > 0 else 0
+                    elif pos['strategy_type'] == 'funding_rate_spot_futures':
+                        # 策略2A: 使用spot_price
+                        entry_price = float(entry_details.get('spot_price', 0))
+                    elif pos['strategy_type'] == 'basis_arbitrage':
+                        # 策略2B: 使用spot_price
+                        entry_price = float(entry_details.get('spot_price', 0))
+                    else:
+                        # 其他策略：尝试从entry_details获取
+                        entry_price = float(entry_details.get('entry_price', 0))
+                    
+                    pos['entry_price'] = entry_price
                     
                     # 获取实时市场数据
                     market_data = data_collector.get_market_data(symbol)
@@ -170,8 +198,11 @@ def positions():
                         pos['current_spot_price'] = exchange_data.get('spot_price')
                         pos['current_futures_price'] = exchange_data.get('futures_price')
                         pos['current_spot_ask'] = exchange_data.get('spot_ask')
+                        pos['current_spot_bid'] = exchange_data.get('spot_bid')
                         pos['current_futures_bid'] = exchange_data.get('futures_bid')
+                        pos['current_futures_ask'] = exchange_data.get('futures_ask')
                         pos['current_funding_rate'] = exchange_data.get('funding_rate')
+                        pos['next_funding_time'] = exchange_data.get('next_funding_time')
                         
                         # 计算当前基差（如果适用）
                         if exchange_data.get('spot_ask') and exchange_data.get('futures_bid'):
@@ -180,6 +211,28 @@ def positions():
                         # 计算基差变化（策略2A/2B）
                         if 'basis' in entry_details and pos.get('current_basis') is not None:
                             pos['basis_change'] = pos['current_basis'] - entry_details['basis']
+                        
+                        # 计算价格变化百分比
+                        if entry_price > 0:
+                            if pos['strategy_type'] == 'funding_rate_spot_futures':
+                                # 策略2A：计算现货和期货价格变化
+                                spot_entry = float(entry_details.get('spot_price', entry_price))
+                                futures_entry = float(entry_details.get('futures_price', entry_price))
+                                if spot_entry > 0 and exchange_data.get('spot_price'):
+                                    pos['spot_price_change_pct'] = ((exchange_data['spot_price'] - spot_entry) / spot_entry) * 100
+                                if futures_entry > 0 and exchange_data.get('futures_price'):
+                                    pos['futures_price_change_pct'] = ((exchange_data['futures_price'] - futures_entry) / futures_entry) * 100
+                            else:
+                                # 其他策略：计算总体价格变化
+                                current_price = exchange_data.get('futures_price') or exchange_data.get('spot_price')
+                                if current_price:
+                                    pos['price_change_pct'] = ((current_price - entry_price) / entry_price) * 100
+                        
+                        # 计算实时盈亏率
+                        if position_size > 0:
+                            pos['pnl_percentage'] = (float(pos.get('current_pnl', 0)) / position_size) * 100
+                        else:
+                            pos['pnl_percentage'] = 0
 
         return jsonify({'success': True, 'data': positions})
     except Exception as e:

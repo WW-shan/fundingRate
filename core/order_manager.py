@@ -96,6 +96,7 @@ class OrderManager:
             
             while time.time() - start_time < timeout:
                 try:
+                    # 先尝试查询订单
                     order = exchange_adapter.exchange.fetch_order(order_id, symbol)
                     status = order.get('status')
                     filled = order.get('filled', 0)
@@ -109,7 +110,27 @@ class OrderManager:
                     time.sleep(1)
                     
                 except Exception as e:
-                    logger.warning(f"查询订单状态失败: {e}")
+                    error_msg = str(e).lower()
+                    # 如果是找不到订单的错误，可能已经成交了，尝试从成交历史查询
+                    if 'could not find order' in error_msg or 'order not found' in error_msg:
+                        try:
+                            # 尝试从最近的成交记录中查找
+                            trades = exchange_adapter.exchange.fetch_my_trades(symbol, limit=20)
+                            for trade in trades:
+                                if trade.get('order') == order_id:
+                                    # 找到了该订单的成交记录，说明已经完成
+                                    logger.info(f"订单 {order_id} 已从成交历史中找到")
+                                    return {'filled': True, 'filled_amount': trade.get('amount', 0), 'status': 'closed'}
+                            
+                            # 如果在成交记录中也没找到，可能是市价单瞬间成交了
+                            # 对于市价单，给予信任认为已成交
+                            logger.info(f"订单 {order_id} 可能已快速成交，假定为成功")
+                            return {'filled': True, 'filled_amount': 0, 'status': 'closed'}
+                        except Exception as te:
+                            logger.warning(f"查询成交历史失败: {te}")
+                    else:
+                        logger.warning(f"查询订单状态失败: {e}")
+                    
                     time.sleep(1)
             
             # 超时
@@ -130,7 +151,32 @@ class OrderManager:
             if not exchange_adapter:
                 return False
             
-            order = exchange_adapter.exchange.fetch_order(order_id, symbol)
+            try:
+                order = exchange_adapter.exchange.fetch_order(order_id, symbol)
+            except Exception as e:
+                error_msg = str(e).lower()
+                # 如果找不到订单，尝试从成交历史查询
+                if 'could not find order' in error_msg or 'order not found' in error_msg:
+                    try:
+                        trades = exchange_adapter.exchange.fetch_my_trades(symbol, limit=20)
+                        for trade in trades:
+                            if trade.get('order') == order_id:
+                                # 从成交记录构造订单信息
+                                order = {
+                                    'status': 'closed',
+                                    'filled': trade.get('amount', 0),
+                                    'average': trade.get('price', 0)
+                                }
+                                break
+                        else:
+                            # 如果成交记录中也没找到，假定为已成交
+                            logger.info(f"订单 {order_id} 假定为已成交")
+                            order = {'status': 'closed', 'filled': 0, 'average': 0}
+                    except Exception as te:
+                        logger.error(f"查询成交历史失败: {te}")
+                        return False
+                else:
+                    raise
             
             self.db.execute_update(
                 """
@@ -295,8 +341,24 @@ class OrderManager:
                         order_data.get('id', '')
                     )
                 )
+                
+                # 提取手续费信息
+                fee_info = order_data.get('fee', {})
+                if fee_info:
+                    order_data['fee_cost'] = float(fee_info.get('cost', 0))
+                    order_data['fee_currency'] = fee_info.get('currency', 'USDT')
+                else:
+                    # 如果没有fee信息，估算手续费（0.05% taker）
+                    filled_amount = float(order_data.get('filled', 0))
+                    avg_price = float(order_data.get('average', order_data.get('price', 0)))
+                    if filled_amount > 0 and avg_price > 0:
+                        order_data['fee_cost'] = filled_amount * avg_price * 0.0005
+                        order_data['fee_currency'] = 'USDT'
+                    else:
+                        order_data['fee_cost'] = 0
+                        order_data['fee_currency'] = 'USDT'
 
-                logger.info(f"✅ Order created: {exchange} {side} {amount} {symbol}")
+                logger.info(f"✅ Order created: {exchange} {side} {amount} {symbol}, Fee: {order_data.get('fee_cost', 0):.4f} {order_data.get('fee_currency', 'USDT')}")
                 
                 # 实际交易模式下等待订单成交确认
                 if self.enable_trading and order_type == 'market':
@@ -337,7 +399,8 @@ class OrderManager:
         results = {
             'spot_order': None,
             'futures_order': None,
-            'success': False
+            'success': False,
+            'total_fee': 0
         }
 
         try:
@@ -386,8 +449,16 @@ class OrderManager:
 
             results['futures_order'] = futures_order
             results['success'] = True
+            
+            # 统计总手续费
+            total_fee = 0
+            if spot_order and 'fee_cost' in spot_order:
+                total_fee += float(spot_order['fee_cost'])
+            if futures_order and 'fee_cost' in futures_order:
+                total_fee += float(futures_order['fee_cost'])
+            results['total_fee'] = total_fee
 
-            logger.info(f"✅ Spot-Futures pair created successfully")
+            logger.info(f"✅ Spot-Futures pair created successfully, Total Fee: ${total_fee:.4f}")
             return results
 
         except Exception as e:
@@ -414,7 +485,8 @@ class OrderManager:
         results = {
             'long_order': None,
             'short_order': None,
-            'success': False
+            'success': False,
+            'total_fee': 0
         }
 
         try:
@@ -463,8 +535,16 @@ class OrderManager:
 
             results['short_order'] = short_order
             results['success'] = True
+            
+            # 统计总手续费
+            total_fee = 0
+            if long_order and 'fee_cost' in long_order:
+                total_fee += float(long_order['fee_cost'])
+            if short_order and 'fee_cost' in short_order:
+                total_fee += float(short_order['fee_cost'])
+            results['total_fee'] = total_fee
 
-            logger.info(f"✅ Cross-exchange pair created: {long_exchange} (long) & {short_exchange} (short)")
+            logger.info(f"✅ Cross-exchange pair created: {long_exchange} (long) & {short_exchange} (short), Total Fee: ${total_fee:.4f}")
             return results
 
         except Exception as e:

@@ -574,6 +574,17 @@
         const pnlPct =
           position.position_size > 0 ? (pnl / position.position_size) * 100 : 0;
 
+        // 计算持仓时长
+        const openTime = new Date(position.open_time + "Z");
+        const now = new Date();
+        const diffMs = now - openTime;
+        const diffHours = Math.floor(diffMs / 1000 / 60 / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        const durationText =
+          diffDays > 0
+            ? `${diffDays}天${diffHours % 24}小时`
+            : `${diffHours}小时`;
+
         let html = `
                 <div class="detail-grid">
                     <div class="detail-item">
@@ -582,23 +593,43 @@
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">交易对</div>
-                        <div class="detail-item-value">${position.symbol}</div>
+                        <div class="detail-item-value" style="font-size: 16px; font-weight: 600;">${position.symbol}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">策略类型</div>
                         <div class="detail-item-value">${strategyName}</div>
                     </div>
                     <div class="detail-item">
+                        <div class="detail-item-label">状态</div>
+                        <div class="detail-item-value">
+                            <span style="color: ${position.status === "open" ? "#10b981" : "#ef4444"}">
+                                ${position.status === "open" ? "✅ 正常" : position.status === "emergency_close_pending" ? "⚠️ 紧急平仓中" : position.status}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="detail-item">
                         <div class="detail-item-label">仓位大小</div>
-                        <div class="detail-item-value">$${parseFloat(position.position_size || 0).toFixed(2)}</div>
+                        <div class="detail-item-value" style="font-size: 16px; font-weight: 600;">$${parseFloat(position.position_size || 0).toFixed(2)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">当前盈亏</div>
-                        <div class="detail-item-value" style="color: ${pnl >= 0 ? "#10b981" : "#ef4444"}">$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)</div>
+                        <div class="detail-item-value" style="color: ${pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px; font-weight: 700;">
+                            $${pnl.toFixed(2)}
+                            <span style="font-size: 14px;">(${pnlPct.toFixed(2)}%)</span>
+                        </div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">开仓时间</div>
-                        <div class="detail-item-value" style="font-size: 14px;">${new Date(position.open_time + "Z").toLocaleString("zh-CN")}</div>
+                        <div class="detail-item-value" style="font-size: 13px;">
+                            ${openTime.toLocaleString("zh-CN")}
+                            <div style="color: #6b7280; font-size: 12px; margin-top: 3px;">持续 ${durationText}</div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">最后更新</div>
+                        <div class="detail-item-value" style="font-size: 13px;">
+                            ${position.updated_at ? new Date(position.updated_at + "Z").toLocaleString("zh-CN") : "-"}
+                        </div>
                     </div>
                 </div>
             `;
@@ -619,41 +650,65 @@
       function generateCrossExchangeDetails(position, details) {
         const fundingDiff = details.funding_diff || 0;
         const expectedReturn = details.expected_return || 0;
+        const longPrice = parseFloat(details.long_price || 0);
+        const shortPrice = parseFloat(details.short_price || 0);
 
         return `
                 <div class="section-title">策略1：跨交易所套利 - 详细信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
                         <div class="detail-item-label">做多交易所</div>
-                        <div class="detail-item-value">${details.long_exchange || "-"}</div>
+                        <div class="detail-item-value" style="color: #10b981; font-weight: 600;">${details.long_exchange || "-"}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">做空交易所</div>
-                        <div class="detail-item-value">${details.short_exchange || "-"}</div>
+                        <div class="detail-item-value" style="color: #ef4444; font-weight: 600;">${details.short_exchange || "-"}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">做多开仓价</div>
-                        <div class="detail-item-value">$${parseFloat(details.long_price || 0).toFixed(6)}</div>
+                        <div class="detail-item-value">$${longPrice.toFixed(6)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">做空开仓价</div>
-                        <div class="detail-item-value">$${parseFloat(details.short_price || 0).toFixed(6)}</div>
+                        <div class="detail-item-value">$${shortPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓价差</div>
+                        <div class="detail-item-value">${((Math.abs(longPrice - shortPrice) / longPrice) * 100).toFixed(3)}%</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">资金费率差</div>
-                        <div class="detail-item-value" style="color: ${fundingDiff >= 0 ? "#10b981" : "#ef4444"}">${(fundingDiff * 100).toFixed(4)}%</div>
+                        <div class="detail-item-value" style="color: ${fundingDiff >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">${(fundingDiff * 100).toFixed(4)}% / 8h</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">预期单期收益</div>
-                        <div class="detail-item-value" style="color: #10b981">$${expectedReturn.toFixed(2)}</div>
+                        <div class="detail-item-value" style="color: #10b981; font-weight: 600;">$${expectedReturn.toFixed(2)}</div>
                     </div>
                     <div class="detail-item">
+                        <div class="detail-item-label">仓位数量</div>
+                        <div class="detail-item-value">${parseFloat(position.position_size / longPrice).toFixed(4)} 张</div>
+                    </div>
+                </div>
+
+                <div class="section-title">收益统计</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
                         <div class="detail-item-label">已收取资金费率</div>
-                        <div class="detail-item-value" style="color: #10b981">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
+                        <div class="detail-item-value" style="color: #10b981; font-weight: 600;">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">已支付手续费</div>
-                        <div class="detail-item-value">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                        <div class="detail-item-value" style="color: #f59e0b;">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已实现盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.realized_pnl >= 0 ? "#10b981" : "#ef4444"}">$${parseFloat(position.realized_pnl || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">净收益</div>
+                        <div class="detail-item-value" style="color: ${position.funding_collected - position.fees_paid >= 0 ? "#10b981" : "#ef4444"}; font-size: 16px; font-weight: 700;">
+                            $${(parseFloat(position.funding_collected || 0) - parseFloat(position.fees_paid || 0)).toFixed(2)}
+                        </div>
                     </div>
                 </div>
             `;
@@ -666,90 +721,136 @@
         const expectedReturn = details.expected_return || 0;
 
         // 实时市场数据
-        const currentSpotPrice = position.current_spot_ask || spotPrice;
-        const currentFuturesPrice =
-          position.current_futures_bid || futuresPrice;
+        const currentSpotPrice = parseFloat(
+          position.current_spot_ask || spotPrice,
+        );
+        const currentFuturesPrice = parseFloat(
+          position.current_futures_bid || futuresPrice,
+        );
         const currentBasis =
           position.current_basis !== undefined
             ? position.current_basis
             : openBasis;
         const basisChange = position.basis_change || 0;
 
+        // 价格变化
+        const spotPriceChange = currentSpotPrice - spotPrice;
+        const futuresPriceChange = currentFuturesPrice - futuresPrice;
+        const spotPriceChangePct =
+          spotPrice > 0 ? (spotPriceChange / spotPrice) * 100 : 0;
+        const futuresPriceChangePct =
+          futuresPrice > 0 ? (futuresPriceChange / futuresPrice) * 100 : 0;
+
+        // 实时盈亏分析
+        const fundingIncome = parseFloat(position.funding_collected || 0);
+        const fees = parseFloat(position.fees_paid || 0);
+        const netProfit = fundingIncome - fees;
+
         return `
                 <div class="section-title">策略2A：现货期货套利 - 详细信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
                         <div class="detail-item-label">交易所</div>
-                        <div class="detail-item-value">${position.exchanges || "-"}</div>
+                        <div class="detail-item-value" style="font-weight: 600;">${position.exchanges || "-"}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">当前资金费率</div>
-                        <div class="detail-item-value" style="color: ${position.current_funding_rate >= 0 ? "#10b981" : "#ef4444"}">
+                        <div class="detail-item-value" style="color: ${position.current_funding_rate >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">
                             ${position.current_funding_rate ? (position.current_funding_rate * 100).toFixed(4) + "% / 8h" : "-"}
                         </div>
                     </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">下次资金费时间</div>
+                        <div class="detail-item-value" style="font-size: 13px;">
+                            ${position.next_funding_time ? new Date(position.next_funding_time).toLocaleString("zh-CN") : "-"}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">仓位数量</div>
+                        <div class="detail-item-value">${(parseFloat(position.position_size) / spotPrice).toFixed(4)} 张</div>
+                    </div>
                 </div>
-                
+
                 <div class="section-title">开仓信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
-                        <div class="detail-item-label">现货开仓价</div>
-                        <div class="detail-item-value">$${spotPrice.toFixed(6)}</div>
+                        <div class="detail-item-label">现货开仓价 (买入)</div>
+                        <div class="detail-item-value" style="color: #10b981;">$${spotPrice.toFixed(6)}</div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-item-label">期货开仓价</div>
-                        <div class="detail-item-value">$${futuresPrice.toFixed(6)}</div>
+                        <div class="detail-item-label">期货开仓价 (做空)</div>
+                        <div class="detail-item-value" style="color: #ef4444;">$${futuresPrice.toFixed(6)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">开仓基差</div>
-                        <div class="detail-item-value" style="color: ${openBasis >= 0 ? "#10b981" : "#ef4444"}">${(openBasis * 100).toFixed(3)}%</div>
+                        <div class="detail-item-value" style="color: ${openBasis >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">${(openBasis * 100).toFixed(3)}%</div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-item-label">预期单期收益</div>
-                        <div class="detail-item-value" style="color: #10b981">$${expectedReturn.toFixed(2)}</div>
+                        <div class="detail-item-label">开仓价差</div>
+                        <div class="detail-item-value">$${(futuresPrice - spotPrice).toFixed(6)}</div>
                     </div>
                 </div>
-                
+
                 <div class="section-title">实时市场信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
-                        <div class="detail-item-label">当前现货价</div>
-                        <div class="detail-item-value">$${currentSpotPrice.toFixed(6)}</div>
+                        <div class="detail-item-label">当前现货价 (卖出)</div>
+                        <div class="detail-item-value">
+                            <div style="font-size: 15px; font-weight: 600;">$${currentSpotPrice.toFixed(6)}</div>
+                            <div style="font-size: 12px; color: ${spotPriceChangePct >= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${spotPriceChangePct >= 0 ? "↑" : "↓"} ${Math.abs(spotPriceChangePct).toFixed(2)}% ($${Math.abs(spotPriceChange).toFixed(6)})
+                            </div>
+                        </div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-item-label">当前期货价</div>
-                        <div class="detail-item-value">$${currentFuturesPrice.toFixed(6)}</div>
+                        <div class="detail-item-label">当前期货价 (平仓)</div>
+                        <div class="detail-item-value">
+                            <div style="font-size: 15px; font-weight: 600;">$${currentFuturesPrice.toFixed(6)}</div>
+                            <div style="font-size: 12px; color: ${futuresPriceChangePct >= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                                ${futuresPriceChangePct >= 0 ? "↑" : "↓"} ${Math.abs(futuresPriceChangePct).toFixed(2)}% ($${Math.abs(futuresPriceChange).toFixed(6)})
+                            </div>
+                        </div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">当前基差</div>
                         <div class="detail-item-value" style="color: ${currentBasis >= 0 ? "#10b981" : "#ef4444"}">
-                            ${(currentBasis * 100).toFixed(3)}%
-                            <div style="font-size: 11px; color: ${basisChange <= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
+                            <div style="font-size: 15px; font-weight: 600;">${(currentBasis * 100).toFixed(3)}%</div>
+                            <div style="font-size: 12px; color: ${basisChange <= 0 ? "#10b981" : "#ef4444"}; margin-top: 3px;">
                                 ${basisChange <= 0 ? "↓" : "↑"} ${Math.abs(basisChange * 100).toFixed(3)}%
                             </div>
                         </div>
                     </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前价差</div>
+                        <div class="detail-item-value">$${(currentFuturesPrice - currentSpotPrice).toFixed(6)}</div>
+                    </div>
                 </div>
-                
+
                 <div class="section-title">收益统计</div>
                 <div class="detail-grid">
                     <div class="detail-item">
                         <div class="detail-item-label">已收取资金费率</div>
-                        <div class="detail-item-value" style="color: #10b981">$${parseFloat(position.funding_collected || 0).toFixed(2)}</div>
+                        <div class="detail-item-value" style="color: #10b981; font-weight: 600;">$${fundingIncome.toFixed(2)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-item-label">已支付手续费</div>
-                        <div class="detail-item-value">$${parseFloat(position.fees_paid || 0).toFixed(2)}</div>
+                        <div class="detail-item-value" style="color: #f59e0b;">$${fees.toFixed(2)}</div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-item-label">已实现盈亏</div>
-                        <div class="detail-item-value" style="color: ${position.realized_pnl >= 0 ? "#10b981" : "#ef4444"}">$${parseFloat(position.realized_pnl || 0).toFixed(2)}</div>
+                        <div class="detail-item-label">净资金费收益</div>
+                        <div class="detail-item-value" style="color: ${netProfit >= 0 ? "#10b981" : "#ef4444"}; font-weight: 600;">
+                            $${netProfit.toFixed(2)}
+                        </div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-item-label">当前净盈亏</div>
-                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px;">
+                        <div class="detail-item-label">当前总盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px; font-weight: 700;">
                             $${parseFloat(position.current_pnl || 0).toFixed(2)}
                         </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预期单期收益</div>
+                        <div class="detail-item-value" style="color: #6b7280;">$${expectedReturn.toFixed(2)}</div>
                     </div>
                 </div>
             `;
@@ -800,7 +901,7 @@
                         <div class="detail-item-value">${estimatedHoldDays} 天</div>
                     </div>
                 </div>
-                
+
                 <div class="section-title">开仓信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
@@ -820,7 +921,7 @@
                         <div class="detail-item-value">$${(futuresPrice - spotPrice).toFixed(6)}</div>
                     </div>
                 </div>
-                
+
                 <div class="section-title">实时市场信息</div>
                 <div class="detail-grid">
                     <div class="detail-item">
@@ -861,7 +962,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="section-title">收益分析</div>
                 <div class="detail-grid">
                     <div class="detail-item">
@@ -974,7 +1075,7 @@
       }
 
       loadPositions();
-      setInterval(loadPositions, 5000); // 每5秒刷新
+      setInterval(loadPositions, 2000); // 每2秒刷新
     </script>
   </body>
 </html>
