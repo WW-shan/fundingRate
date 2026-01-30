@@ -22,17 +22,48 @@ class DatabaseManager:
     @contextmanager
     def get_connection(self):
         """获取数据库连接的上下文管理器"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # 使结果可以通过列名访问
-        try:
-            yield conn
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Database error: {e}")
-            raise
-        finally:
-            conn.close()
+        conn = None
+        max_retries = 3
+        retry_delay = 0.1
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=5.0)  # 增加超时时间
+                conn.row_factory = sqlite3.Row  # 使结果可以通过列名访问
+                yield conn
+                conn.commit()
+                break  # 成功执行后跳出重试循环
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    logger.warning(f"Database locked, retrying {attempt + 1}/{max_retries}...")
+                    if conn:
+                        try:
+                            conn.rollback()
+                        except:
+                            pass
+                        try:
+                            conn.close()
+                        except:
+                            pass
+                    time.sleep(retry_delay * (attempt + 1))  # 线性退避
+                    continue
+                else:
+                    if conn:
+                        conn.rollback()
+                    logger.error(f"Database operational error: {e}")
+                    raise
+            except Exception as e:
+                if conn:
+                    conn.rollback()
+                logger.error(f"Database error: {e}")
+                raise
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass
 
     def init_database(self):
         """初始化数据库表结构"""

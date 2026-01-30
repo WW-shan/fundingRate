@@ -101,11 +101,25 @@ def update_config():
         if not all([category, key, value is not None]):
             return jsonify({'success': False, 'error': '缺少必需字段'})
 
-        # 正确调用ConfigManager的set方法（category和key是分开的参数）
-        config_manager.set(category, key, value, is_hot_reload=True)
-        
-        logger.info(f"Config updated via web: {category}.{key} = {value}")
-        return jsonify({'success': True, 'message': '配置已更新'})
+        # 添加重试逻辑
+        max_retries = 3
+        import time
+        import sqlite3
+
+        for attempt in range(max_retries):
+            try:
+                # 正确调用ConfigManager的set方法（category和key是分开的参数）
+                config_manager.set(category, key, value, is_hot_reload=True)
+                logger.info(f"Config updated via web: {category}.{key} = {value}")
+                return jsonify({'success': True, 'message': '配置已更新'})
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                raise e
+            except Exception as e:
+                raise e
+
     except Exception as e:
         logger.error(f"Error updating config: {e}")
         return jsonify({'success': False, 'error': str(e)})
