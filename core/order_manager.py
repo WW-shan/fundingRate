@@ -78,7 +78,7 @@ class OrderManager:
             return {'sufficient': False, 'estimated_price': 0, 'slippage_pct': 0}
 
     def _wait_for_order_filled(self, exchange: str, order_id: str, symbol: str, 
-                               timeout: int = 30) -> Dict[str, Any]:
+                               is_futures: bool = False, timeout: int = 30) -> Dict[str, Any]:
         """
         等待订单完全成交
         返回: {'filled': bool, 'filled_amount': float, 'status': str}
@@ -94,44 +94,66 @@ class OrderManager:
             
             start_time = time.time()
             
+            # 尝试多种symbol格式
+            symbols_to_try = [symbol]
+            if is_futures:
+                # 期货合约可能需要不同的symbol格式
+                if ':' not in symbol:
+                    symbols_to_try.append(f"{symbol}:USDT")
+            
             while time.time() - start_time < timeout:
-                try:
-                    # 先尝试查询订单
-                    order = exchange_adapter.exchange.fetch_order(order_id, symbol)
-                    status = order.get('status')
-                    filled = order.get('filled', 0)
-                    
-                    if status == 'closed' or status == 'filled':
-                        return {'filled': True, 'filled_amount': filled, 'status': status}
-                    elif status == 'canceled' or status == 'expired':
-                        return {'filled': False, 'filled_amount': filled, 'status': status}
-                    
-                    # 订单还在执行中，等待1秒后重试
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    # 如果是找不到订单的错误，可能已经成交了，尝试从成交历史查询
-                    if 'could not find order' in error_msg or 'order not found' in error_msg:
-                        try:
-                            # 尝试从最近的成交记录中查找
-                            trades = exchange_adapter.exchange.fetch_my_trades(symbol, limit=20)
-                            for trade in trades:
-                                if trade.get('order') == order_id:
-                                    # 找到了该订单的成交记录，说明已经完成
-                                    logger.info(f"订单 {order_id} 已从成交历史中找到")
-                                    return {'filled': True, 'filled_amount': trade.get('amount', 0), 'status': 'closed'}
-                            
-                            # 如果在成交记录中也没找到，可能是市价单瞬间成交了
-                            # 对于市价单，给予信任认为已成交
-                            logger.info(f"订单 {order_id} 可能已快速成交，假定为成功")
-                            return {'filled': True, 'filled_amount': 0, 'status': 'closed'}
-                        except Exception as te:
-                            logger.warning(f"查询成交历史失败: {te}")
+                order = None
+                last_error = None
+                
+                # 尝试不同的symbol格式查询订单
+                for try_symbol in symbols_to_try:
+                    try:
+                        order = exchange_adapter.exchange.fetch_order(order_id, try_symbol)
+                        break  # 成功，跳出循环
+                    except Exception as e:
+                        last_error = e
+                        error_msg = str(e).lower()
+                        # 如果是symbol不存在的错误，尝试下一个格式
+                        if 'does not have market' in error_msg or 'symbol' in error_msg:
+                            continue
+                        # 其他错误也尝试下一个
+                        continue
+                
+                # 如果所有symbol格式都失败，尝试直接用order_id查询（不传symbol）
+                if not order:
+                    try:
+                        order = exchange_adapter.exchange.fetch_order(order_id)
+                    except Exception as e:
+                        last_error = e
+                
+                # 如果成功获取到订单
+                if order:
+                    try:
+                        status = order.get('status')
+                        filled = order.get('filled', 0)
+                        
+                        if status == 'closed' or status == 'filled':
+                            return {'filled': True, 'filled_amount': filled, 'status': status}
+                        elif status == 'canceled' or status == 'expired':
+                            return {'filled': False, 'filled_amount': filled, 'status': status}
+                        
+                        # 订单还在执行中，等待1秒后重试
+                        time.sleep(1)
+                        continue
+                    except Exception as e:
+                        logger.debug(f"处理订单状态时出错: {e}")
+                
+                # 如果无法获取订单，尝试从成交历史查询
+                if last_error:
+                    error_msg = str(last_error).lower()
+                    if 'could not find order' in error_msg or 'order not found' in error_msg or 'does not have market' in error_msg:
+                        # 对于市价单，如果查询不到，大概率是已经快速成交了
+                        logger.info(f"无法查询订单 {order_id}，假定市价单已快速成交")
+                        return {'filled': True, 'filled_amount': 0, 'status': 'closed'}
                     else:
-                        logger.warning(f"查询订单状态失败: {e}")
-                    
-                    time.sleep(1)
+                        logger.warning(f"查询订单状态失败: {last_error}")
+                
+                time.sleep(1)
             
             # 超时
             logger.warning(f"订单等待超时: {order_id}")
@@ -141,7 +163,7 @@ class OrderManager:
             logger.error(f"等待订单成交异常: {e}")
             return {'filled': False, 'filled_amount': 0, 'status': 'error'}
 
-    def update_order_status(self, order_id: str, exchange: str, symbol: str) -> bool:
+    def update_order_status(self, order_id: str, exchange: str, symbol: str, is_futures: bool = False) -> bool:
         """更新订单状态到数据库"""
         try:
             if not self.enable_trading:
@@ -151,48 +173,52 @@ class OrderManager:
             if not exchange_adapter:
                 return False
             
-            try:
-                order = exchange_adapter.exchange.fetch_order(order_id, symbol)
-            except Exception as e:
-                error_msg = str(e).lower()
-                # 如果找不到订单，尝试从成交历史查询
-                if 'could not find order' in error_msg or 'order not found' in error_msg:
-                    try:
-                        trades = exchange_adapter.exchange.fetch_my_trades(symbol, limit=20)
-                        for trade in trades:
-                            if trade.get('order') == order_id:
-                                # 从成交记录构造订单信息
-                                order = {
-                                    'status': 'closed',
-                                    'filled': trade.get('amount', 0),
-                                    'average': trade.get('price', 0)
-                                }
-                                break
-                        else:
-                            # 如果成交记录中也没找到，假定为已成交
-                            logger.info(f"订单 {order_id} 假定为已成交")
-                            order = {'status': 'closed', 'filled': 0, 'average': 0}
-                    except Exception as te:
-                        logger.error(f"查询成交历史失败: {te}")
-                        return False
-                else:
-                    raise
+            order = None
+            # 尝试多种symbol格式
+            symbols_to_try = [symbol]
+            if is_futures and ':' not in symbol:
+                symbols_to_try.append(f"{symbol}:USDT")
             
-            self.db.execute_update(
-                """
-                UPDATE orders 
-                SET status = ?, filled = ?, price = ?
-                WHERE order_id = ?
-                """,
-                (
-                    order.get('status', 'unknown'),
-                    order.get('filled', 0),
-                    order.get('average', order.get('price', 0)),
-                    order_id
+            for try_symbol in symbols_to_try:
+                try:
+                    order = exchange_adapter.exchange.fetch_order(order_id, try_symbol)
+                    break
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'does not have market' in error_msg or 'symbol' in error_msg:
+                        continue
+                    # 其他错误也尝试
+                    continue
+            
+            # 尝试不传symbol查询
+            if not order:
+                try:
+                    order = exchange_adapter.exchange.fetch_order(order_id)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    # 如果找不到订单，假定已成交（市价单通常很快）
+                    if 'could not find order' in error_msg or 'order not found' in error_msg or 'does not have market' in error_msg:
+                        logger.info(f"无法查询订单 {order_id}，假定已成交")
+                        return True
+                    logger.error(f"更新订单状态失败: {e}")
+                    return False
+            
+            if order:
+                self.db.execute_update(
+                    """
+                    UPDATE orders 
+                    SET status = ?, filled = ?, price = ?
+                    WHERE order_id = ?
+                    """,
+                    (
+                        order.get('status', 'unknown'),
+                        order.get('filled', 0),
+                        order.get('average', order.get('price', 0)),
+                        order_id
+                    )
                 )
-            )
-            
-            return True
+                
+                return True
             
         except Exception as e:
             logger.error(f"更新订单状态失败: {e}")
@@ -290,7 +316,7 @@ class OrderManager:
                             positions = self.db.execute_query(
                                 "SELECT position_size FROM positions WHERE id = ?", (strategy_id,)
                             )
-                            if positions:
+                            if positions and positions[0]['position_size']:
                                 cost = float(positions[0]['position_size'])
                         
                         order_data = exchange_adapter.create_market_order(
@@ -320,12 +346,29 @@ class OrderManager:
                         logger.error(f"Failed to create order on {exchange} after {retry} attempts")
                         return None
 
-                # 记录订单到数据库
+                # 提取手续费信息
+                fee_info = order_data.get('fee', {})
+                if fee_info:
+                    order_data['fee_cost'] = float(fee_info.get('cost') or 0)
+                    order_data['fee_currency'] = fee_info.get('currency', 'USDT')
+                else:
+                    # 如果没有fee信息，估算手续费（0.05% taker）
+                    filled_amount = float(order_data.get('filled') or 0)
+                    avg_price = float(order_data.get('average') or order_data.get('price') or 0)
+                    if filled_amount > 0 and avg_price > 0:
+                        order_data['fee_cost'] = filled_amount * avg_price * 0.0005
+                        order_data['fee_currency'] = 'USDT'
+                    else:
+                        order_data['fee_cost'] = 0
+                        order_data['fee_currency'] = 'USDT'
+                
+                # 记录订单到数据库（包含手续费信息）
                 self.db.execute_insert(
                     """
                     INSERT INTO orders (strategy_id, strategy_type, exchange, symbol, side,
-                                      order_type, price, amount, filled, status, order_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      order_type, price, amount, filled, status, order_id,
+                                      fee_cost, fee_currency)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         strategy_id,
@@ -338,25 +381,11 @@ class OrderManager:
                         order_data.get('amount', 0),
                         order_data.get('filled', 0),
                         order_data.get('status', 'open'),
-                        order_data.get('id', '')
+                        order_data.get('id', ''),
+                        order_data.get('fee_cost', 0),
+                        order_data.get('fee_currency', 'USDT')
                     )
                 )
-                
-                # 提取手续费信息
-                fee_info = order_data.get('fee', {})
-                if fee_info:
-                    order_data['fee_cost'] = float(fee_info.get('cost', 0))
-                    order_data['fee_currency'] = fee_info.get('currency', 'USDT')
-                else:
-                    # 如果没有fee信息，估算手续费（0.05% taker）
-                    filled_amount = float(order_data.get('filled', 0))
-                    avg_price = float(order_data.get('average', order_data.get('price', 0)))
-                    if filled_amount > 0 and avg_price > 0:
-                        order_data['fee_cost'] = filled_amount * avg_price * 0.0005
-                        order_data['fee_currency'] = 'USDT'
-                    else:
-                        order_data['fee_cost'] = 0
-                        order_data['fee_currency'] = 'USDT'
 
                 logger.info(f"✅ Order created: {exchange} {side} {amount} {symbol}, Fee: {order_data.get('fee_cost', 0):.4f} {order_data.get('fee_currency', 'USDT')}")
                 
@@ -366,13 +395,14 @@ class OrderManager:
                         exchange=exchange,
                         order_id=order_data.get('id', ''),
                         symbol=symbol,
+                        is_futures=is_futures,
                         timeout=30
                     )
                     
                     if not filled_status['filled']:
                         logger.warning(f"订单未完全成交: {filled_status['status']}")
                         # 更新数据库中的订单状态
-                        self.update_order_status(order_data.get('id', ''), exchange, symbol)
+                        self.update_order_status(order_data.get('id', ''), exchange, symbol, is_futures)
                     else:
                         logger.info(f"✅ 订单已完全成交: {filled_status['filled_amount']}")
                 
@@ -450,12 +480,24 @@ class OrderManager:
             results['futures_order'] = futures_order
             results['success'] = True
             
-            # 统计总手续费
+            # 从数据库查询手续费
             total_fee = 0
-            if spot_order and 'fee_cost' in spot_order:
-                total_fee += float(spot_order['fee_cost'])
-            if futures_order and 'fee_cost' in futures_order:
-                total_fee += float(futures_order['fee_cost'])
+            if spot_order and spot_order.get('id'):
+                fee_data = self.db.execute_query(
+                    "SELECT fee_cost FROM orders WHERE order_id = ? AND exchange = ?",
+                    (spot_order['id'], exchange)
+                )
+                if fee_data and fee_data[0]['fee_cost']:
+                    total_fee += float(fee_data[0]['fee_cost'])
+            
+            if futures_order and futures_order.get('id'):
+                fee_data = self.db.execute_query(
+                    "SELECT fee_cost FROM orders WHERE order_id = ? AND exchange = ?",
+                    (futures_order['id'], exchange)
+                )
+                if fee_data and fee_data[0]['fee_cost']:
+                    total_fee += float(fee_data[0]['fee_cost'])
+            
             results['total_fee'] = total_fee
 
             logger.info(f"✅ Spot-Futures pair created successfully, Total Fee: ${total_fee:.4f}")
@@ -536,12 +578,24 @@ class OrderManager:
             results['short_order'] = short_order
             results['success'] = True
             
-            # 统计总手续费
+            # 从数据库查询手续费
             total_fee = 0
-            if long_order and 'fee_cost' in long_order:
-                total_fee += float(long_order['fee_cost'])
-            if short_order and 'fee_cost' in short_order:
-                total_fee += float(short_order['fee_cost'])
+            if long_order and long_order.get('id'):
+                fee_data = self.db.execute_query(
+                    "SELECT fee_cost FROM orders WHERE order_id = ? AND exchange = ?",
+                    (long_order['id'], long_exchange)
+                )
+                if fee_data and fee_data[0]['fee_cost']:
+                    total_fee += float(fee_data[0]['fee_cost'])
+            
+            if short_order and short_order.get('id'):
+                fee_data = self.db.execute_query(
+                    "SELECT fee_cost FROM orders WHERE order_id = ? AND exchange = ?",
+                    (short_order['id'], short_exchange)
+                )
+                if fee_data and fee_data[0]['fee_cost']:
+                    total_fee += float(fee_data[0]['fee_cost'])
+            
             results['total_fee'] = total_fee
 
             logger.info(f"✅ Cross-exchange pair created: {long_exchange} (long) & {short_exchange} (short), Total Fee: ${total_fee:.4f}")

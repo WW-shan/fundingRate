@@ -41,8 +41,8 @@ class ConfigManager:
     def set(self, category: str, key: str, value: Any,
             is_hot_reload: bool = True, description: str = ""):
         """设置配置值"""
-        # 转换为JSON字符串存储
-        if isinstance(value, (dict, list)):
+        # 统一使用JSON序列化，确保类型正确（尤其是布尔值）
+        if isinstance(value, (dict, list, bool, int, float, type(None))):
             value_str = json.dumps(value)
         else:
             value_str = str(value)
@@ -124,11 +124,11 @@ class ConfigManager:
             's2b_execution_mode': 'manual',
             's2b_min_basis': self.get('strategy2b', 'min_basis', 0.02),
             's2b_position_size': self.get('strategy2b', 'position_size', 8),
-            's3_enabled': self.get('strategy3', 'enabled', False),
+            's3_enabled': self.get('strategy3', 'enabled', True),
             's3_min_funding_rate': self.get('strategy3', 'min_funding_rate', 0.0001),
             's3_position_size': self.get('strategy3', 'position_size', 10),
             's3_stop_loss_pct': self.get('strategy3', 'stop_loss_pct', 0.05),
-            's3_check_basis': self.get('strategy3', 'check_basis', True),
+            's3_check_basis': self.get('strategy3', 'check_basis', False),
             's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
             's3_long_exit_threshold': self.get('strategy3', 'long_exit_threshold', 0.0),
             'max_positions': 3,
@@ -175,7 +175,7 @@ class ConfigManager:
         self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
         self.set_default('strategy3', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy3', 'stop_loss_pct', 0.05, True, "止损比例（5%）")
-        self.set_default('strategy3', 'check_basis', True, True, "是否检查基差方向")
+        self.set_default('strategy3', 'check_basis', False, True, "是否检查基差方向（推荐关闭）")
         self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
         self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
 
