@@ -562,14 +562,17 @@ class OpportunityMonitor:
                 # 获取配置
                 pair_config = self.config.get_pair_config(symbol, exchange, 's3')
                 min_funding_rate = pair_config.get('s3_min_funding_rate', 0.0001)
-                check_basis = pair_config.get('s3_check_basis', True)
+                check_basis = pair_config.get('s3_check_basis', False)
                 position_size = max(pair_config.get('s3_position_size', 10), 5)  # 固定金额，最小5 USDT
 
                 funding_rate = data['funding_rate']
 
                 # 只有费率绝对值大于阈值才考虑
                 if abs(funding_rate) < min_funding_rate:
+                    logger.debug(f"策略3费率过小: {symbol}@{exchange}, 费率={funding_rate:.4%} < 阈值{min_funding_rate:.4%}")
                     continue
+                
+                logger.debug(f"策略3检测: {symbol}@{exchange}, 费率={funding_rate:.4%}, 阈值={min_funding_rate:.4%}")
 
                 direction = None # 'short' or 'long'
                 entry_price = 0
@@ -582,8 +585,14 @@ class OpportunityMonitor:
 
                     # 检查基差 (期货 > 现货)
                     if check_basis and 'spot_ask' in data:
+                        basis_diff = data['futures_bid'] - data['spot_ask']
+                        basis_pct = basis_diff / data['spot_ask'] * 100
+                        
                         if data['futures_bid'] <= data['spot_ask']:
+                            logger.debug(f"做空机会被基差过滤: {symbol}@{exchange}, 费率={funding_rate:.4%}, 基差={basis_pct:.3f}% (期货{data['futures_bid']:.2f} <= 现货{data['spot_ask']:.2f})")
                             continue
+                        else:
+                            logger.debug(f"✓ 做空机会通过基差检查: {symbol}@{exchange}, 费率={funding_rate:.4%}, 基差={basis_pct:.3f}%")
 
                 else:
                     # 负费率，做多 (Long)
@@ -592,8 +601,14 @@ class OpportunityMonitor:
 
                     # 检查基差 (期货 < 现货)
                     if check_basis and 'spot_bid' in data:
+                        basis_diff = data['spot_bid'] - data['futures_ask']
+                        basis_pct = basis_diff / data['futures_ask'] * 100
+                        
                         if data['futures_ask'] >= data['spot_bid']:
+                            logger.debug(f"做多机会被基差过滤: {symbol}@{exchange}, 费率={funding_rate:.4%}, 基差={basis_pct:.3f}% (期货{data['futures_ask']:.2f} >= 现货{data['spot_bid']:.2f})")
                             continue
+                        else:
+                            logger.debug(f"✓ 做多机会通过基差检查: {symbol}@{exchange}, 费率={funding_rate:.4%}, 基差={basis_pct:.3f}%")
 
                 if not direction:
                     continue
@@ -649,6 +664,11 @@ class OpportunityMonitor:
             except Exception as e:
                 logger.debug(f"Error calculating directional opportunity: {e}")
 
+        if opportunities:
+            logger.info(f"策略3发现 {len(opportunities)} 个单边资金费率机会")
+        else:
+            logger.debug(f"策略3未发现单边资金费率机会 (symbol={symbol}, exchanges={len(exchanges_data)})")
+            
         return opportunities
 
     def get_opportunities(self, limit: Optional[int] = None, min_score: Optional[float] = None) -> List[Dict[str, Any]]:

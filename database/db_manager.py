@@ -230,6 +230,19 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_orders
                 ON orders(strategy_type, create_time)
             """)
+            
+            # 添加手续费字段（如果不存在）
+            try:
+                cursor.execute("ALTER TABLE orders ADD COLUMN fee_cost DECIMAL(18,8) DEFAULT 0")
+                logger.info("Added fee_cost column to orders table")
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
+            try:
+                cursor.execute("ALTER TABLE orders ADD COLUMN fee_currency VARCHAR(10) DEFAULT 'USDT'")
+                logger.info("Added fee_currency column to orders table")
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
 
             # 持仓表
             cursor.execute("""
