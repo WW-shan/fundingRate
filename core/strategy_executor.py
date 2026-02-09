@@ -530,7 +530,8 @@ class StrategyExecutor:
                     order_type='market',
                     is_futures=True,
                     strategy_id=position_id,
-                    strategy_type='close_position'
+                    strategy_type='close_position',
+                    reduce_only=True  # 平仓必须设为True，否则会开对冲单
                 )
 
                 orders = {'success': True if order else False}

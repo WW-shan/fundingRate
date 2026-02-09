@@ -256,7 +256,7 @@ class OrderManager:
                     order_type: str = 'market', price: Optional[float] = None,
                     is_futures: bool = False, strategy_id: Optional[int] = None,
                     strategy_type: Optional[str] = None, retry: int = 3,
-                    check_depth: bool = True) -> Optional[Dict[str, Any]]:
+                    check_depth: bool = True, reduce_only: bool = False) -> Optional[Dict[str, Any]]:
         """
         创建订单
         exchange: 交易所名称
@@ -270,6 +270,7 @@ class OrderManager:
         strategy_type: 策略类型
         retry: 重试次数
         check_depth: 是否检查深度
+        reduce_only: 是否仅平仓（True=平仓，False=开仓）
         """
         # 在实际交易模式下检查深度
         if self.enable_trading and check_depth and strategy_type != 'rollback':
@@ -324,7 +325,8 @@ class OrderManager:
                             side=side,
                             amount=amount,
                             is_futures=is_futures,
-                            cost=cost
+                            cost=cost,
+                            reduce_only=reduce_only
                         )
                     elif order_type == 'limit':
                         order_data = exchange_adapter.create_limit_order(
@@ -655,7 +657,8 @@ class OrderManager:
                 order_type='market',
                 is_futures=True,
                 strategy_id=strategy_id,
-                strategy_type='close_position'
+                strategy_type='close_position',
+                reduce_only=True
             )
 
             if not futures_order:
@@ -694,7 +697,8 @@ class OrderManager:
                 order_type='market',
                 is_futures=True,
                 strategy_id=strategy_id,
-                strategy_type='close_position'
+                strategy_type='close_position',
+                reduce_only=True
             )
 
             if not long_order:
@@ -712,7 +716,8 @@ class OrderManager:
                 order_type='market',
                 is_futures=True,
                 strategy_id=strategy_id,
-                strategy_type='close_position'
+                strategy_type='close_position',
+                reduce_only=True
             )
 
             if not short_order:

@@ -318,6 +318,8 @@ class BaseExchange(ABC):
                     params = {
                         'timeInForce': 'IOC',  # 立即成交或取消（市价单推荐）
                     }
+                    if reduce_only:
+                        params['reduceOnly'] = True  # 平仓模式
                 
                 order = self.exchange.create_order(
                     symbol=symbol,
