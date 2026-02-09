@@ -110,9 +110,9 @@ class ConfigManager:
         return {
             'symbol': symbol,
             'exchange': exchange,
-            'strategy1_enabled': True,
-            'strategy2a_enabled': True,
-            'strategy2b_enabled': True,
+            'strategy1_enabled': False,
+            'strategy2a_enabled': False,
+            'strategy2b_enabled': False,
             's1_execution_mode': 'auto',
             's1_min_funding_diff': self.get('strategy1', 'min_funding_diff', 0.0005),
             's1_position_size': self.get('strategy1', 'position_size', 10),
@@ -152,7 +152,7 @@ class ConfigManager:
         self.set_default('global', 'opportunity_scan_interval', 10, True, "机会扫描间隔（秒）")
 
         # 策略1：跨交易所资金费率套利
-        self.set_default('strategy1', 'enabled', True, True, "是否启用")
+        self.set_default('strategy1', 'enabled', False, True, "是否启用")
         self.set_default('strategy1', 'execution_mode', 'auto', True, "执行模式（auto/manual）")
         self.set_default('strategy1', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy1', 'min_funding_diff', 0.0005, True, "最小费率差（单期，0.05%）")
@@ -160,7 +160,7 @@ class ConfigManager:
         self.set_default('strategy1', 'max_position_size', 15, True, "单笔最大仓位（USDT）")
 
         # 策略2A：现货期货资金费率套利
-        self.set_default('strategy2a', 'enabled', True, True, "是否启用")
+        self.set_default('strategy2a', 'enabled', False, True, "是否启用")
         self.set_default('strategy2a', 'execution_mode', 'auto', True, "执行模式")
         self.set_default('strategy2a', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy2a', 'min_funding_rate', 0.0005, True, "最小资金费率（单次，0.05%）")
@@ -168,13 +168,13 @@ class ConfigManager:
         self.set_default('strategy2a', 'max_position_size', 15, True, "单笔最大仓位（USDT）")
 
         # 策略2B：基差套利
-        self.set_default('strategy2b', 'enabled', True, True, "是否启用")
+        self.set_default('strategy2b', 'enabled', False, True, "是否启用")
         self.set_default('strategy2b', 'execution_mode', 'manual', False, "执行模式（固定为manual）")
         self.set_default('strategy2b', 'position_size', 8, True, "默认开仓金额（USDT）")
         self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差（筛选阈值）")
 
         # 策略3：单边资金费率趋势策略
-        self.set_default('strategy3', 'enabled', False, True, "是否启用")
+        self.set_default('strategy3', 'enabled', True, True, "是否启用")
         self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
         self.set_default('strategy3', 'position_size', 10, True, "默认开仓金额（USDT）")
         self.set_default('strategy3', 'stop_loss_pct', 0.05, True, "止损比例（5%）")
