@@ -606,10 +606,10 @@ class StrategyExecutor:
                     if strategy_type == 'directional_funding':
                         self._check_directional_position(position)
 
-                time.sleep(60)
+                time.sleep(5)  # 每5秒检查一次持仓
             except Exception as e:
                 logger.error(f"Error in position monitoring loop: {e}")
-                time.sleep(60)
+                time.sleep(5)
     
     def _update_position_fees(self, position: Dict[str, Any]):
         """更新持仓的资金费和手续费 - 从数据库直接计算"""
@@ -1066,9 +1066,9 @@ class StrategyExecutor:
         while self.running:
             try:
                 current_time = time.time()
-                # 每1分钟同步一次
-                if current_time - self.last_position_sync < 60:
-                    time.sleep(10)
+                # 每30秒同步一次（监控循环已改为5秒，同步可以稍慢）
+                if current_time - self.last_position_sync < 30:
+                    time.sleep(5)
                     continue
                 
                 self.last_position_sync = current_time
@@ -1127,7 +1127,8 @@ class StrategyExecutor:
                             entry_details = json.loads(db_pos['entry_details'])
                             direction = entry_details.get('direction', '')  # long/short
                             position_size = float(db_pos.get('position_size', 0))
-                            entry_price = float(db_pos.get('entry_price', 0))
+                            # 优先从数据库列获取entry_price，若为空则从entry_details获取
+                            entry_price = float(db_pos.get('entry_price') or entry_details.get('entry_price', 0) or 0)
                             
                             key = f"{symbol}_{direction}"
                             

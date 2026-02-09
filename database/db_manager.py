@@ -252,6 +252,7 @@ class DatabaseManager:
                     symbol VARCHAR(20),
                     exchanges TEXT,
                     entry_details TEXT,
+                    entry_price DECIMAL(20,8) DEFAULT NULL,
                     position_size DECIMAL(18,2),
                     current_pnl DECIMAL(18,2),
                     realized_pnl DECIMAL(18,2),
@@ -314,6 +315,12 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # 迁移：为 positions 表添加 entry_price 字段
+            try:
+                cursor.execute("ALTER TABLE positions ADD COLUMN entry_price DECIMAL(20,8) DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
             # 迁移：为 positions 表添加 trailing stop 字段
             try:

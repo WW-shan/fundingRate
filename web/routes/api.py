@@ -145,7 +145,8 @@ def positions():
             cursor.execute("""
                 SELECT id, symbol, strategy_type, exchanges, position_size, entry_details,
                        current_pnl, realized_pnl, funding_collected,
-                       fees_paid, status, open_time, close_time
+                       fees_paid, status, open_time, close_time,
+                       trailing_stop_activated, best_price, activation_price, entry_price
                 FROM positions
                 WHERE status IN ('open', 'emergency_close_pending')
                 ORDER BY open_time DESC

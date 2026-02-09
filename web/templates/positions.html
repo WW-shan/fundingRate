@@ -186,6 +186,10 @@
         background: #d1fae5;
         color: #065f46;
       }
+      .badge-strategy3 {
+        background: #fce7f3;
+        color: #9d174d;
+      }
       .btn {
         padding: 6px 12px;
         border: none;
@@ -444,6 +448,7 @@
           funding_rate_cross_exchange: "策略1",
           funding_rate_spot_futures: "策略2A",
           basis_arbitrage: "策略2B",
+          directional_funding: "策略3",
         };
         return names[type] || type;
       }
@@ -453,6 +458,7 @@
           funding_rate_cross_exchange: "badge-strategy1",
           funding_rate_spot_futures: "badge-strategy2a",
           basis_arbitrage: "badge-strategy2b",
+          directional_funding: "badge-strategy3",
         };
         return badges[type] || "";
       }
@@ -531,6 +537,12 @@
           } else if (entryDetails.long_price && entryDetails.short_price) {
             priceInfo = `<div class="position-detail">做多: ${parseFloat(entryDetails.long_price).toFixed(2)}</div>`;
             priceInfo += `<div class="position-detail">做空: ${parseFloat(entryDetails.short_price).toFixed(2)}</div>`;
+          } else if (entryDetails.entry_price) {
+            // 策略3：单边持仓显示入场价和方向
+            const direction = entryDetails.direction === 'short' ? '做空' : '做多';
+            const dirColor = entryDetails.direction === 'short' ? '#ef4444' : '#10b981';
+            priceInfo = `<div class="position-detail" style="color: ${dirColor}; font-weight: 600;">${direction}</div>`;
+            priceInfo += `<div class="position-detail">入场: $${parseFloat(entryDetails.entry_price).toFixed(6)}</div>`;
           }
           html += `<td>${priceInfo || "-"}</td>`;
 
@@ -641,6 +653,8 @@
           html += generateSpotFuturesDetails(position, entryDetails);
         } else if (position.strategy_type === "basis_arbitrage") {
           html += generateBasisArbitrageDetails(position, entryDetails);
+        } else if (position.strategy_type === "directional_funding") {
+          html += generateDirectionalFundingDetails(position, entryDetails);
         }
 
         document.getElementById("modalBody").innerHTML = html;
@@ -1000,6 +1014,156 @@
                     <div class="detail-item">
                         <div class="detail-item-label">盈亏率</div>
                         <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? "#10b981" : "#ef4444"}; font-size: 18px;">
+                            ${(position.position_size > 0 ? (position.current_pnl / position.position_size) * 100 : 0).toFixed(2)}%
+                        </div>
+                    </div>
+                </div>
+            `;
+      }
+
+      function generateDirectionalFundingDetails(position, details) {
+        const entryPrice = parseFloat(details.entry_price || 0);
+        const direction = details.direction || 'unknown';
+        const directionText = direction === 'short' ? '做空' : '做多';
+        const directionColor = direction === 'short' ? '#ef4444' : '#10b981';
+        const fundingRate = details.funding_rate || 0;
+        const expectedReturn = details.expected_return || 0;
+
+        // 实时数据
+        const currentFuturesPrice = parseFloat(position.current_futures_price || entryPrice);
+
+        // 计算价格变化
+        let priceChange = 0;
+        let priceChangePct = 0;
+        if (entryPrice > 0) {
+          priceChange = currentFuturesPrice - entryPrice;
+          priceChangePct = (priceChange / entryPrice) * 100;
+        }
+
+        // Trailing stop 状态
+        const trailingActivated = position.trailing_stop_activated;
+        const bestPrice = parseFloat(position.best_price || 0);
+        const activationPrice = parseFloat(position.activation_price || 0);
+
+        // 资金费收益统计
+        const fundingIncome = parseFloat(position.funding_collected || 0);
+        const fees = parseFloat(position.fees_paid || 0);
+        const netProfit = fundingIncome - fees;
+
+        return `
+                <div class="section-title">策略3：单边资金费率 - 详细信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">交易所</div>
+                        <div class="detail-item-value" style="font-weight: 600;">${position.exchanges || "-"}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">持仓方向</div>
+                        <div class="detail-item-value" style="color: ${directionColor}; font-weight: 700; font-size: 18px;">${directionText}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">入场价格</div>
+                        <div class="detail-item-value" style="font-size: 16px; font-weight: 600;">$${entryPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">开仓资金费率</div>
+                        <div class="detail-item-value" style="color: ${fundingRate >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                            ${(fundingRate * 100).toFixed(4)}% / 8h
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">实时市场信息</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前期货价格</div>
+                        <div class="detail-item-value">
+                            <div style="font-size: 15px; font-weight: 600;">$${currentFuturesPrice.toFixed(6)}</div>
+                            <div style="font-size: 12px; color: ${priceChangePct >= 0 ? '#10b981' : '#ef4444'}; margin-top: 3px;">
+                                ${priceChangePct >= 0 ? '↑' : '↓'} ${Math.abs(priceChangePct).toFixed(2)}% ($${Math.abs(priceChange).toFixed(6)})
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前资金费率</div>
+                        <div class="detail-item-value" style="color: ${position.current_funding_rate >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                            ${position.current_funding_rate ? (position.current_funding_rate * 100).toFixed(4) + '% / 8h' : '-'}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">下次资金费时间</div>
+                        <div class="detail-item-value" style="font-size: 13px;">
+                            ${position.next_funding_time ? new Date(position.next_funding_time).toLocaleString('zh-CN') : '-'}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">价格盈亏</div>
+                        <div class="detail-item-value" style="color: ${((direction === 'short' ? -1 : 1) * priceChangePct) >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                            ${((direction === 'short' ? -1 : 1) * priceChangePct).toFixed(2)}%
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">追踪止盈状态</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">Trailing Stop 状态</div>
+                        <div class="detail-item-value" style="color: ${trailingActivated ? '#10b981' : '#6b7280'}; font-weight: 600;">
+                            ${trailingActivated ? '✅ 已启动' : '⏳ 未启动'}
+                        </div>
+                    </div>
+                    ${trailingActivated ? `
+                    <div class="detail-item">
+                        <div class="detail-item-label">启动价格</div>
+                        <div class="detail-item-value">$${activationPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">最优价格</div>
+                        <div class="detail-item-value" style="color: #10b981; font-weight: 600;">$${bestPrice.toFixed(6)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前回撤</div>
+                        <div class="detail-item-value" style="color: ${bestPrice > 0 ? (direction === 'short' ? ((currentFuturesPrice - bestPrice) / bestPrice * 100 >= 4 ? '#ef4444' : '#6b7280') : ((bestPrice - currentFuturesPrice) / bestPrice * 100 >= 4 ? '#ef4444' : '#6b7280')) : '#6b7280'};">
+                            ${bestPrice > 0 ? (direction === 'short' ? ((currentFuturesPrice - bestPrice) / bestPrice * 100).toFixed(2) : ((bestPrice - currentFuturesPrice) / bestPrice * 100).toFixed(2)) : '0.00'}%
+                        </div>
+                    </div>
+                    ` : `
+                    <div class="detail-item">
+                        <div class="detail-item-label">启动条件</div>
+                        <div class="detail-item-value" style="font-size: 13px; color: #6b7280;">盈利达到4%时启动</div>
+                    </div>
+                    `}
+                </div>
+
+                <div class="section-title">收益统计</div>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item-label">已收取资金费率</div>
+                        <div class="detail-item-value" style="color: ${fundingIncome >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">$${fundingIncome.toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">已支付手续费</div>
+                        <div class="detail-item-value" style="color: #f59e0b;">$${fees.toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">净资金费收益</div>
+                        <div class="detail-item-value" style="color: ${netProfit >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                            $${netProfit.toFixed(2)}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">预期单期收益</div>
+                        <div class="detail-item-value" style="color: #6b7280;">$${expectedReturn.toFixed(2)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">当前总盈亏</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? '#10b981' : '#ef4444'}; font-size: 18px; font-weight: 700;">
+                            $${parseFloat(position.current_pnl || 0).toFixed(2)}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item-label">盈亏率</div>
+                        <div class="detail-item-value" style="color: ${position.current_pnl >= 0 ? '#10b981' : '#ef4444'}; font-size: 18px; font-weight: 700;">
                             ${(position.position_size > 0 ? (position.current_pnl / position.position_size) * 100 : 0).toFixed(2)}%
                         </div>
                     </div>
