@@ -188,9 +188,9 @@ class ConfigManager:
         # 风控配置
         self.set_default('risk', 'max_position_size_per_trade', 30, True, "单笔最大仓位（USDT）")
         self.set_default('risk', 'max_drawdown', 0.10, True, "总资金最大回撤")
-        self.set_default('risk', 'warning_threshold', 0.005, True, "警告级别浮亏阈值")
-        self.set_default('risk', 'critical_threshold', 0.010, True, "严重级别浮亏阈值")
-        self.set_default('risk', 'emergency_threshold', 0.015, True, "紧急级别浮亏阈值")
+        self.set_default('risk', 'warning_threshold', 0.05, True, "警告级别浮亏阈值（5%）")
+        self.set_default('risk', 'critical_threshold', 0.10, True, "严重级别浮亏阈值（10%）")
+        self.set_default('risk', 'emergency_threshold', 0.15, True, "紧急级别浮亏阈值（15%）")
         self.set_default('risk', 'price_deviation_threshold', 0.02, True, "价格偏离阈值")
         self.set_default('risk', 'abnormal_funding_rate', 0.005, True, "异常资金费率阈值")
         self.set_default('risk', 'min_depth_multiplier', 10, True, "最小深度倍数")
