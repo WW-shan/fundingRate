@@ -131,6 +131,9 @@ class ConfigManager:
             's3_check_basis': self.get('strategy3', 'check_basis', True),
             's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
             's3_long_exit_threshold': self.get('strategy3', 'long_exit_threshold', 0.0),
+            's3_trailing_stop_enabled': self.get('strategy3', 'trailing_stop_enabled', True),
+            's3_trailing_activation_pct': self.get('strategy3', 'trailing_activation_pct', 0.04),
+            's3_trailing_callback_pct': self.get('strategy3', 'trailing_callback_pct', 0.04),
             'max_positions': 3,
             'priority': 5,
             'is_active': True
@@ -178,6 +181,9 @@ class ConfigManager:
         self.set_default('strategy3', 'check_basis', True, True, "是否检查基差方向")
         self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
         self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
+        self.set_default('strategy3', 'trailing_stop_enabled', True, True, "是否启用动态追踪止盈")
+        self.set_default('strategy3', 'trailing_activation_pct', 0.04, True, "追踪止盈启动阈值（4%盈利）")
+        self.set_default('strategy3', 'trailing_callback_pct', 0.04, True, "追踪止盈回撤阈值（4%回撤）")
 
         # 风控配置
         self.set_default('risk', 'max_position_size_per_trade', 30, True, "单笔最大仓位（USDT）")

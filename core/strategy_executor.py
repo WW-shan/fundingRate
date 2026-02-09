@@ -862,9 +862,14 @@ class StrategyExecutor:
 
             # 获取配置
             pair_config = self.config.get_pair_config(symbol, exchange, 's3')
-            stop_loss_pct = pair_config.get('s3_stop_loss_pct', 0.05)
-            short_exit_threshold = pair_config.get('s3_short_exit_threshold', 0.0)
-            long_exit_threshold = pair_config.get('s3_long_exit_threshold', 0.0)
+            stop_loss_pct = float(pair_config.get('s3_stop_loss_pct', 0.05))
+            short_exit_threshold = float(pair_config.get('s3_short_exit_threshold', 0.0))
+            long_exit_threshold = float(pair_config.get('s3_long_exit_threshold', 0.0))
+            trailing_stop_enabled = pair_config.get('s3_trailing_stop_enabled', True)
+            if isinstance(trailing_stop_enabled, str):
+                trailing_stop_enabled = trailing_stop_enabled.lower() in ('true', '1', 'yes')
+            trailing_activation_pct = float(pair_config.get('s3_trailing_activation_pct', 0.04))
+            trailing_callback_pct = float(pair_config.get('s3_trailing_callback_pct', 0.04))
 
             # 获取最新价格
             price_data = self.db.execute_query(
@@ -891,10 +896,18 @@ class StrategyExecutor:
             if not price_data or not funding_data:
                 return
 
-            current_price = price_data[0]['futures_price']
-            current_funding_rate = funding_data[0]['funding_rate']
+            current_price = float(price_data[0]['futures_price'])
+            current_funding_rate = float(funding_data[0]['funding_rate'])
 
             entry_price = float(entry_details['entry_price'])
+            if entry_price <= 0:
+                logger.error(f"Invalid entry_price {entry_price} for position #{position_id}")
+                return
+
+            trailing_activated = position.get('trailing_stop_activated', False)
+            best_price = position.get('best_price')
+            if best_price is not None:
+                best_price = float(best_price)
 
             # 1. 计算当前PnL (估算)
             if direction == 'short':
@@ -941,6 +954,65 @@ class StrategyExecutor:
                     'position_id': position_id,
                     'message': f"费率条件触发平仓: {symbol} 费率 {current_funding_rate}"
                 })
+                return
+
+            # 4. Trailing Stop 逻辑
+            if not trailing_stop_enabled:
+                return
+
+            if not trailing_activated:
+                # 未启动：检查是否达到启动条件
+                if pnl_pct >= trailing_activation_pct:
+                    logger.info(f"Trailing stop activated for position #{position_id}: PnL {pnl_pct:.2%} >= {trailing_activation_pct:.2%}")
+                    self.db.execute_update(
+                        "UPDATE positions SET trailing_stop_activated = TRUE, best_price = ?, activation_price = ? WHERE id = ?",
+                        (current_price, current_price, position_id)
+                    )
+                    self._trigger_callback('trailing_stop', {
+                        'position_id': position_id,
+                        'message': f"追踪止盈已启动: {symbol} 盈利 {pnl_pct:.2%}, 当前价 {current_price}"
+                    })
+            else:
+                # 已启动：更新best_price并检查回撤
+                should_update = False
+                if direction == 'short':
+                    # 做空：追踪最低价
+                    if best_price is None or current_price < best_price:
+                        best_price = current_price
+                        should_update = True
+                else:
+                    # 做多：追踪最高价
+                    if best_price is None or current_price > best_price:
+                        best_price = current_price
+                        should_update = True
+
+                if should_update:
+                    self.db.execute_update(
+                        "UPDATE positions SET best_price = ? WHERE id = ?",
+                        (best_price, position_id)
+                    )
+
+                # 检查回撤止盈
+                should_take_profit = False
+                retracement = 0.0
+                if direction == 'short' and best_price is not None and best_price > 0:
+                    # 做空：价格从最低点反弹超过阈值
+                    retracement = (current_price - best_price) / best_price
+                    if retracement >= trailing_callback_pct:
+                        should_take_profit = True
+                elif direction == 'long' and best_price is not None and best_price > 0:
+                    # 做多：价格从最高点回落超过阈值
+                    retracement = (best_price - current_price) / best_price
+                    if retracement >= trailing_callback_pct:
+                        should_take_profit = True
+
+                if should_take_profit:
+                    logger.info(f"Trailing stop take-profit for position #{position_id}: retracement {retracement:.2%}")
+                    self.close_position(position_id)
+                    self._trigger_callback('trailing_stop', {
+                        'position_id': position_id,
+                        'message': f"追踪止盈平仓: {symbol} 方向 {direction}, 入场价 {entry_price}, 最优价 {best_price}, 平仓价 {current_price}, 回撤 {retracement:.2%}"
+                    })
 
         except Exception as e:
             logger.error(f"Error checking position #{position['id']}: {e}")

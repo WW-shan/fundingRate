@@ -132,6 +132,9 @@ class DatabaseManager:
                     s3_check_basis BOOLEAN DEFAULT TRUE,
                     s3_short_exit_threshold DECIMAL(10,6),
                     s3_long_exit_threshold DECIMAL(10,6),
+                    s3_trailing_stop_enabled BOOLEAN DEFAULT TRUE,
+                    s3_trailing_activation_pct DECIMAL(10,4) DEFAULT 0.04,
+                    s3_trailing_callback_pct DECIMAL(10,4) DEFAULT 0.04,
 
                     max_positions INTEGER DEFAULT 3,
                     priority INTEGER DEFAULT 5,
@@ -243,7 +246,10 @@ class DatabaseManager:
                     fees_paid DECIMAL(18,2),
                     status VARCHAR(20),
                     open_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    close_time TIMESTAMP
+                    close_time TIMESTAMP,
+                    trailing_stop_activated BOOLEAN DEFAULT FALSE,
+                    best_price DECIMAL(20,8) DEFAULT NULL,
+                    activation_price DECIMAL(20,8) DEFAULT NULL
                 )
             """)
             cursor.execute("""
@@ -295,6 +301,34 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # 迁移：为 positions 表添加 trailing stop 字段
+            try:
+                cursor.execute("ALTER TABLE positions ADD COLUMN trailing_stop_activated BOOLEAN DEFAULT FALSE")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            try:
+                cursor.execute("ALTER TABLE positions ADD COLUMN best_price DECIMAL(20,8) DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE positions ADD COLUMN activation_price DECIMAL(20,8) DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass
+
+            # 迁移：为 trading_pair_configs 表添加 trailing stop 配置字段
+            try:
+                cursor.execute("ALTER TABLE trading_pair_configs ADD COLUMN s3_trailing_stop_enabled BOOLEAN DEFAULT TRUE")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE trading_pair_configs ADD COLUMN s3_trailing_activation_pct DECIMAL(10,4) DEFAULT 0.04")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE trading_pair_configs ADD COLUMN s3_trailing_callback_pct DECIMAL(10,4) DEFAULT 0.04")
+            except sqlite3.OperationalError:
+                pass
 
             conn.commit()
             logger.info("Database initialized successfully")
