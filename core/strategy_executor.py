@@ -1077,167 +1077,179 @@ class StrategyExecutor:
             except Exception as e:
                 logger.error(f"Error in position sync loop: {e}")
                 time.sleep(30)
-    
+
     def _sync_positions_with_exchange(self):
-        """同步数据库持仓与交易所真实持仓（自动修正）"""
+        """同步数据库持仓与交易所真实持仓（双向同步）"""
         try:
             # 获取数据库中的持仓
             db_positions = self.get_open_positions()
-            
-            if not db_positions:
-                return
-            
-            # 按交易所分组
-            positions_by_exchange = {}
+
+            # 构建数据库持仓索引 {exchange_symbol_direction: db_pos}
+            db_positions_dict = {}
             for pos in db_positions:
                 entry_details = json.loads(pos['entry_details'])
-                exchange = entry_details.get('exchange', '')
+                exchange = entry_details.get('exchange', '').lower()
                 symbol = pos['symbol']
-                
-                if exchange not in positions_by_exchange:
-                    positions_by_exchange[exchange] = {}
-                if symbol not in positions_by_exchange[exchange]:
-                    positions_by_exchange[exchange][symbol] = []
-                positions_by_exchange[exchange][symbol].append(pos)
-            
-            # 从交易所获取真实持仓
-            for exchange_name, symbols in positions_by_exchange.items():
-                exchange_adapter = self.order_manager.exchanges.get(exchange_name.lower())
-                if not exchange_adapter:
-                    continue
-                
+                direction = entry_details.get('direction', '')
+                key = f"{exchange}_{symbol}_{direction}"
+                db_positions_dict[key] = pos
+
+            # 遍历所有配置的交易所，获取真实持仓
+            synced_keys = set()  # 记录已同步的持仓
+
+            for exchange_name, exchange_adapter in self.order_manager.exchanges.items():
                 try:
                     # 获取交易所所有持仓
                     real_positions = exchange_adapter.get_positions()
-                    
-                    # 构建真实持仓字典 {symbol: position_data}
-                    real_positions_dict = {}
+
                     for rp in real_positions:
-                        symbol = rp.get('symbol', '').replace(':USDT', '')
+                        raw_symbol = rp.get('symbol', '')
+                        # 统一symbol格式：去掉 :USDT 后缀
+                        symbol = raw_symbol.replace(':USDT', '').replace('/USDT', '')
+                        if '/' not in symbol:
+                            symbol = f"{symbol}/USDT"
+
                         side = rp.get('side', '')  # long/short
                         contracts = float(rp.get('contracts', 0))
-                        
-                        if contracts > 0:
-                            key = f"{symbol}_{side}"
-                            real_positions_dict[key] = rp
-                    
-                    # 检查数据库持仓是否在交易所存在
-                    for symbol, db_pos_list in symbols.items():
-                        for db_pos in db_pos_list:
-                            entry_details = json.loads(db_pos['entry_details'])
-                            direction = entry_details.get('direction', '')  # long/short
-                            position_size = float(db_pos.get('position_size', 0))
-                            # 优先从数据库列获取entry_price，若为空则从entry_details获取
-                            entry_price = float(db_pos.get('entry_price') or entry_details.get('entry_price', 0) or 0)
-                            
-                            key = f"{symbol}_{direction}"
-                            
-                            if key not in real_positions_dict:
-                                # 数据库有持仓但交易所没有 - 自动标记为已平仓
-                                logger.warning(
-                                    f"🔄 自动同步: 持仓 #{db_pos['id']} {exchange_name} {symbol} {direction} "
-                                    f"在交易所不存在，自动标记为已平仓"
+                        entry_price_real = float(rp.get('entryPrice', 0))
+                        notional = float(rp.get('notional', 0)) or (contracts * entry_price_real)
+
+                        if contracts <= 0:
+                            continue
+
+                        key = f"{exchange_name}_{symbol}_{side}"
+                        synced_keys.add(key)
+
+                        if key in db_positions_dict:
+                            # 数据库已有此持仓，检查是否需要更新
+                            db_pos = db_positions_dict[key]
+                            db_entry_details = json.loads(db_pos['entry_details'])
+                            db_entry_price = float(db_pos.get('entry_price') or db_entry_details.get('entry_price', 0) or 0)
+                            db_position_size = float(db_pos.get('position_size', 0))
+
+                            # 检查是否有变化（价格或数量）
+                            price_changed = abs(entry_price_real - db_entry_price) > 0.0001 if db_entry_price > 0 else entry_price_real > 0
+                            # notional 是 USDT 价值，与 position_size 比较
+                            size_changed = abs(notional - db_position_size) > 0.01 if db_position_size > 0 else notional > 0
+
+                            if price_changed or size_changed:
+                                logger.info(
+                                    f"🔄 更新持仓 #{db_pos['id']}: {exchange_name} {symbol} {side} "
+                                    f"价格 {db_entry_price:.6f} → {entry_price_real:.6f}, "
+                                    f"仓位 ${db_position_size:.2f} → ${notional:.2f}"
                                 )
-                                
-                                # 更新为已平仓状态
-                                self.db.execute_query(
+
+                                # 更新 entry_details
+                                db_entry_details['entry_price'] = entry_price_real
+
+                                self.db.execute_update(
                                     """
-                                    UPDATE positions 
-                                    SET status = 'closed',
-                                        exit_details = ?,
+                                    UPDATE positions
+                                    SET position_size = ?,
+                                        entry_price = ?,
+                                        entry_details = ?,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE id = ?
                                     """,
-                                    (json.dumps({
-                                        'reason': 'auto_sync',
-                                        'note': '交易所持仓不存在，自动同步为已平仓',
-                                        'sync_time': time.strftime('%Y-%m-%d %H:%M:%S')
-                                    }), db_pos['id'])
+                                    (notional, entry_price_real, json.dumps(db_entry_details), db_pos['id'])
                                 )
-                                
-                                self._trigger_callback('position_auto_closed', {
+
+                                self._trigger_callback('position_updated', {
                                     'position_id': db_pos['id'],
                                     'exchange': exchange_name,
                                     'symbol': symbol,
-                                    'direction': direction
+                                    'direction': side,
+                                    'old_price': db_entry_price,
+                                    'new_price': entry_price_real,
+                                    'old_size': db_position_size,
+                                    'new_size': notional
                                 })
-                                
-                            else:
-                                # 检查数量和价格是否一致
-                                real_contracts = float(real_positions_dict[key].get('contracts', 0))
-                                real_entry_price = float(real_positions_dict[key].get('entryPrice', 0))
-                                
-                                # 数量或价格不一致 - 自动更新
-                                if abs(real_contracts - position_size) > 0.0001 or abs(real_entry_price - entry_price) > 0.0001:
-                                    logger.warning(
-                                        f"🔄 自动同步: 持仓 #{db_pos['id']} {exchange_name} {symbol} {direction} "
-                                        f"数据不一致 - 数据库: {position_size}张@{entry_price}, "
-                                        f"交易所: {real_contracts}张@{real_entry_price}"
-                                    )
-                                    
-                                    # 更新entry_details
-                                    entry_details['entry_price'] = real_entry_price
-                                    
-                                    # 更新数据库
-                                    self.db.execute_query(
-                                        """
-                                        UPDATE positions 
-                                        SET position_size = ?,
-                                            entry_price = ?,
-                                            entry_details = ?,
-                                            updated_at = CURRENT_TIMESTAMP
-                                        WHERE id = ?
-                                        """,
-                                        (real_contracts, real_entry_price, json.dumps(entry_details), db_pos['id'])
-                                    )
-                                    
-                                    logger.info(f"✅ 已自动更新持仓 #{db_pos['id']} 的数量和价格")
-                                    
-                                    self._trigger_callback('position_updated', {
-                                        'position_id': db_pos['id'],
-                                        'old_size': position_size,
-                                        'new_size': real_contracts,
-                                        'old_price': entry_price,
-                                        'new_price': real_entry_price
-                                    })
-                    
-                    # 检查交易所是否有未记录的持仓
-                    for key, real_pos in real_positions_dict.items():
-                        symbol_side = key.split('_')
-                        if len(symbol_side) != 2:
-                            continue
-                        symbol, side = symbol_side
-                        
-                        # 检查数据库是否有这个持仓
-                        found = False
-                        if symbol in symbols:
-                            for db_pos in symbols[symbol]:
-                                entry_details = json.loads(db_pos['entry_details'])
-                                if entry_details.get('direction') == side:
-                                    found = True
-                                    break
-                        
-                        if not found:
-                            contracts = float(real_pos.get('contracts', 0))
-                            entry_price_real = float(real_pos.get('entryPrice', 0))
-                            logger.warning(
-                                f"⚠️ 发现未记录持仓: {exchange_name} {symbol} {side} "
-                                f"{contracts}张@{entry_price_real} (可能是手动开仓，暂不自动添加到数据库)"
+                        else:
+                            # 数据库没有此持仓，自动添加
+                            logger.info(
+                                f"➕ 同步新持仓: {exchange_name} {symbol} {side} "
+                                f"{contracts}张 @ ${entry_price_real:.6f} (价值 ${notional:.2f})"
                             )
-                            self._trigger_callback('position_mismatch', {
-                                'type': 'not_in_database',
+
+                            entry_details = {
+                                'exchange': exchange_name,
+                                'direction': side,
+                                'entry_price': entry_price_real,
+                                'synced_from_exchange': True,
+                                'sync_time': time.strftime('%Y-%m-%d %H:%M:%S')
+                            }
+
+                            position_id = self.db.execute_insert(
+                                """
+                                INSERT INTO positions (strategy_type, symbol, exchanges, entry_details,
+                                                     entry_price, position_size, current_pnl, realized_pnl,
+                                                     funding_collected, fees_paid, status)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    'directional_funding',  # 默认策略类型
+                                    symbol,
+                                    exchange_name,
+                                    json.dumps(entry_details),
+                                    entry_price_real,
+                                    notional,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    'open'
+                                )
+                            )
+
+                            logger.info(f"✅ 已同步持仓到数据库: Position #{position_id}")
+
+                            self._trigger_callback('position_synced', {
+                                'position_id': position_id,
                                 'exchange': exchange_name,
                                 'symbol': symbol,
-                                'side': side,
-                                'contracts': contracts,
+                                'direction': side,
                                 'entry_price': entry_price_real,
-                                'real_position': real_pos
+                                'position_size': notional
                             })
-                
+
                 except Exception as e:
                     logger.error(f"Error syncing positions for {exchange_name}: {e}")
-            
-            logger.info(f"✅ 持仓自动同步完成，检查了 {len(db_positions)} 个持仓")
-                
+
+            # 检查数据库中是否有已不存在于交易所的持仓
+            for key, db_pos in db_positions_dict.items():
+                if key not in synced_keys:
+                    entry_details = json.loads(db_pos['entry_details'])
+                    exchange = entry_details.get('exchange', '')
+                    symbol = db_pos['symbol']
+                    direction = entry_details.get('direction', '')
+
+                    logger.warning(
+                        f"🔄 自动平仓: 持仓 #{db_pos['id']} {exchange} {symbol} {direction} "
+                        f"在交易所不存在，标记为已平仓"
+                    )
+
+                    self.db.execute_update(
+                        """
+                        UPDATE positions
+                        SET status = 'closed',
+                            close_time = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (db_pos['id'],)
+                    )
+
+                    self._trigger_callback('position_auto_closed', {
+                        'position_id': db_pos['id'],
+                        'exchange': exchange,
+                        'symbol': symbol,
+                        'direction': direction,
+                        'reason': 'not_found_on_exchange'
+                    })
+
+            total_synced = len(synced_keys)
+            total_db = len(db_positions)
+            logger.info(f"✅ 持仓同步完成: 交易所 {total_synced} 个, 数据库 {total_db} 个")
+
         except Exception as e:
             logger.error(f"Error syncing positions with exchange: {e}")
