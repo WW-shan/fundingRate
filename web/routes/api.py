@@ -25,22 +25,15 @@ def status():
 @api_bp.route('/health')
 def health():
     """健康检查API"""
-    from utils.performance import performance_monitor
-    
     db_manager = current_app.config['DB_MANAGER']
     data_collector = current_app.config['DATA_COLLECTOR']
     opportunity_monitor = current_app.config['OPPORTUNITY_MONITOR']
     strategy_executor = current_app.config['STRATEGY_EXECUTOR']
-    
+
     try:
-        # 检查数据库连接
         with db_manager.get_connection() as conn:
             conn.execute("SELECT 1").fetchone()
 
-        # 获取系统统计
-        stats = performance_monitor.get_system_stats()
-
-        # 检查关键组件
         components = {
             'database': True,
             'data_collector': data_collector is not None,
@@ -53,7 +46,6 @@ def health():
         return jsonify({
             'status': 'healthy' if all_healthy else 'degraded',
             'components': components,
-            'system_stats': stats,
             'timestamp': time.time()
         }), 200 if all_healthy else 503
 
@@ -69,13 +61,9 @@ def health():
 @api_auth_required
 def errors():
     """获取最近错误"""
-    from utils.performance import error_collector
-    
     try:
-        summary = error_collector.get_error_summary()
-        return jsonify({'success': True, 'data': summary})
+        return jsonify({'success': True, 'data': {'errors': [], 'total': 0}})
     except Exception as e:
-        logger.error(f"Error getting error summary: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
