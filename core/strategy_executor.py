@@ -853,7 +853,7 @@ class StrategyExecutor:
             return 0
 
     def _check_directional_position(self, position: Dict[str, Any]):
-        """检查单边策略持仓"""
+        """检查单边策略持仓 - 费率退出和追踪止盈（止损由全局风控管理）"""
         try:
             position_id = position['id']
             symbol = position['symbol']
@@ -863,7 +863,6 @@ class StrategyExecutor:
 
             # 获取配置
             pair_config = self.config.get_pair_config(symbol, exchange, 's3')
-            stop_loss_pct = float(pair_config.get('s3_stop_loss_pct', 0.05))
             short_exit_threshold = float(pair_config.get('s3_short_exit_threshold', 0.0))
             long_exit_threshold = float(pair_config.get('s3_long_exit_threshold', 0.0))
             trailing_stop_enabled = pair_config.get('s3_trailing_stop_enabled', True)
@@ -882,7 +881,7 @@ class StrategyExecutor:
                 """,
                 (exchange, symbol)
             )
-            
+
             # 获取最新资金费率
             funding_data = self.db.execute_query(
                 """
@@ -910,33 +909,19 @@ class StrategyExecutor:
             if best_price is not None:
                 best_price = float(best_price)
 
-            # 1. 计算当前PnL (估算)
+            # 1. 计算当前PnL并更新数据库（供全局风控使用）
             if direction == 'short':
-                # 做空收益 = (开仓价 - 当前价) / 开仓价
                 pnl_pct = (entry_price - current_price) / entry_price
             else:
-                # 做多收益 = (当前价 - 开仓价) / 开仓价
                 pnl_pct = (current_price - entry_price) / entry_price
 
-            # 更新数据库中的current_pnl (用于显示)
             current_pnl = float(position['position_size']) * pnl_pct
             self.db.execute_update(
                 "UPDATE positions SET current_pnl = ? WHERE id = ?",
                 (current_pnl, position_id)
             )
 
-            # 2. 检查止损
-            if pnl_pct <= -stop_loss_pct:
-                logger.warning(f"Stop loss triggered for position #{position_id}: {pnl_pct:.2%}")
-                self.close_position(position_id)
-                self._trigger_callback('risk_alert', {
-                    'type': 'stop_loss',
-                    'position_id': position_id,
-                    'message': f"止损触发: {symbol} 亏损 {pnl_pct:.2%}"
-                })
-                return
-
-            # 3. 检查资金费率退出条件
+            # 2. 检查资金费率退出条件
             should_close = False
             if direction == 'short':
                 # 做空时，如果费率跌破阈值（比如变成负数或0），平仓

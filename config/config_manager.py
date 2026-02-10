@@ -127,7 +127,6 @@ class ConfigManager:
             's3_enabled': self.get('strategy3', 'enabled', True),
             's3_min_funding_rate': self.get('strategy3', 'min_funding_rate', 0.0001),
             's3_position_size': self.get('strategy3', 'position_size', 10),
-            's3_stop_loss_pct': self.get('strategy3', 'stop_loss_pct', 0.05),
             's3_check_basis': self.get('strategy3', 'check_basis', False),
             's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
             's3_long_exit_threshold': self.get('strategy3', 'long_exit_threshold', 0.0),
@@ -173,11 +172,10 @@ class ConfigManager:
         self.set_default('strategy2b', 'position_size', 8, True, "默认开仓金额（USDT）")
         self.set_default('strategy2b', 'min_basis', 0.02, True, "最小基差（筛选阈值）")
 
-        # 策略3：单边资金费率趋势策略
+        # 策略3：单边资金费率趋势策略（止损由全局风控统一管理）
         self.set_default('strategy3', 'enabled', True, True, "是否启用")
         self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
         self.set_default('strategy3', 'position_size', 10, True, "默认开仓金额（USDT）")
-        self.set_default('strategy3', 'stop_loss_pct', 0.05, True, "止损比例（5%）")
         self.set_default('strategy3', 'check_basis', False, True, "是否检查基差方向（推荐关闭）")
         self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
         self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
