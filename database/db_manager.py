@@ -263,7 +263,8 @@ class DatabaseManager:
                     close_time TIMESTAMP,
                     trailing_stop_activated BOOLEAN DEFAULT FALSE,
                     best_price DECIMAL(20,8) DEFAULT NULL,
-                    activation_price DECIMAL(20,8) DEFAULT NULL
+                    activation_price DECIMAL(20,8) DEFAULT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             cursor.execute("""
@@ -336,9 +337,14 @@ class DatabaseManager:
             except sqlite3.OperationalError:
                 pass
 
+            # 迁移：为 positions 表添加 updated_at 字段
+            try:
+                cursor.execute("ALTER TABLE positions ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
+
             # 迁移：为 trading_pair_configs 表添加 trailing stop 配置字段
             try:
-                cursor.execute("ALTER TABLE trading_pair_configs ADD COLUMN s3_trailing_stop_enabled BOOLEAN DEFAULT TRUE")
             except sqlite3.OperationalError:
                 pass
             try:

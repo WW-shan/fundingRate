@@ -217,15 +217,6 @@
         min-width: 80px;
         text-align: center;
       }
-      .code-block {
-        background: #1f2937;
-        color: #10b981;
-        padding: 10px;
-        border-radius: 4px;
-        font-family: "Courier New", monospace;
-        font-size: 13px;
-        margin-top: 8px;
-      }
       .alert-modal {
         display: none;
         position: fixed;
@@ -387,194 +378,7 @@
         </div>
 
         <div class="section">
-          <h3>策略1: 跨交易所资金费率套利</h3>
-          <div class="form-group">
-            <label>启用状态</label>
-            <select id="strategy1_enabled">
-              <option value="true">启用</option>
-              <option value="false">禁用</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>执行模式</label>
-            <select id="strategy1_execution_mode">
-              <option value="auto">自动</option>
-              <option value="manual">手动</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>默认开仓金额</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="strategy1_position_size"
-                placeholder="10000"
-              />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>最小费率差</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="strategy1_min_funding_diff"
-                placeholder="0.05"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单次收益要求，输入0.05表示0.05%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>最大价差容忍</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="strategy1_max_price_diff"
-                placeholder="2"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >交易所间价格差异上限，输入2表示2%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>单笔最大仓位</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="strategy1_max_position_size"
-                placeholder="15000"
-              />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h3>策略2A: 现货-期货资金费率套利</h3>
-          <div class="form-group">
-            <label>启用状态</label>
-            <select id="strategy2a_enabled">
-              <option value="true">启用</option>
-              <option value="false">禁用</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>执行模式</label>
-            <select id="strategy2a_execution_mode">
-              <option value="auto">自动</option>
-              <option value="manual">手动</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>默认开仓金额</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="strategy2a_position_size"
-                placeholder="10000"
-              />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>最小资金费率</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="strategy2a_min_funding_rate"
-                placeholder="0.05"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单次资金费率要求，输入0.05表示0.05%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>基差安全范围</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="strategy2a_max_basis_deviation"
-                placeholder="1"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >基差容忍度，输入1表示1%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>单笔最大仓位</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="strategy2a_max_position_size"
-                placeholder="15000"
-              />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h3>策略2B: 现货-期货基差套利</h3>
-          <div class="form-group">
-            <label>启用状态</label>
-            <select id="strategy2b_enabled">
-              <option value="true">启用</option>
-              <option value="false">禁用</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>执行模式</label>
-            <select id="strategy2b_execution_mode">
-              <option value="auto">自动</option>
-              <option value="manual">手动</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>默认开仓金额</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="strategy2b_position_size"
-                placeholder="8000"
-              />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>最小基差</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="strategy2b_min_basis"
-                placeholder="2"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >核心筛选条件：基差收敛至0的收益 - 手续费 >
-              0。建议设置2%以上</small
-            >
-          </div>
-          <!-- 目标收益率已废弃，隐藏但保留用于向后兼容 -->
-          <input type="hidden" id="strategy2b_target_return" value="0.015" />
-        </div>
-
-        <div class="section">
-          <h3>策略3: 单边资金费率趋势策略 (风险较高)</h3>
+          <h3>策略3: 单边资金费率趋势策略</h3>
           <div class="form-group">
             <label>启用状态</label>
             <select id="strategy3_enabled">
@@ -610,21 +414,6 @@
             </div>
             <small style="color: #6b7280; font-size: 12px"
               >开仓门槛，输入0.01表示0.01%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>止损比例</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.1"
-                id="strategy3_stop_loss_pct"
-                placeholder="5"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >硬止损线，亏损达到此比例立即平仓</small
             >
           </div>
           <div class="form-group">
@@ -702,25 +491,18 @@
             >
           </div>
           <div class="form-group">
-            <label>动态仓位调整</label>
-            <select id="risk_dynamic_position_enabled">
-              <option value="true">启用</option>
-              <option value="false">禁用</option>
-            </select>
-          </div>
-          <div class="form-group">
             <label>警告阈值</label>
             <div class="input-group">
               <input
                 type="number"
                 step="0.01"
                 id="risk_warning_threshold"
-                placeholder="0.5"
+                placeholder="5"
               />
               <span class="unit">%</span>
             </div>
             <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损警告阈值，输入0.5表示0.5%</small
+              >单个持仓亏损警告阈值，输入5表示5%</small
             >
           </div>
           <div class="form-group">
@@ -730,12 +512,12 @@
                 type="number"
                 step="0.01"
                 id="risk_critical_threshold"
-                placeholder="1.0"
+                placeholder="10"
               />
               <span class="unit">%</span>
             </div>
             <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损危险阈值，输入1.0表示1.0%</small
+              >单个持仓亏损危险阈值，输入10表示10%</small
             >
           </div>
           <div class="form-group">
@@ -745,12 +527,12 @@
                 type="number"
                 step="0.01"
                 id="risk_emergency_threshold"
-                placeholder="1.5"
+                placeholder="15"
               />
               <span class="unit">%</span>
             </div>
             <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损紧急止损阈值，输入1.5表示1.5%，达到此阈值将自动平仓</small
+              >单个持仓亏损紧急止损阈值，输入15表示15%，达到此阈值将自动平仓</small
             >
           </div>
         </div>
@@ -920,11 +702,9 @@
           return;
         }
 
-        // 立即关闭模态框
         hideAddExchangeModal();
 
         try {
-          // 显示加载中提示（不自动消失）
           showAlert("⏳ 正在测试连接，请稍候...", "info", false);
 
           const response = await fetch("/api/exchanges/add", {
@@ -941,12 +721,9 @@
           const result = await response.json();
 
           if (result.success) {
-            // 显示成功消息
             showAlert(result.message || "✅ 交易所添加成功！", "success");
-            // 重新加载交易所列表
             await loadExchanges();
           } else {
-            // 显示详细错误信息（保持换行）
             const errorMsg = result.error || "未知错误";
             showAlert("❌ " + errorMsg.replace(/\\n/g, "\n"), "error");
           }
@@ -1004,63 +781,6 @@
                 config.global.opportunity_scan_interval || 10;
             }
 
-            // 策略1 配置
-            if (config.strategy1) {
-              document.getElementById("strategy1_enabled").value = String(
-                config.strategy1.enabled,
-              ).toLowerCase();
-              document.getElementById("strategy1_execution_mode").value =
-                config.strategy1.execution_mode || "auto";
-              document.getElementById("strategy1_position_size").value =
-                config.strategy1.position_size || 10000;
-              // 百分比字段：后端存小数，前端显示百分比
-              document.getElementById("strategy1_min_funding_diff").value = (
-                (config.strategy1.min_funding_diff || 0.0005) * 100
-              ).toFixed(4);
-              document.getElementById("strategy1_max_price_diff").value = (
-                (config.strategy1.max_price_diff || 0.02) * 100
-              ).toFixed(2);
-              document.getElementById("strategy1_max_position_size").value =
-                config.strategy1.max_position_size || 15000;
-            }
-
-            // 策略2A 配置
-            if (config.strategy2a) {
-              document.getElementById("strategy2a_enabled").value = String(
-                config.strategy2a.enabled,
-              ).toLowerCase();
-              document.getElementById("strategy2a_execution_mode").value =
-                config.strategy2a.execution_mode || "auto";
-              document.getElementById("strategy2a_position_size").value =
-                config.strategy2a.position_size || 10000;
-              // 百分比字段：后端存小数，前端显示百分比
-              document.getElementById("strategy2a_min_funding_rate").value = (
-                (config.strategy2a.min_funding_rate || 0.0005) * 100
-              ).toFixed(4);
-              document.getElementById("strategy2a_max_basis_deviation").value =
-                ((config.strategy2a.max_basis_deviation || 0.01) * 100).toFixed(
-                  2,
-                );
-              document.getElementById("strategy2a_max_position_size").value =
-                config.strategy2a.max_position_size || 15000;
-            }
-
-            // 策略2B 配置
-            if (config.strategy2b) {
-              document.getElementById("strategy2b_enabled").value = String(
-                config.strategy2b.enabled,
-              ).toLowerCase();
-              document.getElementById("strategy2b_execution_mode").value =
-                config.strategy2b.execution_mode || "manual";
-              document.getElementById("strategy2b_position_size").value =
-                config.strategy2b.position_size || 8000;
-              document.getElementById("strategy2b_min_basis").value = (
-                (config.strategy2b.min_basis || 0.02) * 100
-              ).toFixed(2); // 转换为百分比显示
-              document.getElementById("strategy2b_target_return").value =
-                config.strategy2b.target_return || 0.015;
-            }
-
             // 策略3 配置
             if (config.strategy3) {
               document.getElementById("strategy3_enabled").value = String(
@@ -1071,9 +791,6 @@
               document.getElementById("strategy3_min_funding_rate").value = (
                 (config.strategy3.min_funding_rate || 0.0001) * 100
               ).toFixed(4);
-              document.getElementById("strategy3_stop_loss_pct").value = (
-                (config.strategy3.stop_loss_pct || 0.05) * 100
-              ).toFixed(2);
               document.getElementById("strategy3_check_basis").value = String(
                 config.strategy3.check_basis !== undefined
                   ? config.strategy3.check_basis
@@ -1090,24 +807,20 @@
 
             // 风控配置
             if (config.risk) {
-              // USDT字段：直接赋值
               document.getElementById(
                 "risk_max_position_size_per_trade",
               ).value = config.risk.max_position_size_per_trade || 30;
-              // 百分比字段：后端存小数，前端显示百分比
               document.getElementById("risk_max_drawdown").value = (
                 (config.risk.max_drawdown || 0.1) * 100
               ).toFixed(2);
-              document.getElementById("risk_dynamic_position_enabled").value =
-                String(config.risk.dynamic_position_enabled).toLowerCase();
               document.getElementById("risk_warning_threshold").value = (
-                (config.risk.warning_threshold || 0.005) * 100
+                (config.risk.warning_threshold || 0.05) * 100
               ).toFixed(2);
               document.getElementById("risk_critical_threshold").value = (
-                (config.risk.critical_threshold || 0.01) * 100
+                (config.risk.critical_threshold || 0.10) * 100
               ).toFixed(2);
               document.getElementById("risk_emergency_threshold").value = (
-                (config.risk.emergency_threshold || 0.015) * 100
+                (config.risk.emergency_threshold || 0.15) * 100
               ).toFixed(2);
             }
           }
@@ -1164,128 +877,6 @@
                 document.getElementById("opportunity_scan_interval").value,
               ),
             },
-            // 策略1 配置
-            {
-              category: "strategy1",
-              key: "enabled",
-              value:
-                document.getElementById("strategy1_enabled").value === "true",
-            },
-            {
-              category: "strategy1",
-              key: "execution_mode",
-              value: document.getElementById("strategy1_execution_mode").value,
-            },
-            {
-              category: "strategy1",
-              key: "position_size",
-              value: parseFloat(
-                document.getElementById("strategy1_position_size").value,
-              ),
-            },
-            // 百分比字段：前端输入百分比，后端存小数
-            {
-              category: "strategy1",
-              key: "min_funding_diff",
-              value:
-                parseFloat(
-                  document.getElementById("strategy1_min_funding_diff").value,
-                ) / 100,
-            },
-            {
-              category: "strategy1",
-              key: "max_price_diff",
-              value:
-                parseFloat(
-                  document.getElementById("strategy1_max_price_diff").value,
-                ) / 100,
-            },
-            {
-              category: "strategy1",
-              key: "max_position_size",
-              value: parseFloat(
-                document.getElementById("strategy1_max_position_size").value,
-              ),
-            },
-            // 策略2A 配置
-            {
-              category: "strategy2a",
-              key: "enabled",
-              value:
-                document.getElementById("strategy2a_enabled").value === "true",
-            },
-            {
-              category: "strategy2a",
-              key: "execution_mode",
-              value: document.getElementById("strategy2a_execution_mode").value,
-            },
-            {
-              category: "strategy2a",
-              key: "position_size",
-              value: parseFloat(
-                document.getElementById("strategy2a_position_size").value,
-              ),
-            },
-            // 百分比字段：前端输入百分比，后端存小数
-            {
-              category: "strategy2a",
-              key: "min_funding_rate",
-              value:
-                parseFloat(
-                  document.getElementById("strategy2a_min_funding_rate").value,
-                ) / 100,
-            },
-            {
-              category: "strategy2a",
-              key: "max_basis_deviation",
-              value:
-                parseFloat(
-                  document.getElementById("strategy2a_max_basis_deviation")
-                    .value,
-                ) / 100,
-            },
-            {
-              category: "strategy2a",
-              key: "max_position_size",
-              value: parseFloat(
-                document.getElementById("strategy2a_max_position_size").value,
-              ),
-            },
-            // 策略2B 配置
-            {
-              category: "strategy2b",
-              key: "enabled",
-              value:
-                document.getElementById("strategy2b_enabled").value === "true",
-            },
-            {
-              category: "strategy2b",
-              key: "execution_mode",
-              value: document.getElementById("strategy2b_execution_mode").value,
-            },
-            {
-              category: "strategy2b",
-              key: "position_size",
-              value: parseFloat(
-                document.getElementById("strategy2b_position_size").value,
-              ),
-            },
-            // 百分比字段：前端输入百分比，后端存小数
-            {
-              category: "strategy2b",
-              key: "min_basis",
-              value:
-                parseFloat(
-                  document.getElementById("strategy2b_min_basis").value,
-                ) / 100,
-            },
-            {
-              category: "strategy2b",
-              key: "target_return",
-              value: parseFloat(
-                document.getElementById("strategy2b_target_return").value,
-              ),
-            },
             // 策略3 配置
             {
               category: "strategy3",
@@ -1306,14 +897,6 @@
               value:
                 parseFloat(
                   document.getElementById("strategy3_min_funding_rate").value,
-                ) / 100,
-            },
-            {
-              category: "strategy3",
-              key: "stop_loss_pct",
-              value:
-                parseFloat(
-                  document.getElementById("strategy3_stop_loss_pct").value,
                 ) / 100,
             },
             {
@@ -1341,7 +924,7 @@
                     .value,
                 ) / 100,
             },
-            // 风控配置 - USDT字段：直接发送数值
+            // 风控配置
             {
               category: "risk",
               key: "max_position_size_per_trade",
@@ -1350,20 +933,12 @@
                   .value,
               ),
             },
-            // 风控配置 - 百分比字段：前端输入百分比，后端存小数
             {
               category: "risk",
               key: "max_drawdown",
               value:
                 parseFloat(document.getElementById("risk_max_drawdown").value) /
                 100,
-            },
-            {
-              category: "risk",
-              key: "dynamic_position_enabled",
-              value:
-                document.getElementById("risk_dynamic_position_enabled")
-                  .value === "true",
             },
             {
               category: "risk",
@@ -1394,7 +969,6 @@
           let success = true;
           let errors = [];
 
-          // 添加重试函数
           async function updateConfigWithRetry(update, maxRetries = 3) {
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
               try {
@@ -1410,7 +984,6 @@
                   result.error &&
                   result.error.includes("database is locked")
                 ) {
-                  // 数据库锁定，等待后重试
                   if (attempt < maxRetries) {
                     await new Promise((resolve) =>
                       setTimeout(resolve, 100 * attempt),
@@ -1435,14 +1008,12 @@
             return { success: false, error: "重试次数已用完" };
           }
 
-          // 逐个更新配置，避免并发导致数据库锁定
           for (const update of updates) {
             const result = await updateConfigWithRetry(update);
             if (!result.success) {
               success = false;
               errors.push(`${update.category}.${update.key}: ${result.error}`);
             }
-            // 添加小延迟，避免请求过快
             await new Promise((resolve) => setTimeout(resolve, 10));
           }
 
@@ -1455,16 +1026,12 @@
           console.error("保存配置时出错:", error);
           showAlert("❌ 保存配置时出错: " + error.message, "error");
         } finally {
-          // 恢复按钮状态
           saveBtn.disabled = false;
           saveBtn.textContent = "💾 保存所有配置";
         }
       }
 
       function showAlert(message, type, autoDismiss = true) {
-        console.log("showAlert called:", message, type); // 调试日志
-
-        // 使用 setTimeout 确保在当前执行栈完成后显示弹窗
         setTimeout(() => {
           const alertModal = document.getElementById("alertModal");
           const alertIcon = document.getElementById("alertIcon");
@@ -1472,12 +1039,10 @@
           const alertCloseBtn = document.getElementById("alertCloseBtn");
 
           if (!alertModal) {
-            console.error("alertModal element not found!");
-            alert(message); // 如果找不到模态框，使用浏览器原生alert
+            alert(message);
             return;
           }
 
-          // 设置图标
           const icons = {
             success: "✅",
             error: "❌",
@@ -1485,18 +1050,13 @@
           };
           alertIcon.textContent = icons[type] || "ℹ️";
 
-          // 设置消息
           alertMessage.textContent = message;
 
-          // 设置按钮样式
           alertCloseBtn.className = `alert-modal-close ${type}`;
 
-          // 强制触发重绘，确保显示
           alertModal.style.display = "flex";
           alertModal.classList.add("show");
-          console.log("Modal should now be visible"); // 调试日志
 
-          // 如果 autoDismiss 为 true，5秒后自动关闭
           if (autoDismiss) {
             setTimeout(() => {
               hideAlert();
