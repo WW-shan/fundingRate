@@ -112,7 +112,8 @@ class MarketMonitor:
                     'next_funding_time': data.get('next_funding_time'),
                     'rate_semantics': data.get('rate_semantics', 'upcoming'),
                 })
-        rows.sort(key=lambda r: (r['apr'] is None, -(r['apr'] or 0)))
+        # 按 |APR| 降序：极端正负费率都排前面（如 -4380% 与 +4380% 同等重要）
+        rows.sort(key=lambda r: (r['apr'] is None, -abs(r['apr'] or 0)))
         return rows
 
     # ---------- 跨所费率差 ----------
