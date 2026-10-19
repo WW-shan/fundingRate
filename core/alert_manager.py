@@ -3,7 +3,7 @@
 负责告警去重、冷却、持久化，并分发到推送通道（Telegram）
 """
 import time
-import threading
+import json
 from typing import Dict, Any, List, Optional
 from loguru import logger
 from config import ConfigManager
@@ -22,7 +22,7 @@ class AlertManager:
         'funding_extreme': 1800,
         'cross_spread': 3600,
         'basis_extreme': 1800,
-        'stablecoin_depeg': 600,
+        'stablecoin_depeg': 3600,
         'issuer_spread': 1800,
     }
 
@@ -59,6 +59,10 @@ class AlertManager:
             return 0
 
         max_push = int(self.config.get('alerts', 'max_pushes_per_scan', 10))
+        # 清理 24h 前的缓存，避免长期运行后无限增长
+        cutoff = time.time() - 86400
+        self._cooldown_cache = {k: v for k, v in self._cooldown_cache.items() if v.get('ts', 0) >= cutoff}
+        self._persist_cache = {k: v for k, v in self._persist_cache.items() if v >= cutoff}
         severity_order = {'critical': 0, 'emergency': 0, 'warning': 1}
         sorted_alerts = sorted(alerts, key=lambda a: severity_order.get(a.get('level'), 9))
 
@@ -73,9 +77,14 @@ class AlertManager:
         """推送过滤：资金费率仅推 APR >= 阈值（默认 1000%），脱锚告警始终推送"""
         alert_type = alert.get('alert_type')
 
-        # 稳定币脱锚：低频且重要，始终推送
+        # 锚定资产脱锚：低频且重要；休市期间的 warning 不推送，仅 critical 推送
         if alert_type == 'stablecoin_depeg':
-            return bool(self.config.get('alerts', 'push_depeg', True))
+            if not bool(self.config.get('alerts', 'push_depeg', True)):
+                return False
+            details = alert.get('details') or {}
+            if details.get('market_closed') and alert.get('level') != 'critical':
+                return False
+            return True
 
         # 跨发行商价差：可配置（默认推送，这是稀缺套利信号）
         if alert_type == 'issuer_spread':
@@ -156,7 +165,8 @@ class AlertManager:
                 (
                     alert.get('alert_type'), alert.get('level'),
                     alert.get('symbol'), alert.get('exchange'),
-                    alert.get('message'), str(alert.get('details', {})),
+                    alert.get('message'),
+                    json.dumps(alert.get('details', {}), ensure_ascii=False, default=str),
                     1 if pushed else 0, int(time.time() * 1000),
                 )
             )
@@ -188,20 +198,22 @@ class AlertManager:
             since = int((time.time() - hours * 3600) * 1000)
             rows = self.db.execute_query(
                 """
-                SELECT alert_type, level, COUNT(*) as count
+                SELECT alert_type, level, pushed, COUNT(*) as count
                 FROM alerts
                 WHERE timestamp > ?
-                GROUP BY alert_type, level
+                GROUP BY alert_type, level, pushed
                 """,
                 (since,)
             )
-            stats: Dict[str, Any] = {'total': 0, 'by_type': {}, 'by_level': {}}
+            stats: Dict[str, Any] = {'total': 0, 'pushed_total': 0, 'by_type': {}, 'by_level': {}}
             for row in rows:
                 cnt = row['count']
                 stats['total'] += cnt
+                if row.get('pushed'):
+                    stats['pushed_total'] += cnt
                 stats['by_type'][row['alert_type']] = stats['by_type'].get(row['alert_type'], 0) + cnt
                 stats['by_level'][row['level']] = stats['by_level'].get(row['level'], 0) + cnt
             return stats
         except Exception as e:
             logger.error(f"Failed to get alert stats: {e}")
-            return {'total': 0, 'by_type': {}, 'by_level': {}}
+            return {'total': 0, 'pushed_total': 0, 'by_type': {}, 'by_level': {}}

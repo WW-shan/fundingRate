@@ -1,11 +1,10 @@
 """
 交易所基类（监控版）
-仅使用公开 API 获取行情、资金费率、订单簿数据，不需要 API 密钥
+仅使用公开 API 获取行情与资金费率，不需要 API 密钥
 """
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from loguru import logger
-import ccxt
 
 
 class BaseExchange(ABC):
@@ -13,6 +12,8 @@ class BaseExchange(ABC):
     #   'upcoming'      = 下一期将收取/预测的费率（OKX/Bybit/Gate/Bitget）
     #   'last_settled'  = 上一期已结算的费率（Binance）
     funding_rate_semantics = 'upcoming'
+    # 官方缺省结算间隔（毫秒）。Binance fundingInfo 只返回调整过的币种，其余默认 8h
+    default_funding_interval_ms = None
 
     def __init__(self, proxy: str = ''):
         self.proxy = proxy or None
@@ -35,30 +36,13 @@ class BaseExchange(ABC):
         """初始化交易所实例"""
         pass
 
-    # ---------- 行情 ----------
-
-    def get_spot_ticker(self, symbol: str) -> Dict[str, Any]:
-        """获取现货行情"""
-        try:
-            ticker = self.exchange.fetch_ticker(symbol)
-            return {
-                'bid': ticker.get('bid'),
-                'ask': ticker.get('ask'),
-                'last': ticker.get('last'),
-                'timestamp': ticker.get('timestamp')
-            }
-        except Exception as e:
-            logger.debug(f"Error fetching spot ticker for {symbol}: {e}")
-            return {}
 
 
-
-    def _parse_funding_interval(self, funding: Dict[str, Any], allow_history: bool = False) -> Optional[int]:
+    def _parse_funding_interval(self, funding: Dict[str, Any]) -> Optional[int]:
         """
         解析结算间隔（毫秒），优先级：
-        1. CCXT 规范化 interval 字段（"8h"/"4h"）
+        1. CCXT 规范化 interval 字段（"8h"/"4h"；OKX 特殊币种会返回毫秒数字串）
         2. 交易所 info 原始字段（各家单位不同）
-        3. 历史数据实测推算（兜底）
         """
         funding_interval = None
 
@@ -76,11 +60,20 @@ class BaseExchange(ABC):
                     if minutes > 0:
                         funding_interval = int(minutes * 60 * 1000)
                 else:
-                    hours = float(s)
-                    if hours > 0:
-                        funding_interval = int(hours * 3600 * 1000)
+                    value = float(s)
+                    if value > 0:
+                        # OKX 对 1h/2h 等特殊周期直接返回毫秒数字串（如 '7200000'），
+                        # 而非 '8h' 这类规范格式；按数值大小判定单位，避免把 2h 当成 7200000h
+                        if value >= 60000:
+                            funding_interval = int(value)
+                        else:
+                            funding_interval = int(value * 3600 * 1000)
             except (ValueError, AttributeError, TypeError):
                 pass
+
+        # 1b. 合法性校验：间隔必须在 1h ~ 24h 之间，越界视为解析错误
+        if funding_interval is not None and not (3600000 <= funding_interval <= 86400000):
+            funding_interval = None
 
         info = funding.get('info') or {}
 
@@ -123,28 +116,10 @@ class BaseExchange(ABC):
                     except (ValueError, TypeError):
                         pass
 
-        # 3. 历史数据实测推算（兜底，仅单币种查询时启用）
-        if not funding_interval and allow_history:
-            try:
-                futures_symbol = funding.get('symbol')
-                if futures_symbol:
-                    history = self.exchange.fetch_funding_rate_history(futures_symbol, limit=2)
-                    if history and len(history) >= 2:
-                        interval_ms = abs(history[0]['timestamp'] - history[1]['timestamp'])
-                        if 3600000 <= interval_ms <= 86400000:
-                            funding_interval = interval_ms
-            except Exception:
-                pass
-
         return funding_interval
 
 
 
-
-    @abstractmethod
-    def _convert_to_futures_symbol(self, spot_symbol: str) -> str:
-        """现货 symbol 转永续 symbol，如 BTC/USDT -> BTC/USDT:USDT"""
-        pass
 
     def test_connection(self) -> bool:
         """测试公共 API 连接"""

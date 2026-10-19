@@ -31,6 +31,7 @@ class FundingRateMonitorSystem:
         self.db_path = os.getenv('DATABASE_PATH', 'data/database.db')
         self.db_manager = DatabaseManager(self.db_path)
         self.db_manager.init_database()
+        self.db_manager.cleanup_old_data()
 
         # 配置
         self.config_manager = ConfigManager(self.db_manager)
@@ -66,8 +67,9 @@ class FundingRateMonitorSystem:
             if self.tg_bot.app:
                 self.tg_bot.start()
 
-            # 每日汇总任务
+            # 每日汇总 + 数据保留清理任务
             threading.Thread(target=self._daily_summary_loop, daemon=True).start()
+            threading.Thread(target=self._cleanup_loop, daemon=True).start()
 
             # Web 服务
             from web.app import create_app, run_web_server
@@ -113,18 +115,31 @@ class FundingRateMonitorSystem:
                     target_hour = int(self.config_manager.get('alerts', 'daily_summary_hour', 9))
                     today = now.date()
                     if now.hour == target_hour and last_sent_date != today:
-                        scan = self.market_monitor.last_scan or self.market_monitor.scan_once()
-                        summary = {
-                            'top_apr': scan.get('apr_ranking', [])[:5],
-                            'alert_stats': self.alert_manager.get_alert_stats(24),
-                        }
-                        if self.tg_bot.app:
-                            self.tg_bot.push_daily_summary(summary)
+                        scan = self.market_monitor.last_scan
+                        if not scan:
+                            logger.warning("Daily summary skipped: no scan yet")
+                        else:
+                            ranking = [r for r in scan.get('apr_ranking', []) if r.get('apr') is not None]
+                            summary = {
+                                'top_apr': sorted(ranking, key=lambda r: abs(r['apr']), reverse=True)[:5],
+                                'alert_stats': self.alert_manager.get_alert_stats(24),
+                            }
+                            if self.tg_bot.app:
+                                self.tg_bot.push_daily_summary(summary)
+                            logger.info("Daily summary pushed")
                         last_sent_date = today
-                        logger.info("Daily summary pushed")
             except Exception as e:
                 logger.error(f"Daily summary error: {e}")
             time.sleep(60)
+
+    def _cleanup_loop(self):
+        """每 6 小时按保留策略清理历史数据"""
+        while True:
+            time.sleep(6 * 3600)
+            try:
+                self.db_manager.cleanup_old_data()
+            except Exception as e:
+                logger.error(f"Retention cleanup error: {e}")
 
 
 def main():

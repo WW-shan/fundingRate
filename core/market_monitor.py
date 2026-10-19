@@ -48,8 +48,8 @@ class MarketMonitor:
         self.running = False
 
     def _monitor_loop(self):
-        interval = int(self.config.get('global', 'monitor_scan_interval', 60))
         while self.running:
+            interval = int(self.config.get('global', 'monitor_scan_interval', 60))
             try:
                 self.scan_once()
             except Exception as e:
@@ -158,18 +158,14 @@ class MarketMonitor:
         """期现基差（需要现货价格，来自 market_prices 表最新快照）"""
         rows = []
         try:
+            # 只取 15 分钟内的最新快照，避免陈旧基差
             latest = self.db.execute_query(
                 """
-                SELECT mp.exchange, mp.symbol, mp.spot_price, mp.futures_price, mp.timestamp
-                FROM market_prices mp
-                INNER JOIN (
-                    SELECT exchange, symbol, MAX(timestamp) AS ts
-                    FROM market_prices
-                    WHERE timestamp > ?
-                    GROUP BY exchange, symbol
-                ) m ON mp.exchange = m.exchange AND mp.symbol = m.symbol AND mp.timestamp = m.ts
+                SELECT exchange, symbol, spot_price, futures_price, timestamp
+                FROM market_prices_latest
+                WHERE timestamp > ?
                 """,
-                (int(time.time() * 1000) - 3600 * 1000,)
+                (int(time.time() * 1000) - 15 * 60 * 1000,)
             )
         except Exception as e:
             logger.debug(f"Basis query failed: {e}")
@@ -220,13 +216,14 @@ class MarketMonitor:
                 category = entry['category']
                 ref_symbol = entry.get('reference_symbol')
             else:
-                category, ref_symbol = peg_assets.classify(symbol)
+                category, ref_symbol, _ = peg_assets.classify(symbol)
             if not category:
                 continue
 
             # 确定参考价
             reference_time = None
             market_closed = False
+            ratio = float(entry.get('reference_ratio', 1.0)) if entry else 1.0
             if category == 'usd_stable':
                 reference = 1.0
             else:
@@ -234,6 +231,11 @@ class MarketMonitor:
                 reference = ref_data.get('price')
                 if not reference:
                     continue  # 参考价未就绪，跳过（不猜测）
+                # 参考价抓取时间过久（默认 15 分钟）则跳过，避免陈旧价格误报
+                ref_fetched_at = ref_data.get('timestamp')
+                if ref_fetched_at and (time.time() * 1000 - ref_fetched_at) > 15 * 60 * 1000:
+                    continue
+                reference = float(reference) * ratio
                 reference_time = ref_data.get('market_time')
                 # 标的行情超过 30 分钟未更新 => 休市（股票周末/盘后）
                 if reference_time:
@@ -262,6 +264,7 @@ class MarketMonitor:
                     'category': category,
                     'price': price,
                     'reference': reference,
+                    'reference_ratio': ratio,
                     'reference_time': reference_time,
                     'market_closed': market_closed,
                     'deviation': deviation,
@@ -280,47 +283,67 @@ class MarketMonitor:
 
     def build_cross_issuer_spreads(self, stablecoin_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        同一标的（如 AAPL）在多个发行商（bStock/Ondo/xStocks/Reality/gStocks）之间的价差
-        这是同一资产的"跨市场价差"，比跨交易所更有意义（发行商不同、托管不同）
+        同一标的在多个发行商之间的价差（如 AAPL 的 bStock/Ondo/xStocks/Reality/gStocks 版本）。
+        同一发行商在多个交易所的报价先取中位数，避免把跨所价差误当成跨发行商价差。
         """
-        from config import peg_assets
-
         groups = self.data_collector.peg_discovery.get_cross_issuer_groups()
+        now_ms = int(time.time() * 1000)
+        max_age_ms = max(120, int(self.config.get('global', 'stablecoin_refresh_interval', 60))) * 2 * 1000
         rows = []
 
         for underlying, symbols in groups.items():
-            # 收集该标的的所有报价
             quotes = []
             for sym in symbols:
                 entry = self.data_collector.peg_discovery.registry.get(sym) or {}
-                issuer = entry.get('issuer')
+                issuer = entry.get('issuer') or sym.lower()
+                ratio = float(entry.get('reference_ratio', 1.0))
                 for exchange, data in (stablecoin_data.get(sym) or {}).items():
                     price = data.get('price')
-                    if price:
-                        quotes.append({
-                            'symbol': sym,
-                            'exchange': exchange,
-                            'issuer': issuer,
-                            'price': float(price),
-                        })
+                    ts = data.get('timestamp')
+                    if not price or (ts and now_ms - ts > max_age_ms):
+                        continue
+                    quotes.append({
+                        'symbol': sym,
+                        'exchange': exchange,
+                        'issuer': issuer,
+                        'price': float(price),
+                        'normalized_price': float(price) / ratio if ratio > 0 else float(price),
+                    })
 
             if len(quotes) < 2:
                 continue
 
-            prices = [q['price'] for q in quotes]
-            lo, hi = min(prices), max(prices)
+            # 每个发行商取中位数，再比较不同发行商
+            by_issuer: Dict[str, List[float]] = {}
+            for q in quotes:
+                by_issuer.setdefault(q['issuer'], []).append(q['normalized_price'])
+            if len(by_issuer) < 2:
+                continue
+
+            issuer_prices = []
+            for issuer, prices in by_issuer.items():
+                prices.sort()
+                mid = len(prices) // 2
+                median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+                issuer_prices.append({'issuer': issuer, 'price': median})
+            issuer_prices.sort(key=lambda x: x['price'])
+            lo, hi = issuer_prices[0]['price'], issuer_prices[-1]['price']
             if lo <= 0:
                 continue
             spread = (hi - lo) / lo
+            # 超过 50% 视为份额比例/符号映射不一致，不作为价差信号
+            if abs(spread) > 0.5:
+                continue
 
             rows.append({
                 'underlying': underlying,
                 'quotes': sorted(quotes, key=lambda q: q['price']),
+                'issuer_prices': issuer_prices,
                 'low': lo,
                 'high': hi,
                 'spread': spread,
                 'abs_spread': abs(spread),
-                'issuer_count': len(set(q['issuer'] for q in quotes if q['issuer'])),
+                'issuer_count': len(issuer_prices),
                 'exchange_count': len(set(q['exchange'] for q in quotes)),
             })
 
@@ -406,10 +429,13 @@ class MarketMonitor:
             if row['abs_spread'] < threshold:
                 continue
             quotes = row['quotes']
-            detail = ' | '.join(
-                f"{q['symbol']}({q['issuer'] or q['exchange']}) ${q['price']:.4f}"
-                for q in quotes[:5]
-            )
+            def _quote_label(q):
+                normalized = q.get('normalized_price', q['price'])
+                label = f"{q['symbol']}({q['issuer'] or q['exchange']}) ${normalized:.4f}"
+                if abs(normalized - q['price']) > 1e-9:
+                    label += f" [raw ${q['price']:.4f}]"
+                return label
+            detail = ' | '.join(_quote_label(q) for q in quotes[:5])
             alerts.append({
                 'alert_type': 'issuer_spread',
                 'level': 'critical' if row['abs_spread'] >= threshold * 3 else 'warning',
@@ -428,7 +454,7 @@ class MarketMonitor:
         category_label = {
             'usd_stable': '稳定币',
             'eur_stable': '欧元稳定币',
-            'gold': '黄金代币',
+            'commodity': '大宗商品',
             'stock': '股票代币',
         }
         for row in depeg_list:
@@ -438,6 +464,10 @@ class MarketMonitor:
             elif dev >= row['threshold_warning']:
                 level = 'warning'
             else:
+                continue
+
+            # 标的休市时参考价为收盘价，非 critical 偏离不推送，避免周末/盘后误报
+            if row.get('market_closed') and level != 'critical':
                 continue
 
             label = category_label.get(row['category'], '锚定资产')

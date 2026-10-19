@@ -9,6 +9,15 @@ from web.auth import api_auth_required
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 
+def _int_arg(name: str, default: int, maximum: int) -> int:
+    """安全解析整数查询参数，非法值回退默认值"""
+    try:
+        value = int(request.args.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(0, min(value, maximum))
+
+
 @api_bp.route('/status')
 def status():
     """系统状态"""
@@ -26,7 +35,10 @@ def status():
         'exchanges': dc_status.get('exchanges', []),
         'symbols_tracked': dc_status.get('symbols_tracked', 0),
         'stablecoins_tracked': dc_status.get('stablecoins_tracked', 0),
+        'peg_assets': dc_status.get('peg_assets', 0),
+        'reference_prices': dc_status.get('reference_prices', 0),
         'alerts_24h': stats.get('total', 0),
+        'pushed_24h': stats.get('pushed_total', 0),
         'last_scan_ts': scan.get('timestamp'),
     })
 
@@ -63,14 +75,20 @@ def summary():
     market_monitor = current_app.config['MARKET_MONITOR']
     alert_manager = current_app.config['ALERT_MANAGER']
     scan = market_monitor.last_scan or {}
+    ranking = scan.get('apr_ranking', [])
+    apr_values = [r['apr'] for r in ranking if r.get('apr') is not None]
     return jsonify({
         'success': True,
         'data': {
             'timestamp': scan.get('timestamp'),
-            'top_apr': scan.get('apr_ranking', [])[:10],
+            'max_abs_apr': max(apr_values, key=abs, default=None),
+            'max_positive_apr': max(apr_values, default=None),
+            'max_negative_apr': min(apr_values, default=None),
+            'top_apr': ranking[:10],
             'top_spreads': scan.get('cross_spreads', [])[:10],
             'top_basis': scan.get('basis', [])[:10],
             'depeg': scan.get('depeg', [])[:10],
+            'issuer_spreads': scan.get('issuer_spreads', [])[:10],
             'alert_stats': alert_manager.get_alert_stats(24),
         }
     })
@@ -81,7 +99,7 @@ def summary():
 def funding_apr():
     """APR 排行（支持 ?limit= 和 ?exchange= 和 ?symbol= 过滤）"""
     market_monitor = current_app.config['MARKET_MONITOR']
-    limit = min(int(request.args.get('limit', 100)), 1000)
+    limit = _int_arg('limit', 100, 1000)
     exchange = request.args.get('exchange', '').lower()
     symbol = request.args.get('symbol', '').upper()
 
@@ -89,7 +107,9 @@ def funding_apr():
     if exchange:
         ranking = [r for r in ranking if r['exchange'] == exchange]
     if symbol:
-        ranking = [r for r in ranking if symbol in r['symbol']]
+        # 优先精确匹配基础币种（CT 不应把 WCT/CTK 一起返回）
+        exact = [r for r in ranking if r['symbol'].split('/')[0] == symbol]
+        ranking = exact or [r for r in ranking if symbol in r['symbol']]
 
     return jsonify({'success': True, 'data': ranking[:limit], 'total': len(ranking)})
 
@@ -99,7 +119,7 @@ def funding_apr():
 def funding_spreads():
     """跨所费率差"""
     market_monitor = current_app.config['MARKET_MONITOR']
-    limit = min(int(request.args.get('limit', 100)), 1000)
+    limit = _int_arg('limit', 100, 1000)
     rows = market_monitor.last_scan.get('cross_spreads', [])
     return jsonify({'success': True, 'data': rows[:limit], 'total': len(rows)})
 
@@ -109,7 +129,7 @@ def funding_spreads():
 def basis():
     """基差列表"""
     market_monitor = current_app.config['MARKET_MONITOR']
-    limit = min(int(request.args.get('limit', 100)), 1000)
+    limit = _int_arg('limit', 100, 1000)
     rows = market_monitor.last_scan.get('basis', [])
     return jsonify({'success': True, 'data': rows[:limit], 'total': len(rows)})
 
@@ -131,8 +151,8 @@ def stablecoins():
 def stablecoin_history():
     """稳定币历史价格（?symbol=USDC/USDT&hours=24）"""
     db_manager = current_app.config['DB_MANAGER']
-    symbol = request.args.get('symbol', 'USDC/USDT')
-    hours = min(int(request.args.get('hours', 24)), 24 * 30)
+    symbol = request.args.get('symbol', 'USDC')
+    hours = _int_arg('hours', 24, 24 * 30)
     since = int((time.time() - hours * 3600) * 1000)
     try:
         rows = db_manager.execute_query(
@@ -164,8 +184,8 @@ def issuer_spreads():
 def alerts():
     """告警记录（?hours=24&limit=100&level=critical&type=stablecoin_depeg）"""
     alert_manager = current_app.config['ALERT_MANAGER']
-    hours = min(int(request.args.get('hours', 24)), 24 * 30)
-    limit = min(int(request.args.get('limit', 100)), 1000)
+    hours = _int_arg('hours', 24, 24 * 30)
+    limit = _int_arg('limit', 100, 1000)
     level = request.args.get('level', '')
     alert_type = request.args.get('type', '')
 
@@ -183,30 +203,5 @@ def alerts():
 def alert_stats():
     """告警统计"""
     alert_manager = current_app.config['ALERT_MANAGER']
-    hours = min(int(request.args.get('hours', 24)), 24 * 30)
+    hours = _int_arg('hours', 24, 24 * 30)
     return jsonify({'success': True, 'data': alert_manager.get_alert_stats(hours)})
-
-
-@api_bp.route('/funding/history')
-@api_auth_required
-def funding_history():
-    """资金费率历史（?exchange=binance&symbol=BTC/USDT&hours=24）"""
-    db_manager = current_app.config['DB_MANAGER']
-    exchange = request.args.get('exchange', '')
-    symbol = request.args.get('symbol', '')
-    hours = min(int(request.args.get('hours', 24)), 24 * 30)
-    since = int((time.time() - hours * 3600) * 1000)
-    try:
-        rows = db_manager.execute_query(
-            """
-            SELECT exchange, symbol, timestamp, funding_rate, next_funding_time, funding_interval
-            FROM funding_rates
-            WHERE exchange = ? AND symbol = ? AND timestamp > ?
-            ORDER BY timestamp ASC
-            """,
-            (exchange, symbol, since)
-        )
-        return jsonify({'success': True, 'data': rows})
-    except Exception as e:
-        logger.error(f"Funding history failed: {e}")
-        return jsonify({'success': False, 'error': str(e)})

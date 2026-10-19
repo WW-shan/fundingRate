@@ -22,7 +22,7 @@
   <div class="nav-menu">
     <a href="/" class="">仪表盘</a>
     <a href="/funding" class="">资金费率</a>
-    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/stablecoin" class="">锚定资产</a>
     <a href="/alerts" class="active">告警历史</a>
     <a href="/config" class="">系统配置</a>
   </div>
@@ -32,7 +32,8 @@
     <div class="stat-card"><div class="stat-label">资金费率异常</div><div class="stat-value warn" id="stat-funding">--</div></div>
     <div class="stat-card"><div class="stat-label">跨所费率差</div><div class="stat-value" id="stat-spread">--</div></div>
     <div class="stat-card"><div class="stat-label">基差异常</div><div class="stat-value" id="stat-basis">--</div></div>
-    <div class="stat-card"><div class="stat-label">稳定币脱锚</div><div class="stat-value negative" id="stat-depeg">--</div></div>
+    <div class="stat-card"><div class="stat-label">锚定资产脱锚</div><div class="stat-value negative" id="stat-depeg">--</div></div>
+    <div class="stat-card"><div class="stat-label">其中已推送</div><div class="stat-value" id="stat-pushed">--</div></div>
   </div>
 
   <div class="card">
@@ -54,7 +55,8 @@
         <option value="funding_extreme">资金费率异常</option>
         <option value="cross_spread">跨所费率差</option>
         <option value="basis_extreme">基差异常</option>
-        <option value="stablecoin_depeg">稳定币脱锚</option>
+        <option value="stablecoin_depeg">锚定资产脱锚</option>
+        <option value="issuer_spread">跨发行商价差</option>
       </select>
     </div>
     <div class="table-wrap">
@@ -86,6 +88,7 @@ async function refresh() {
     document.getElementById('stat-spread').textContent = byType.cross_spread || 0;
     document.getElementById('stat-basis').textContent = byType.basis_extreme || 0;
     document.getElementById('stat-depeg').textContent = byType.stablecoin_depeg || 0;
+    document.getElementById('stat-pushed').textContent = stats.pushed_total || 0;
 
     const rows = (listRes && listRes.data) || [];
     const tbody = document.getElementById('tbody-alerts');

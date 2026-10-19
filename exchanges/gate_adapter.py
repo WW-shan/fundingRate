@@ -11,8 +11,3 @@ class GateAdapter(BaseExchange):
 
     def _init_exchange(self):
         self.exchange = ccxt.gate(self._ccxt_config())
-
-    def _convert_to_futures_symbol(self, spot_symbol: str) -> str:
-        if ':' not in spot_symbol:
-            return f"{spot_symbol}:USDT"
-        return spot_symbol

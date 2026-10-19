@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>稳定币监控 - 资金费率监控</title>
+  <title>锚定资产监控 - 资金费率监控</title>
   <link rel="stylesheet" href="/static/css/main.css" />
 </head>
 <body>
@@ -22,7 +22,7 @@
   <div class="nav-menu">
     <a href="/" class="">仪表盘</a>
     <a href="/funding" class="">资金费率</a>
-    <a href="/stablecoin" class="active">稳定币监控</a>
+    <a href="/stablecoin" class="active">锚定资产</a>
     <a href="/alerts" class="">告警历史</a>
     <a href="/config" class="">系统配置</a>
   </div>
@@ -34,13 +34,13 @@
   </div>
 
   <div class="card">
-    <h3>🪙 锚定资产监控（稳定币 / 黄金 / 股票）</h3>
+    <h3>🪙 锚定资产监控（稳定币 / 大宗商品 / 股票代币）</h3>
     <div class="filter-bar">
       <select id="filter-category" onchange="refresh()">
         <option value="">全部类别</option>
         <option value="usd_stable">稳定币</option>
         <option value="eur_stable">欧元稳定币</option>
-        <option value="gold">黄金代币</option>
+        <option value="commodity">大宗商品</option>
         <option value="stock">股票代币</option>
       </select>
     </div>
@@ -67,13 +67,6 @@
     <div class="filter-bar">
       <select id="hist-symbol" onchange="loadHistory()">
         <option value="USDC">USDC</option>
-        <option value="FDUSD">FDUSD</option>
-        <option value="USDE">USDE</option>
-        <option value="USD1">USD1</option>
-        <option value="PAXG">PAXG（黄金）</option>
-        <option value="XAUT">XAUT（黄金）</option>
-        <option value="TSLAX">TSLAX（特斯拉）</option>
-        <option value="NVDAX">NVDAX（英伟达）</option>
       </select>
       <select id="hist-hours" onchange="loadHistory()">
         <option value="6">近 6 小时</option>
@@ -99,8 +92,9 @@ async function refresh() {
     document.getElementById('stat-count').textContent = new Set(rows.map(r => r.symbol)).size;
     document.getElementById('stat-warn').textContent = rows.filter(r => r.abs_deviation >= r.threshold_warning && r.abs_deviation < r.threshold_critical).length;
     document.getElementById('stat-critical').textContent = rows.filter(r => r.abs_deviation >= r.threshold_critical).length;
+    updateHistorySymbols(rows);
 
-    const catLabel = { usd_stable: '稳定币', eur_stable: '欧元', gold: '黄金', stock: '股票' };
+    const catLabel = { usd_stable: '稳定币', eur_stable: '欧元', commodity: '大宗商品', stock: '股票' };
     const tbody = document.getElementById('tbody-stable');
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据（等待采集）</td></tr>';
@@ -152,6 +146,15 @@ async function refresh() {
   }
 }
 
+function updateHistorySymbols(rows) {
+  const select = document.getElementById('hist-symbol');
+  const current = select.value;
+  const symbols = [...new Set(rows.map(r => r.symbol))].sort();
+  if (symbols.length === 0) return;
+  select.innerHTML = symbols.map(s => `<option value="${s}">${s}</option>`).join('');
+  if (symbols.includes(current)) select.value = current;
+}
+
 async function loadHistory() {
   const symbol = document.getElementById('hist-symbol').value;
   const hours = document.getElementById('hist-hours').value;
@@ -174,9 +177,16 @@ async function loadHistory() {
 
     // 简单 SVG 折线图
     const W = 900, H = 320, PAD = 50;
-    const allPrices = rows.map(r => r.price);
-    const minP = Math.min(...allPrices, 0.995);
-    const maxP = Math.max(...allPrices, 1.005);
+    const allPrices = rows.map(r => r.price).filter(p => Number.isFinite(p));
+    if (allPrices.length === 0) {
+      container.innerHTML = '<div class="empty-state">无有效价格数据</div>';
+      return;
+    }
+    const sortedPrices = allPrices.slice().sort((a, b) => a - b);
+    const median = sortedPrices[Math.floor(sortedPrices.length / 2)];
+    const span = Math.max((Math.max(...allPrices) - Math.min(...allPrices)) * 0.25, median * 0.002);
+    const minP = Math.min(...allPrices) - span;
+    const maxP = Math.max(...allPrices) + span;
     const minT = Math.min(...rows.map(r => r.timestamp));
     const maxT = Math.max(...rows.map(r => r.timestamp));
 
@@ -186,9 +196,9 @@ async function loadHistory() {
     const colors = { binance: '#f0b90b', okx: '#6b7280', bybit: '#f7a600', gate: '#2354e6', bitget: '#00f0ff' };
     let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#fafafa;border-radius:8px">`;
 
-    // 网格线 + 1.0 基准线
-    svg += `<line x1="${PAD}" y1="${y(1.0)}" x2="${W - PAD}" y2="${y(1.0)}" stroke="#9ca3af" stroke-dasharray="4,4" stroke-width="1"/>`;
-    svg += `<text x="${W - PAD + 4}" y="${y(1.0) + 4}" font-size="11" fill="#6b7280">1.000</text>`;
+    // 网格线 + 中位数基准线（稳定币接近 1.0，股票代币则是实际价格量级）
+    svg += `<line x1="${PAD}" y1="${y(median)}" x2="${W - PAD}" y2="${y(median)}" stroke="#9ca3af" stroke-dasharray="4,4" stroke-width="1"/>`;
+    svg += `<text x="${W - PAD + 4}" y="${y(median) + 4}" font-size="11" fill="#6b7280">${median.toPrecision(6)}</text>`;
 
     Object.entries(byExchange).forEach(([ex, pts]) => {
       const sorted = pts.slice().sort((a, b) => a.timestamp - b.timestamp);

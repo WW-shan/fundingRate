@@ -10,21 +10,10 @@ function fmtPct(v, digits) {
   return (v * 100).toFixed(digits === undefined ? 2 : digits) + '%';
 }
 
-function fmtNum(v, digits) {
-  if (v === null || v === undefined) return 'N/A';
-  return parseFloat(v).toLocaleString('en-US', { maximumFractionDigits: digits === undefined ? 2 : digits });
-}
-
 function fmtTime(ms) {
   if (!ms) return 'N/A';
   const d = new Date(Number(ms));
   return d.toLocaleString('zh-CN', { hour12: false });
-}
-
-function fmtTimeShort(ms) {
-  if (!ms) return 'N/A';
-  const d = new Date(Number(ms));
-  return d.toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 function pnlClass(v) {
@@ -48,7 +37,8 @@ function typeLabel(t) {
     funding_extreme: '资金费率异常',
     cross_spread: '跨所费率差',
     basis_extreme: '基差异常',
-    stablecoin_depeg: '稳定币脱锚',
+    stablecoin_depeg: '锚定资产脱锚',
+    issuer_spread: '跨发行商价差',
   };
   return map[t] || t;
 }

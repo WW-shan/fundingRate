@@ -22,7 +22,7 @@
   <div class="nav-menu">
     <a href="/" class="">仪表盘</a>
     <a href="/funding" class="active">资金费率</a>
-    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/stablecoin" class="">锚定资产</a>
     <a href="/alerts" class="">告警历史</a>
     <a href="/config" class="">系统配置</a>
   </div>
@@ -33,6 +33,12 @@
       <button class="active" onclick="switchTab('apr', this)">APR 排行</button>
       <button onclick="switchTab('spread', this)">跨所费率差</button>
       <button onclick="switchTab('basis', this)">期现基差</button>
+    </div>
+
+    <div class="config-desc" style="margin-bottom:12px">
+      APR = 单期费率 × (365 × 24 / 结算间隔小时)；各交易所/各币结算周期不同，已逐币归一化。
+      正费率 = 多头付空头；负费率 = 空头付多头（负值同样是有效信号）。
+      Binance 公开接口只提供上期已结算费率，表中会标注“上期”。
     </div>
 
     <div class="filter-bar">

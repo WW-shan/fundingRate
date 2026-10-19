@@ -13,8 +13,3 @@ class BitgetAdapter(BaseExchange):
         cfg = self._ccxt_config()
         cfg['options'] = {'defaultType': 'swap'}
         self.exchange = ccxt.bitget(cfg)
-
-    def _convert_to_futures_symbol(self, spot_symbol: str) -> str:
-        if ':' not in spot_symbol:
-            return f"{spot_symbol}:USDT"
-        return spot_symbol

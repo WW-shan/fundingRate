@@ -18,24 +18,35 @@
 """
 
 import time
-from typing import Dict, List, Any, Optional
+import threading
+from typing import Dict, List, Any
 from loguru import logger
 
 # ==================== 稳定币（锚定 1.0 USD） ====================
 # 仅保留主流、流动性充足的
 USD_STABLES = [
-    'USDC', 'FDUSD', 'PYUSD', 'RLUSD', 'USD1', 'USDE',
+    'USDT', 'USDC', 'FDUSD', 'PYUSD', 'RLUSD', 'USD1', 'USDE',
     'USDS', 'USDG', 'USDD', 'XUSD', 'BUSD', 'DAI', 'BFUSD',
     'RWUSD', 'USDGO', 'USDTB',
 ]
 
+# 发行商（用于跨发行商价差；未知发行商用符号本身区分）
+STABLE_ISSUERS = {
+    'USDT': 'tether', 'USDC': 'circle', 'FDUSD': 'first_digital', 'PYUSD': 'paxos',
+    'RLUSD': 'ripple', 'USD1': 'wlfi', 'USDE': 'ethena',
+    'USDS': 'sky', 'USDG': 'paxos', 'USDD': 'tron', 'XUSD': 'stables_labs',
+    'BUSD': 'paxos', 'DAI': 'sky', 'BFUSD': 'binance',
+    'RWUSD': 'binance', 'USDGO': 'usdgo', 'USDTB': 'bridge',
+}
+
 # ==================== 欧元稳定币（锚定 EUR/USD） ====================
 EUR_STABLES = ['EUR', 'EURI']
+EUR_ISSUERS = {'EUR': 'eur', 'EURI': 'circle'}
 
 # ==================== 贵金属 / 大宗商品 ====================
 COMMODITIES = {
-    'XAUT': 'GC=F',      # Tether Gold（现货黄金）
-    'PAXG': 'GC=F',      # Paxos Gold（现货黄金）
+    'XAUT': 'GC=F',      # Tether Gold（黄金期货参考，含期现基差）
+    'PAXG': 'GC=F',      # Paxos Gold
     'SLVON': 'SLV',      # Ondo 白银 ETF
     'IAUON': 'IAU',      # Ondo 黄金 ETF（iShares）
     'GLDX': 'GLD',       # xStocks 黄金 ETF
@@ -43,6 +54,21 @@ COMMODITIES = {
     'RGOLD': 'GC=F',     # Reality 黄金
     'RFOIL': 'CL=F',     # Reality 原油（WTI）
 }
+
+COMMODITY_ISSUERS = {
+    'XAUT': 'tether', 'PAXG': 'paxos', 'SLVON': 'ondo', 'IAUON': 'ondo',
+    'GLDX': 'backed', 'RSGOL': 'reality', 'RGOLD': 'reality', 'RFOIL': 'reality',
+}
+
+# 代币对应的参考资产数量（份额比例）。RSGOL/RGOLD 约 0.01 盎司/枚（价格交叉验证）
+COMMODITY_RATIOS = {
+    'RSGOL': 0.01, 'RGOLD': 0.01,  # 约 0.01 盎司/枚
+    'RFOIL': 0.2,                   # 约 0.2 桶 WTI/枚（流动性低，通常会被门槛过滤）
+}
+
+
+def get_reference_ratio(symbol: str) -> float:
+    return COMMODITY_RATIOS.get(symbol.upper(), 1.0)
 
 # ==================== 股票代币（发行商 -> 标的映射） ====================
 # 结构：{交易所符号: (发行商, Yahoo 标的代码)}
@@ -153,11 +179,70 @@ STOCK_TOKENS = {
     'RETON': ('reality', 'ETON'), 'RIONQ': ('reality', 'IONQ'),
     'RSON': ('reality', 'SON'), 'RSPXL': ('reality', 'SPXL'), 'RSPXS': ('reality', 'SPXS'),
     'RSPXU': ('reality', 'SPXU'), 'RUVXY': ('reality', 'UVXY'), 'RUDOW': ('reality', 'UDOW'),
-    'RZION': ('reality', 'ZION'), 'RHOOD': ('reality', 'HOOD'), 'RIOND': ('reality', 'IOND'),
+    'RZION': ('reality', 'ZION'), 'RIOND': ('reality', 'IOND'),
     'RIQQQ': ('reality', 'IQQQ'), 'RQQQI': ('reality', 'QQQI'), 'RQQQM': ('reality', 'QQQM'),
     'RSNDX': ('reality', 'SNDX'), 'RSPYI': ('reality', 'SPYI'), 'RSPYM': ('reality', 'SPYM'),
     'RSPYV': ('reality', 'SPYV'), 'RSQQQ': ('reality', 'SQQQ'), 'RTSMX': ('reality', 'TSMX'),
-    'RVONG': ('reality', 'VONG'), 'RZION': ('reality', 'ZION'),
+    'RVONG': ('reality', 'VONG'),
+    # ---- Yahoo 参考价交叉验证补充（24h 成交额 ≥ $1M，映射偏差 ≤25%）----
+    'RVOO': ('reality', 'VOO'), 'RSOXX': ('reality', 'SOXX'), 'REWY': ('reality', 'EWY'), 'RBE': ('reality', 'BE'),
+    'RLITE': ('reality', 'LITE'), 'RSMH': ('reality', 'SMH'), 'RDELL': ('reality', 'DELL'), 'RSKHY': ('reality', 'SKHY'),
+    'RISRG': ('reality', 'ISRG'), 'RMRK': ('reality', 'MRK'), 'RIWM': ('reality', 'IWM'), 'RKORU': ('reality', 'KORU'),
+    'RSGOV': ('reality', 'SGOV'), 'RTRV': ('reality', 'TRV'), 'RHYG': ('reality', 'HYG'), 'RMRNA': ('reality', 'MRNA'),
+    'RIBIT': ('reality', 'IBIT'), 'RIREN': ('reality', 'IREN'), 'RSTX': ('reality', 'STX'), 'RLRCX': ('reality', 'LRCX'),
+    'RDRAM': ('reality', 'DRAM'), 'RWMT': ('reality', 'WMT'), 'RUSO': ('reality', 'USO'), 'RRKLB': ('reality', 'RKLB'),
+    'RJNJ': ('reality', 'JNJ'), 'RECG': ('reality', 'ECG'), 'RKLAC': ('reality', 'KLAC'), 'RAAOI': ('reality', 'AAOI'),
+    'RATKR': ('reality', 'ATKR'), 'RSNXX': ('reality', 'SNXX'), 'RCIEN': ('reality', 'CIEN'), 'RVXX': ('reality', 'VXX'),
+    'RARM': ('reality', 'ARM'), 'RXLE': ('reality', 'XLE'), 'RFTNT': ('reality', 'FTNT'), 'RXBI': ('reality', 'XBI'),
+    'RCIFR': ('reality', 'CIFR'), 'RIVV': ('reality', 'IVV'), 'RVTI': ('reality', 'VTI'), 'RCECO': ('reality', 'CECO'),
+    'RASTS': ('reality', 'ASTS'), 'RMUU': ('reality', 'MUU'), 'RADBE': ('reality', 'ADBE'), 'RPODD': ('reality', 'PODD'),
+    'RULS': ('reality', 'ULS'), 'RCRWD': ('reality', 'CRWD'), 'RCLF': ('reality', 'CLF'), 'RCRDO': ('reality', 'CRDO'),
+    'RGLD': ('reality', 'GLD'), 'RALAB': ('reality', 'ALAB'), 'RBCO': ('reality', 'BCO'), 'RSNOW': ('reality', 'SNOW'),
+    'RUBER': ('reality', 'UBER'), 'RNOK': ('reality', 'NOK'), 'RAXTI': ('reality', 'AXTI'), 'RXLK': ('reality', 'XLK'),
+    'RCBRS': ('reality', 'CBRS'), 'RIDA': ('reality', 'IDA'), 'RCOHR': ('reality', 'COHR'), 'RETN': ('reality', 'ETN'),
+    'RVRT': ('reality', 'VRT'), 'RRTX': ('reality', 'RTX'), 'RDIA': ('reality', 'DIA'), 'RQLD': ('reality', 'QLD'),
+    'RESAB': ('reality', 'ESAB'), 'RSCHD': ('reality', 'SCHD'), 'RAMGN': ('reality', 'AMGN'), 'RAPLD': ('reality', 'APLD'),
+    'RGEV': ('reality', 'GEV'), 'RNOW': ('reality', 'NOW'), 'RPANW': ('reality', 'PANW'), 'RCRM': ('reality', 'CRM'),
+    'RTSLL': ('reality', 'TSLL'), 'RV': ('reality', 'V'), 'RNKE': ('reality', 'NKE'), 'RNATL': ('reality', 'NATL'),
+    'RMTRN': ('reality', 'MTRN'), 'RNPO': ('reality', 'NPO'), 'RAPP': ('reality', 'APP'), 'RDDOG': ('reality', 'DDOG'),
+    'RVXUS': ('reality', 'VXUS'), 'RGLW': ('reality', 'GLW'), 'RAWI': ('reality', 'AWI'), 'RPRM': ('reality', 'PRM'),
+    'RTXN': ('reality', 'TXN'), 'RSLV': ('reality', 'SLV'), 'RABT': ('reality', 'ABT'), 'RSNDQ': ('reality', 'SNDQ'),
+    'RIWS': ('reality', 'IWS'), 'RGDX': ('reality', 'GDX'), 'RUPRO': ('reality', 'UPRO'), 'RGE': ('reality', 'GE'),
+    'RANET': ('reality', 'ANET'), 'RBOXX': ('reality', 'BOXX'), 'RSPCH': ('reality', 'SPCH'), 'RPSQ': ('reality', 'PSQ'),
+    'RBMNR': ('reality', 'BMNR'), 'RHPE': ('reality', 'HPE'), 'RNU': ('reality', 'NU'), 'RJPST': ('reality', 'JPST'),
+    'RBIL': ('reality', 'BIL'), 'RMPWR': ('reality', 'MPWR'), 'RWTM': ('reality', 'WTM'), 'RMPC': ('reality', 'MPC'),
+    'RIYW': ('reality', 'IYW'), 'RJEPQ': ('reality', 'JEPQ'), 'REWZ': ('reality', 'EWZ'), 'RSOFI': ('reality', 'SOFI'),
+    'RVLO': ('reality', 'VLO'), 'RPYPL': ('reality', 'PYPL'), 'RSHOP': ('reality', 'SHOP'), 'RSSO': ('reality', 'SSO'),
+    'RCLS': ('reality', 'CLS'), 'RMSA': ('reality', 'MSA'), 'RXLF': ('reality', 'XLF'), 'RVGT': ('reality', 'VGT'),
+    'RFIX': ('reality', 'FIX'), 'RACN': ('reality', 'ACN'), 'RIGV': ('reality', 'IGV'), 'RVALE': ('reality', 'VALE'),
+    'RQCOM': ('reality', 'QCOM'), 'RESNT': ('reality', 'ESNT'), 'REFA': ('reality', 'EFA'), 'RBA': ('reality', 'BA'),
+    'RSHEL': ('reality', 'SHEL'), 'RT': ('reality', 'T'), 'RXLV': ('reality', 'XLV'), 'RCOST': ('reality', 'COST'),
+    'REEM': ('reality', 'EEM'), 'RNVDL': ('reality', 'NVDL'), 'RPFE': ('reality', 'PFE'), 'RNVO': ('reality', 'NVO'),
+    'RIBOC': ('reality', 'IBOC'), 'RXLU': ('reality', 'XLU'), 'RTER': ('reality', 'TER'), 'RWULF': ('reality', 'WULF'),
+    'RBAC': ('reality', 'BAC'), 'RAAL': ('reality', 'AAL'), 'RXLI': ('reality', 'XLI'), 'RINTU': ('reality', 'INTU'),
+    'RSMTC': ('reality', 'SMTC'), 'RHYS': ('reality', 'HYS'), 'RSTM': ('reality', 'STM'), 'RAAOX': ('reality', 'AAOX'),
+    'RGGOV': ('reality', 'GGOV'), 'RXOM': ('reality', 'XOM'), 'RASST': ('reality', 'ASST'), 'RTCBI': ('reality', 'TCBI'),
+    'RBITX': ('reality', 'BITX'), 'RSFBS': ('reality', 'SFBS'), 'RGATX': ('reality', 'GATX'), 'RAPAM': ('reality', 'APAM'),
+    'RQID': ('reality', 'QID'), 'RRAM': ('reality', 'RAM'), 'RXLRE': ('reality', 'XLRE'), 'ROXY': ('reality', 'OXY'),
+    'RBP': ('reality', 'BP'), 'RCEG': ('reality', 'CEG'), 'RXLP': ('reality', 'XLP'), 'RNGVT': ('reality', 'NGVT'),
+    'RSPMO': ('reality', 'SPMO'), 'RMSTU': ('reality', 'MSTU'), 'RAMDL': ('reality', 'AMDL'), 'RKWR': ('reality', 'KWR'),
+    'RMAGS': ('reality', 'MAGS'), 'RRSP': ('reality', 'RSP'), 'RCMG': ('reality', 'CMG'), 'RAGNC': ('reality', 'AGNC'),
+    'RSEI': ('reality', 'SEI'), 'RIEI': ('reality', 'IEI'), 'RTSEM': ('reality', 'TSEM'), 'RNET': ('reality', 'NET'),
+    'RPSX': ('reality', 'PSX'), 'RNBHC': ('reality', 'NBHC'), 'RWDAY': ('reality', 'WDAY'), 'RABVX': ('reality', 'ABVX'),
+    'RURI': ('reality', 'URI'), 'RMCHP': ('reality', 'MCHP'), 'RXOP': ('reality', 'XOP'), 'RLNG': ('reality', 'LNG'),
+    'RPENG': ('reality', 'PENG'), 'RBMY': ('reality', 'BMY'), 'RTMF': ('reality', 'TMF'), 'RTECL': ('reality', 'TECL'),
+    'RMANE': ('reality', 'MANE'), 'RRCL': ('reality', 'RCL'), 'RGLDM': ('reality', 'GLDM'), 'RGM': ('reality', 'GM'),
+    'RREGN': ('reality', 'REGN'), 'RVOOG': ('reality', 'VOOG'), 'RSMA': ('reality', 'SMA'), 'RTLK': ('reality', 'TLK'),
+    'RVST': ('reality', 'VST'), 'RSSPC': ('reality', 'SSPC'), 'RO': ('reality', 'O'), 'RTGT': ('reality', 'TGT'),
+    'RWFC': ('reality', 'WFC'), 'RGMAB': ('reality', 'GMAB'), 'RMETU': ('reality', 'METU'), 'RGDXU': ('reality', 'GDXU'),
+    'RHDB': ('reality', 'HDB'), 'RDVN': ('reality', 'DVN'), 'ROKTA': ('reality', 'OKTA'), 'RQNT': ('reality', 'QNT'),
+    'RDBD': ('reality', 'DBD'), 'RNEM': ('reality', 'NEM'), 'RMXL': ('reality', 'MXL'), 'RFLEX': ('reality', 'FLEX'),
+    'RFN': ('reality', 'FN'), 'RTTMI': ('reality', 'TTMI'), 'RMARA': ('reality', 'MARA'), 'RNTAP': ('reality', 'NTAP'),
+    'RSTLA': ('reality', 'STLA'), 'RMELI': ('reality', 'MELI'), 'RLIN': ('reality', 'LIN'), 'RHCA': ('reality', 'HCA'),
+    'RSHY': ('reality', 'SHY'), 'RFBTC': ('reality', 'FBTC'), 'RGILD': ('reality', 'GILD'), 'RTMUS': ('reality', 'TMUS'),
+    'XSNDK': ('okx', 'SNDK'), 'XSPCX': ('okx', 'SPCX'), 'XSOXL': ('okx', 'SOXL'), 'AAOIB': ('bstock', 'AAOI'),
+    'XSOXS': ('okx', 'SOXS'), 'XMU': ('okx', 'MU'), 'XSKHY': ('okx', 'SKHY'), 'BNCB': ('bstock', 'BNC'),
+    'XLITE': ('okx', 'LITE'), 'XMRVL': ('okx', 'MRVL'), 'AXTIB': ('bstock', 'AXTI'),
 }
 
 # ==================== 排除清单（人工确认的劣质/误报资产） ====================
@@ -191,7 +276,7 @@ YAHOO_SYMBOLS = {
 THRESHOLDS = {
     'usd_stable': {'warning': 0.003, 'critical': 0.01},   # 0.3% / 1%
     'eur_stable': {'warning': 0.005, 'critical': 0.02},   # 0.5% / 2%
-    'commodity':  {'warning': 0.01,  'critical': 0.03},   # 1% / 3%
+    'commodity':  {'warning': 0.02,  'critical': 0.05},   # 2% / 5%（黄金期货 vs 现货存在基差）
     'stock':      {'warning': 0.02,  'critical': 0.05},   # 2% / 5%
 }
 
@@ -216,11 +301,11 @@ def classify(symbol: str):
     if sym in EXCLUDED:
         return None, None, None
     if sym in USD_STABLES:
-        return 'usd_stable', None, None
+        return 'usd_stable', 'USD', STABLE_ISSUERS.get(sym, sym.lower())
     if sym in EUR_STABLES:
-        return 'eur_stable', YAHOO_SYMBOLS['eurusd'], None
+        return 'eur_stable', YAHOO_SYMBOLS['eurusd'], EUR_ISSUERS.get(sym, sym.lower())
     if sym in COMMODITIES:
-        return 'commodity', COMMODITIES[sym], None
+        return 'commodity', COMMODITIES[sym], COMMODITY_ISSUERS.get(sym, sym.lower())
     if sym in STOCK_TOKENS:
         issuer, yahoo = STOCK_TOKENS[sym]
         return 'stock', yahoo, issuer
@@ -229,11 +314,6 @@ def classify(symbol: str):
 
 def get_thresholds(category: str):
     return THRESHOLDS.get(category, {'warning': 0.01, 'critical': 0.03})
-
-
-def all_candidate_symbols():
-    """所有候选符号"""
-    return sorted(set(USD_STABLES + EUR_STABLES + list(COMMODITIES.keys()) + list(STOCK_TOKENS.keys())))
 
 
 class PegAssetDiscovery:
@@ -249,82 +329,98 @@ class PegAssetDiscovery:
 
     def __init__(self, config_manager):
         self.config = config_manager
-        self.registry: Dict[str, Dict[str, Any]] = {}       # symbol -> {category, reference_symbol, issuer, volume_24h, exchanges}
+        self.registry: Dict[str, Dict[str, Any]] = {}       # symbol -> {category, reference_symbol, issuer, reference_ratio, volume_24h}
         self.by_underlying: Dict[str, List[str]] = {}       # yahoo_symbol -> [symbols]（跨发行商分组）
         self.last_refresh = 0
         self.refresh_interval = 3600
+        self._refresh_lock = threading.Lock()
 
     def refresh(self, exchanges: Dict[str, Any], force: bool = False) -> Dict[str, Dict[str, Any]]:
         """扫描交易所，重建注册表（流动性按全市场总量判定）"""
-        now = time.time()
-        if not force and (now - self.last_refresh) < self.refresh_interval and self.registry:
-            return self.registry
+        with self._refresh_lock:
+            now = time.time()
+            # 并发线程（锚定资产/参考价循环）可能同时触发发现；60 秒内复用结果
+            if self.registry and (now - self.last_refresh) < 60:
+                return self.registry
+            if not force and (now - self.last_refresh) < self.refresh_interval and self.registry:
+                return self.registry
 
-        min_volume = float(self.config.get('alerts', 'peg_min_volume_usd', 500_000))
+            min_volume = float(self.config.get('alerts', 'peg_min_volume_usd', 500_000))
 
-        # 第一遍：收集所有候选资产的报价与成交额
-        candidates: Dict[str, Dict[str, Any]] = {}
-        for name, adapter in exchanges.items():
-            try:
-                tickers = adapter.exchange.fetch_tickers(params={'type': 'spot'})
-            except Exception as e:
-                logger.warning(f"{name} ticker fetch failed during discovery: {e}")
-                continue
-
-            for sym, t in tickers.items():
-                if not sym.endswith('/USDT') or ':' in sym:
-                    continue
-                base = sym.split('/')[0]
-                category, ref_symbol, issuer = classify(base)
-                if not category:
+            # 第一遍：收集所有候选资产的报价与成交额
+            candidates: Dict[str, Dict[str, Any]] = {}
+            for name, adapter in exchanges.items():
+                try:
+                    tickers = adapter.exchange.fetch_tickers(params={'type': 'spot'})
+                except Exception as e:
+                    logger.warning(f"{name} ticker fetch failed during discovery: {e}")
                     continue
 
-                price = t.get('last')
-                volume = float(t.get('quoteVolume') or 0)
-                if not price or price <= 0:
-                    continue
+                for sym, t in tickers.items():
+                    if not sym.endswith('/USDT') or ':' in sym:
+                        continue
+                    base = sym.split('/')[0]
+                    category, ref_symbol, issuer = classify(base)
+                    if not category:
+                        continue
 
-                entry = candidates.setdefault(base, {
-                    'symbol': base,
-                    'category': category,
-                    'reference_symbol': ref_symbol,
-                    'issuer': issuer,
-                    'volume_24h': 0,
-                    'exchanges': [],
-                    'prices': {},
-                })
-                entry['volume_24h'] += volume
-                if name not in entry['exchanges']:
-                    entry['exchanges'].append(name)
-                entry['prices'][name] = float(price)
+                    price = t.get('last')
+                    volume = float(t.get('quoteVolume') or 0)
+                    if not price or price <= 0:
+                        continue
 
-        # 第二遍：按全市场总量过滤
-        registry = {sym: e for sym, e in candidates.items() if e['volume_24h'] >= min_volume}
+                    entry = candidates.setdefault(base, {
+                        'symbol': base,
+                        'category': category,
+                        'reference_symbol': ref_symbol,
+                        'issuer': issuer,
+                        'reference_ratio': get_reference_ratio(base),
+                        'volume_24h': 0,
+                    })
+                    entry['volume_24h'] += volume
 
-        # 按标的聚合（跨发行商分组）
-        by_underlying: Dict[str, List[str]] = {}
-        for sym, e in registry.items():
-            ref = e.get('reference_symbol')
-            if ref:
-                by_underlying.setdefault(ref, []).append(sym)
+                # USDT 是报价资产，没有 USDT/USDT 交易对；用 USDC/USDT 反算
+                usdc_usdt = tickers.get('USDC/USDT')
+                if usdc_usdt and usdc_usdt.get('last'):
+                    try:
+                        usdt_price = 1.0 / float(usdc_usdt['last'])
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        usdt_price = None
+                    if usdt_price and usdt_price > 0:
+                        entry = candidates.setdefault('USDT', {
+                            'symbol': 'USDT',
+                            'category': 'usd_stable',
+                            'reference_symbol': 'USD',
+                            'issuer': STABLE_ISSUERS['USDT'],
+                            'reference_ratio': 1.0,
+                            'volume_24h': 0,
+                        })
+                        entry['volume_24h'] += float(usdc_usdt.get('quoteVolume') or 0)
 
-        self.registry = registry
-        self.by_underlying = by_underlying
-        self.last_refresh = now
+            # 第二遍：按全市场总量过滤
+            registry = {sym: e for sym, e in candidates.items() if e['volume_24h'] >= min_volume}
 
-        by_cat: Dict[str, int] = {}
-        for v in registry.values():
-            by_cat[v['category']] = by_cat.get(v['category'], 0) + 1
-        multi_issuer = sum(1 for syms in by_underlying.values() if len(syms) > 1)
-        logger.info(
-            f"Peg asset discovery: {len(registry)} assets {by_cat} | "
-            f"{len(by_underlying)} underlyings ({multi_issuer} with multi-issuer) | "
-            f"min_volume=${min_volume:,.0f} (aggregate)"
-        )
-        return registry
+            # 按标的聚合（跨发行商分组）
+            by_underlying: Dict[str, List[str]] = {}
+            for sym, e in registry.items():
+                ref = e.get('reference_symbol')
+                if ref:
+                    by_underlying.setdefault(ref, []).append(sym)
 
-    def get_monitored_symbols(self) -> List[str]:
-        return sorted(self.registry.keys())
+            self.registry = registry
+            self.by_underlying = by_underlying
+            self.last_refresh = now
+
+            by_cat: Dict[str, int] = {}
+            for v in registry.values():
+                by_cat[v['category']] = by_cat.get(v['category'], 0) + 1
+            multi_issuer = sum(1 for syms in by_underlying.values() if len(syms) > 1)
+            logger.info(
+                f"Peg asset discovery: {len(registry)} assets {by_cat} | "
+                f"{len(by_underlying)} underlyings ({multi_issuer} with multi-issuer) | "
+                f"min_volume=${min_volume:,.0f} (aggregate)"
+            )
+            return registry
 
     def get_cross_issuer_groups(self) -> Dict[str, List[str]]:
         """返回有多个发行商版本的标的组（用于跨发行商价差比较）"""

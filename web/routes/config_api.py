@@ -21,21 +21,21 @@ def get_config():
                 'price_refresh_interval': cm.get('global', 'price_refresh_interval', 30),
                 'funding_refresh_interval': cm.get('global', 'funding_refresh_interval', 300),
                 'stablecoin_refresh_interval': cm.get('global', 'stablecoin_refresh_interval', 60),
+                'reference_refresh_interval': cm.get('global', 'reference_refresh_interval', 300),
                 'monitor_scan_interval': cm.get('global', 'monitor_scan_interval', 60),
-                'stablecoin_symbols': cm.get('global', 'stablecoin_symbols',
-                                             ['USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'DAI/USDT', 'USDE/USDT']),
             },
             'alerts': {
-                'funding_rate_threshold': cm.get('alerts', 'funding_rate_threshold', 0.001),
-                'funding_apr_threshold': cm.get('alerts', 'funding_apr_threshold', 0.30),
-                'cross_spread_threshold': cm.get('alerts', 'cross_spread_threshold', 0.50),
+                'funding_apr_threshold': cm.get('alerts', 'funding_apr_threshold', 10.0),
+                'cross_spread_threshold': cm.get('alerts', 'cross_spread_threshold', 1.0),
                 'basis_threshold': cm.get('alerts', 'basis_threshold', 0.02),
-                'depeg_warning': cm.get('alerts', 'depeg_warning', 0.003),
-                'depeg_critical': cm.get('alerts', 'depeg_critical', 0.01),
-                'daily_summary_enabled': cm.get('alerts', 'daily_summary_enabled', True),
-                'daily_summary_hour': cm.get('alerts', 'daily_summary_hour', 9),
+                'issuer_spread_threshold': cm.get('alerts', 'issuer_spread_threshold', 0.01),
+                'peg_min_volume_usd': cm.get('alerts', 'peg_min_volume_usd', 500000),
+                'max_pushes_per_scan': cm.get('alerts', 'max_pushes_per_scan', 10),
                 'push_funding_apr_threshold': cm.get('alerts', 'push_funding_apr_threshold', 10.0),
                 'push_depeg': cm.get('alerts', 'push_depeg', True),
+                'push_issuer_spread': cm.get('alerts', 'push_issuer_spread', True),
+                'daily_summary_enabled': cm.get('alerts', 'daily_summary_enabled', True),
+                'daily_summary_hour': cm.get('alerts', 'daily_summary_hour', 9),
             },
         }
         return jsonify({'success': True, 'data': configs})
@@ -63,19 +63,6 @@ def update_config():
         return jsonify({'success': True, 'message': '配置已更新'})
     except Exception as e:
         logger.error(f"Error updating config: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@config_api_bp.route('/config/reload', methods=['POST'])
-@api_auth_required
-def reload_config():
-    """重载热更新配置"""
-    cm = current_app.config['CONFIG_MANAGER']
-    try:
-        cm.reload_hot_configs()
-        return jsonify({'success': True, 'message': '配置已重载'})
-    except Exception as e:
-        logger.error(f"Error reloading config: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 

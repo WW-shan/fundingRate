@@ -56,16 +56,6 @@ class ConfigManager:
             return
         self.set(category, key, value, is_hot_reload, description)
 
-    def reload_hot_configs(self):
-        """重新加载支持热更新的配置"""
-        configs = self.db.execute_query(
-            "SELECT * FROM config WHERE is_hot_reload = TRUE"
-        )
-        for cfg in configs:
-            key = f"{cfg['category']}.{cfg['key']}"
-            self._config_cache[key] = cfg['value']
-
-
     def init_default_configs(self):
         """初始化默认配置"""
         # 全局配置
@@ -77,13 +67,10 @@ class ConfigManager:
         self.set_default('global', 'price_stale_threshold', 600, True, "行情陈旧阈值（秒），超过则丢弃")
         self.set_default('global', 'enabled_exchanges', ['binance', 'okx', 'bybit', 'gate', 'bitget'], True, "启用的交易所")
 
-        # 告警阈值配置
-        self.set_default('alerts', 'funding_rate_threshold', 0.003, True, "单期资金费率告警阈值（0.3%）")
+        # 告警阈值配置（脱锚阈值按资产类别在 peg_assets.THRESHOLDS 中定义）
         self.set_default('alerts', 'funding_apr_threshold', 10.0, True, "年化资金费率告警阈值（1000%）")
         self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
         self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
-        self.set_default('alerts', 'depeg_warning', 0.003, True, "稳定币脱锚预警阈值（0.3%）")
-        self.set_default('alerts', 'depeg_critical', 0.01, True, "稳定币脱锚严重阈值（1%）")
         self.set_default('alerts', 'max_pushes_per_scan', 10, True, "每轮扫描最多推送告警数（防刷屏）")
         self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
         self.set_default('alerts', 'push_depeg', True, True, "稳定币脱锚是否推送")
@@ -93,5 +80,15 @@ class ConfigManager:
         self.set_default('alerts', 'push_issuer_spread', True, True, "跨发行商价差是否推送")
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
+
+        # 清理已废弃配置，避免面板/数据库出现误导项
+        for category, key in (
+            ('alerts', 'funding_rate_threshold'),
+            ('alerts', 'depeg_warning'),
+            ('alerts', 'depeg_critical'),
+            ('global', 'stablecoin_symbols'),
+        ):
+            self.db.execute_query("DELETE FROM config WHERE category = ? AND key = ?", (category, key))
+            self._config_cache.pop(f"{category}.{key}", None)
 
         logger.info("Default monitor configs initialized")

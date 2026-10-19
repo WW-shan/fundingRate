@@ -27,9 +27,6 @@ def create_app(config_manager, db_manager, data_collector, market_monitor, alert
     return app
 
 
-def run_app(app, host='0.0.0.0', port=5000):
+def run_web_server(app, host='0.0.0.0', port=5000):
     logger.info(f"Starting web server on {host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
-
-
-run_web_server = run_app

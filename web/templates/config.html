@@ -22,7 +22,7 @@
   <div class="nav-menu">
     <a href="/" class="">仪表盘</a>
     <a href="/funding" class="">资金费率</a>
-    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/stablecoin" class="">锚定资产</a>
     <a href="/alerts" class="">告警历史</a>
     <a href="/config" class="active">系统配置</a>
   </div>
@@ -52,58 +52,68 @@
         <button class="btn btn-primary" onclick="save('global','monitor_scan_interval','cfg-monitor_scan_interval')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">监控的稳定币</div><div class="config-desc">逗号分隔，如 USDC/USDT,FDUSD/USDT</div></div>
-        <input id="cfg-stablecoin_symbols" type="text" />
-        <button class="btn btn-primary" onclick="save('global','stablecoin_symbols','cfg-stablecoin_symbols', true)">保存</button>
+        <div><div class="config-label">参考价刷新间隔（秒）</div><div class="config-desc">黄金/欧元/股票参考价（Yahoo Finance）</div></div>
+        <input id="cfg-reference_refresh_interval" type="number" />
+        <button class="btn btn-primary" onclick="save('global','reference_refresh_interval','cfg-reference_refresh_interval')">保存</button>
       </div>
     </div>
 
     <div class="config-group">
       <h4>告警阈值</h4>
       <div class="config-row">
-        <div><div class="config-label">单期资金费率阈值</div><div class="config-desc">如 0.001 = 0.1%</div></div>
-        <input id="cfg-funding_rate_threshold" type="number" step="0.0001" />
-        <button class="btn btn-primary" onclick="save('alerts','funding_rate_threshold','cfg-funding_rate_threshold')">保存</button>
-      </div>
-      <div class="config-row">
-        <div><div class="config-label">年化费率阈值</div><div class="config-desc">如 0.30 = 30%</div></div>
-        <input id="cfg-funding_apr_threshold" type="number" step="0.01" />
+        <div><div class="config-label">年化费率告警阈值</div><div class="config-desc">10 = 1000%（APR，按各币实际结算周期年化）</div></div>
+        <input id="cfg-funding_apr_threshold" type="number" step="0.5" />
         <button class="btn btn-primary" onclick="save('alerts','funding_apr_threshold','cfg-funding_apr_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">跨所年化差阈值</div><div class="config-desc">如 0.50 = 50%</div></div>
-        <input id="cfg-cross_spread_threshold" type="number" step="0.01" />
+        <div><div class="config-label">跨所年化差阈值</div><div class="config-desc">1.0 = 100%（仅落库，不推送）</div></div>
+        <input id="cfg-cross_spread_threshold" type="number" step="0.05" />
         <button class="btn btn-primary" onclick="save('alerts','cross_spread_threshold','cfg-cross_spread_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">基差阈值</div><div class="config-desc">如 0.02 = 2%</div></div>
+        <div><div class="config-label">基差阈值</div><div class="config-desc">0.02 = 2%（仅落库，不推送）</div></div>
         <input id="cfg-basis_threshold" type="number" step="0.001" />
         <button class="btn btn-primary" onclick="save('alerts','basis_threshold','cfg-basis_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">稳定币脱锚预警</div><div class="config-desc">如 0.003 = 0.3%</div></div>
-        <input id="cfg-depeg_warning" type="number" step="0.001" />
-        <button class="btn btn-primary" onclick="save('alerts','depeg_warning','cfg-depeg_warning')">保存</button>
-      </div>
-      <div class="config-row">
-        <div><div class="config-label">稳定币脱锚严重</div><div class="config-desc">如 0.01 = 1%</div></div>
-        <input id="cfg-depeg_critical" type="number" step="0.001" />
-        <button class="btn btn-primary" onclick="save('alerts','depeg_critical','cfg-depeg_critical')">保存</button>
-      </div>
-      <div class="config-row">
-        <div><div class="config-label">每日汇总推送时间（小时）</div></div>
-        <input id="cfg-daily_summary_hour" type="number" min="0" max="23" />
-        <button class="btn btn-primary" onclick="save('alerts','daily_summary_hour','cfg-daily_summary_hour')">保存</button>
-      </div>
-      <div class="config-row">
-        <div><div class="config-label">推送费率阈值（APR）</div><div class="config-desc">仅推送超过该年化值的资金费率，如 10 = 1000%</div></div>
+        <div><div class="config-label">推送费率阈值（APR）</div><div class="config-desc">仅推送 |APR| ≥ 该值，10 = 1000%</div></div>
         <input id="cfg-push_funding_apr_threshold" type="number" step="0.5" />
         <button class="btn btn-primary" onclick="save('alerts','push_funding_apr_threshold','cfg-push_funding_apr_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false</div></div>
+        <div><div class="config-label">每轮最多推送条数</div><div class="config-desc">防止极端行情刷屏，默认 10</div></div>
+        <input id="cfg-max_pushes_per_scan" type="number" step="1" />
+        <button class="btn btn-primary" onclick="save('alerts','max_pushes_per_scan','cfg-max_pushes_per_scan')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（休市期间只推 critical）</div></div>
         <input id="cfg-push_depeg" type="text" />
         <button class="btn btn-primary" onclick="save('alerts','push_depeg','cfg-push_depeg', false, true)">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">跨发行商价差阈值</div><div class="config-desc">0.01 = 1%</div></div>
+        <input id="cfg-issuer_spread_threshold" type="number" step="0.001" />
+        <button class="btn btn-primary" onclick="save('alerts','issuer_spread_threshold','cfg-issuer_spread_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">锚定资产流动性门槛（USD）</div><div class="config-desc">24h 全市场成交额低于此值不监控</div></div>
+        <input id="cfg-peg_min_volume_usd" type="number" step="100000" />
+        <button class="btn btn-primary" onclick="save('alerts','peg_min_volume_usd','cfg-peg_min_volume_usd')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">推送跨发行商价差</div><div class="config-desc">true / false</div></div>
+        <input id="cfg-push_issuer_spread" type="text" />
+        <button class="btn btn-primary" onclick="save('alerts','push_issuer_spread','cfg-push_issuer_spread', false, true)">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">每日汇总推送</div><div class="config-desc">true / false</div></div>
+        <input id="cfg-daily_summary_enabled" type="text" />
+        <button class="btn btn-primary" onclick="save('alerts','daily_summary_enabled','cfg-daily_summary_enabled', false, true)">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">每日汇总推送时间（小时）</div><div class="config-desc">本地时间 0-23</div></div>
+        <input id="cfg-daily_summary_hour" type="number" min="0" max="23" />
+        <button class="btn btn-primary" onclick="save('alerts','daily_summary_hour','cfg-daily_summary_hour')">保存</button>
       </div>
     </div>
 
@@ -126,17 +136,19 @@ async function load() {
   document.getElementById('cfg-funding_refresh_interval').value = g.funding_refresh_interval;
   document.getElementById('cfg-stablecoin_refresh_interval').value = g.stablecoin_refresh_interval;
   document.getElementById('cfg-monitor_scan_interval').value = g.monitor_scan_interval;
-  document.getElementById('cfg-stablecoin_symbols').value = (g.stablecoin_symbols || []).join(',');
+  document.getElementById('cfg-reference_refresh_interval').value = g.reference_refresh_interval;
 
-  document.getElementById('cfg-funding_rate_threshold').value = a.funding_rate_threshold;
   document.getElementById('cfg-funding_apr_threshold').value = a.funding_apr_threshold;
   document.getElementById('cfg-cross_spread_threshold').value = a.cross_spread_threshold;
   document.getElementById('cfg-basis_threshold').value = a.basis_threshold;
-  document.getElementById('cfg-depeg_warning').value = a.depeg_warning;
-  document.getElementById('cfg-depeg_critical').value = a.depeg_critical;
-  document.getElementById('cfg-daily_summary_hour').value = a.daily_summary_hour;
   document.getElementById('cfg-push_funding_apr_threshold').value = a.push_funding_apr_threshold;
+  document.getElementById('cfg-max_pushes_per_scan').value = a.max_pushes_per_scan;
   document.getElementById('cfg-push_depeg').value = a.push_depeg;
+  document.getElementById('cfg-issuer_spread_threshold').value = a.issuer_spread_threshold;
+  document.getElementById('cfg-peg_min_volume_usd').value = a.peg_min_volume_usd;
+  document.getElementById('cfg-push_issuer_spread').value = a.push_issuer_spread;
+  document.getElementById('cfg-daily_summary_enabled').value = a.daily_summary_enabled;
+  document.getElementById('cfg-daily_summary_hour').value = a.daily_summary_hour;
 }
 
 async function save(category, key, inputId, isList, isBool) {

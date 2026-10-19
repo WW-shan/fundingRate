@@ -22,7 +22,7 @@
   <div class="nav-menu">
     <a href="/" class="active">仪表盘</a>
     <a href="/funding" class="">资金费率</a>
-    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/stablecoin" class="">锚定资产</a>
     <a href="/alerts" class="">告警历史</a>
     <a href="/config" class="">系统配置</a>
   </div>
@@ -30,12 +30,12 @@
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-label">监控币种</div><div class="stat-value" id="stat-symbols">--</div></div>
     <div class="stat-card"><div class="stat-label">已连交易所</div><div class="stat-value" id="stat-exchanges">--</div></div>
-    <div class="stat-card"><div class="stat-label">24h 告警</div><div class="stat-value warn" id="stat-alerts">--</div></div>
-    <div class="stat-card"><div class="stat-label">最高 APR</div><div class="stat-value positive" id="stat-top-apr">--</div></div>
+    <div class="stat-card"><div class="stat-label">24h 推送</div><div class="stat-value warn" id="stat-alerts">--</div></div>
+    <div class="stat-card"><div class="stat-label">最极端 APR</div><div class="stat-value positive" id="stat-top-apr">--</div></div>
   </div>
 
   <div class="card">
-    <h3>🔥 APR 排行 Top10</h3>
+    <h3>🔥 极端 APR Top10（按 |APR| 排序）</h3>
     <div class="table-wrap">
       <table>
         <thead><tr><th>#</th><th>币种</th><th>交易所</th><th>APR</th><th>单期费率</th><th>结算周期</th><th>下次结算</th></tr></thead>
@@ -55,10 +55,10 @@
   </div>
 
   <div class="card">
-    <h3>🪙 稳定币锚定状态</h3>
+    <h3>🪙 锚定资产状态（稳定币 / 大宗商品 / 股票代币）</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>稳定币</th><th>交易所</th><th>价格</th><th>偏离</th><th>状态</th></tr></thead>
+        <thead><tr><th>资产</th><th>交易所</th><th>价格</th><th>偏离</th><th>状态</th></tr></thead>
         <tbody id="tbody-stable"><tr><td colspan="5" class="loading">加载中...</td></tr></tbody>
       </table>
     </div>
@@ -88,13 +88,13 @@ async function refresh() {
     if (statusRes) {
       document.getElementById('stat-symbols').textContent = statusRes.symbols_tracked || 0;
       document.getElementById('stat-exchanges').textContent = (statusRes.exchanges || []).length;
-      document.getElementById('stat-alerts').textContent = statusRes.alerts_24h || 0;
+      document.getElementById('stat-alerts').textContent = statusRes.pushed_24h || 0;
     }
 
     const data = (summaryRes && summaryRes.data) || {};
     let topApr = (data.top_apr || []).slice().sort((a, b) => Math.abs(b.apr ?? 0) - Math.abs(a.apr ?? 0));
-    if (topApr.length > 0 && topApr[0].apr !== null) {
-      document.getElementById('stat-top-apr').textContent = fmtPct(topApr[0].apr, 1);
+    if (data.max_abs_apr !== null && data.max_abs_apr !== undefined) {
+      document.getElementById('stat-top-apr').textContent = fmtPct(data.max_abs_apr, 1);
     }
 
     // APR 表
@@ -141,8 +141,10 @@ async function refresh() {
       tbodyStable.innerHTML = '<tr><td colspan="5" class="empty-state">暂无数据</td></tr>';
     } else {
       tbodyStable.innerHTML = depeg.map(r => {
-        const cls = r.abs_deviation >= 0.01 ? 'badge-red' : (r.abs_deviation >= 0.003 ? 'badge-yellow' : 'badge-green');
-        const label = r.abs_deviation >= 0.01 ? '严重脱锚' : (r.abs_deviation >= 0.003 ? '预警' : '正常');
+        const crit = r.threshold_critical ?? 0.01;
+        const warn = r.threshold_warning ?? 0.003;
+        const cls = r.abs_deviation >= crit ? 'badge-red' : (r.abs_deviation >= warn ? 'badge-yellow' : 'badge-green');
+        const label = r.abs_deviation >= crit ? '严重脱锚' : (r.abs_deviation >= warn ? '预警' : '正常');
         return `<tr>
           <td><b>${r.symbol}</b></td>
           <td>${exchangeBadge(r.exchange)}</td>

@@ -4,7 +4,7 @@ Telegram Bot（监控版）
 """
 import os
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict
 from loguru import logger
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -49,12 +49,15 @@ class TelegramBot:
             return
 
         def run_bot():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self.app.initialize())
-            self._loop.run_until_complete(self.app.start())
-            self._loop.run_until_complete(self.app.updater.start_polling())
-            self._loop.run_forever()
+            try:
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+                self._loop.run_until_complete(self.app.initialize())
+                self._loop.run_until_complete(self.app.start())
+                self._loop.run_until_complete(self.app.updater.start_polling())
+                self._loop.run_forever()
+            except Exception as e:
+                logger.error(f"Telegram bot thread stopped: {e}")
 
         import threading
         threading.Thread(target=run_bot, daemon=True).start()
@@ -101,17 +104,21 @@ class TelegramBot:
             cat_label = {
                 'usd_stable': '稳定币',
                 'eur_stable': '欧元稳定币',
-                'gold': '黄金代币',
+                'commodity': '大宗商品',
                 'stock': '股票代币',
             }.get(d.get('category'), '锚定资产')
             closed_note = '\n⚠️ 标的市场休市中（参考价为最近收盘价）' if d.get('market_closed') else ''
+            threshold_note = (
+                f"\n阈值: 预警 {d.get('threshold_warning', 0)*100:.2f}% / "
+                f"严重 {d.get('threshold_critical', 0)*100:.2f}%"
+            )
             message = (
                 f"{emoji} <b>{cat_label}脱锚</b>\n\n"
                 f"资产: <b>{d.get('symbol', 'N/A')}</b>\n"
                 f"交易所: <b>{str(d.get('exchange', 'N/A')).upper()}</b>\n"
                 f"当前价: <b>{d.get('price', 0):.6f}</b>\n"
                 f"参考价: <b>{d.get('reference', 0):.6f}</b>\n"
-                f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>{closed_note}\n\n"
+                f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>{threshold_note}{closed_note}\n\n"
                 f"时间: {self._fmt_time()}"
             )
         elif alert_type == 'issuer_spread':
@@ -122,7 +129,9 @@ class TelegramBot:
                      f"发行商数: {d.get('issuer_count', 0)} | 交易所数: {d.get('exchange_count', 0)}\n"]
             for q in d.get('quotes', [])[:8]:
                 issuer = q.get('issuer') or q.get('exchange')
-                lines.append(f"  {q['symbol']} ({issuer}): <b>${q['price']:.4f}</b>")
+                normalized = q.get('normalized_price', q['price'])
+                raw_note = f" [raw ${q['price']:.4f}]" if abs(normalized - q['price']) > 1e-9 else ''
+                lines.append(f"  {q['symbol']} ({issuer}): <b>${normalized:.4f}</b>{raw_note}")
             lines.append(f"\n时间: {self._fmt_time()}")
             message = "\n".join(lines)
         else:
@@ -156,7 +165,11 @@ class TelegramBot:
         self._send_async("\n".join(lines))
 
     def _send_async(self, message: str):
-        if not self.app or not self.chat_id or not self._loop:
+        """异步发送（loop 未就绪时记录警告而非静默丢弃）"""
+        if not self.app or not self.chat_id:
+            return
+        if not self._loop or not self._loop.is_running():
+            logger.warning("TG loop not ready, message dropped (will retry on next alert)")
             return
         try:
             asyncio.run_coroutine_threadsafe(self._send(message), self._loop)
@@ -184,10 +197,10 @@ class TelegramBot:
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             "📊 <b>查询命令</b>\n"
-            "/apr - APR 排行 Top10\n"
+            "/apr - 极端 APR Top10（正负均列）\n"
             "/spread - 跨所费率差 Top10\n"
             "/basis - 基差异常 Top10\n"
-            "/stable - 稳定币锚定状态\n"
+            "/stable - 锚定资产状态\n"
             "/alerts - 最近告警\n"
             "/status - 系统状态\n\n"
             "🔔 系统会自动推送异常告警"
@@ -202,23 +215,29 @@ class TelegramBot:
             f"运行中: {'✅' if status['running'] else '❌'}\n"
             f"已连接交易所: {', '.join(status['exchanges']) or '无'}\n"
             f"监控币种: {status['symbols_tracked']}\n"
-            f"稳定币: {status['stablecoins_tracked']}\n"
-            f"24h 告警: {stats['total']} 条"
+            f"锚定资产: {status.get('peg_assets', 0)} 个（{status['stablecoins_tracked']} 条报价）\n"
+            f"24h 异常记录: {stats['total']} 条（推送 {stats.get('pushed_total', 0)} 条）"
         )
         await update.message.reply_text(text, parse_mode='HTML')
 
     async def cmd_apr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        ranking = self.monitor.last_scan.get('apr_ranking', [])[:10]
+        rows = [r for r in self.monitor.last_scan.get('apr_ranking', []) if r.get('apr') is not None]
+        ranking = sorted(rows, key=lambda r: abs(r['apr']), reverse=True)[:10]
         if not ranking:
             await update.message.reply_text("暂无数据")
             return
-        lines = ["📈 <b>APR 排行 Top10</b>\n"]
+        lines = ["📈 <b>极端 APR Top10（正负均列）</b>\n"]
         for i, row in enumerate(ranking, 1):
             apr = row.get('apr')
             apr_str = f"{apr*100:.1f}%" if apr is not None else "N/A"
             interval = row.get('funding_interval_hours')
             interval_str = f"每{interval:g}h" if interval else "周期未知"
-            lines.append(f"{i}. {row['symbol']} @ {row['exchange']}: <b>{apr_str}</b> ({interval_str})")
+            rate_str = f"{row['funding_rate']*100:+.4f}%" if row.get('funding_rate') is not None else "N/A"
+            sem = " [上期]" if row.get('rate_semantics') == 'last_settled' else ""
+            lines.append(
+                f"{i}. {row['symbol']} @ {row['exchange']}: <b>APR {apr_str}</b> | "
+                f"当前 {rate_str} | {interval_str}{sem}"
+            )
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
 
     async def cmd_spread(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -247,13 +266,16 @@ class TelegramBot:
     async def cmd_stable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         depeg = self.monitor.last_scan.get('depeg', [])
         if not depeg:
-            await update.message.reply_text("暂无稳定币数据")
+            await update.message.reply_text("暂无锚定资产数据")
             return
-        lines = ["🪙 <b>稳定币锚定状态</b>\n"]
+        lines = ["🪙 <b>锚定资产状态</b>\n"]
         for row in depeg[:15]:
-            flag = "🔴" if row['abs_deviation'] >= 0.01 else ("⚠️" if row['abs_deviation'] >= 0.003 else "✅")
+            # 使用各资产类别自己的阈值（稳定币/黄金/股票不同）
+            crit = row.get('threshold_critical', 0.01)
+            warn = row.get('threshold_warning', 0.003)
+            flag = "🔴" if row['abs_deviation'] >= crit else ("⚠️" if row['abs_deviation'] >= warn else "✅")
             lines.append(
-                f"{flag} {row['symbol']} @ {row['exchange']}: {row['price']:.6f} "
+                f"{flag} {row['symbol']} @ {row['exchange']}: {row['price']:.6g} "
                 f"({row['deviation']*100:+.3f}%)"
             )
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
@@ -265,6 +287,6 @@ class TelegramBot:
             return
         lines = ["🔔 <b>最近告警</b>\n"]
         for a in alerts:
-            emoji = {'warning': '⚠️', 'critical': '🔴', 'emergency': '🚨'}.get(a['level'], '⚠️')
-            lines.append(f"{emoji} {a['message']}")
+            emoji = {'warning': '⚠️', 'critical': '🔴', 'emergency': '🚨'}.get(a.get('level'), '⚠️')
+            lines.append(f"{emoji} {a.get('message', '')}")
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
