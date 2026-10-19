@@ -1,0 +1,22 @@
+chore: 清理冗余代码并修复 TG Bot 兼容性
+
+## 清理（-427 行）
+- database/db_manager.py: 移除 8 张废弃表（exchange_accounts/trading_pair_configs/
+  klines/orders/positions/strategy_logs/risk_events/backtest_results）及
+  相关迁移代码、未使用方法（execute_update/execute_insert/get_config/backup_database）
+- config/config_manager.py: 移除交易对配置相关方法
+- exchanges/base_exchange.py: 移除监控版不需要的方法（get_funding_rate/
+  get_futures_ticker/get_order_book/get_trading_fees/_parse_extra_rates）
+- 各适配器同步移除失效覆写
+- 删除过时设计文档（套利策略/移动止损）
+
+## 修复
+- python-telegram-bot 升级至 >=21.11（20.7 在 Python 3.13 下 Updater 初始化失败）
+- scripts/db_viewer.py 关闭 debug 模式并限制为本地访问
+
+## 验证（本机实战测试）
+- 5 交易所连接正常，采集 1023+ 币种
+- 告警链路：788 条告警落库，推送 20 条（限流 10/轮），无重复推送
+- TG Bot 推送与命令轮询正常
+- Web 面板 5 页面 + 10 API 全部 200
+- 配置热更新、交易所重载正常

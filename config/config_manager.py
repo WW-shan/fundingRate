@@ -2,7 +2,7 @@
 配置管理器
 """
 import json
-from typing import Any, Optional, Dict
+from typing import Any
 from loguru import logger
 from database.db_manager import DatabaseManager
 
@@ -65,31 +65,6 @@ class ConfigManager:
             key = f"{cfg['category']}.{cfg['key']}"
             self._config_cache[key] = cfg['value']
 
-    def get_pair_config(self, symbol: str, exchange: Optional[str] = None,
-                       strategy_prefix: Optional[str] = None) -> Dict[str, Any]:
-        """获取交易对配置"""
-        if exchange:
-            pair_configs = self.db.execute_query(
-                "SELECT * FROM trading_pair_configs WHERE symbol = ? AND exchange = ?",
-                (symbol, exchange)
-            )
-        else:
-            pair_configs = self.db.execute_query(
-                "SELECT * FROM trading_pair_configs WHERE symbol = ?",
-                (symbol,)
-            )
-
-        if pair_configs:
-            return pair_configs[0]
-        return self._get_default_pair_config(symbol, exchange)
-
-    def _get_default_pair_config(self, symbol: str, exchange: Optional[str]) -> Dict[str, Any]:
-        """交易对默认配置（监控版：仅监控开关）"""
-        return {
-            'symbol': symbol,
-            'exchange': exchange,
-            'is_active': True,
-        }
 
     def init_default_configs(self):
         """初始化默认配置"""

@@ -6,7 +6,7 @@ flask-cors==4.0.0
 ccxt>=4.5.42,<5.0
 
 # Telegram Bot
-python-telegram-bot==20.7
+python-telegram-bot>=21.11,<22.0
 
 # 工具
 python-dotenv==1.0.0

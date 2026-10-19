@@ -324,5 +324,5 @@ def execute_query():
 if __name__ == '__main__':
     print(f"数据库路径: {DB_PATH}")
     print("正在启动Web服务器...")
-    print("请在浏览器中访问: http://localhost:5001")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    print("请在浏览器中访问: http://127.0.0.1:5001")
+    app.run(host='127.0.0.1', port=5001, debug=False)

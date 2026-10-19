@@ -2,7 +2,6 @@
 Binance 适配器（监控版）
 """
 import ccxt
-from typing import Dict, Any
 from .base_exchange import BaseExchange
 
 
@@ -19,7 +18,3 @@ class BinanceAdapter(BaseExchange):
         if ':' not in spot_symbol:
             return f"{spot_symbol}:USDT"
         return spot_symbol
-
-    def _parse_extra_rates(self, funding: Dict[str, Any]):
-        # Binance 官方不提供预测费率；lastFundingRate 即上期已结算费率
-        return None, funding.get('fundingRate')

@@ -51,60 +51,7 @@ class BaseExchange(ABC):
             logger.debug(f"Error fetching spot ticker for {symbol}: {e}")
             return {}
 
-    def get_futures_ticker(self, symbol: str) -> Dict[str, Any]:
-        """获取永续合约行情"""
-        try:
-            futures_symbol = self._convert_to_futures_symbol(symbol)
-            ticker = self.exchange.fetch_ticker(futures_symbol)
-            return {
-                'bid': ticker.get('bid'),
-                'ask': ticker.get('ask'),
-                'last': ticker.get('last'),
-                'timestamp': ticker.get('timestamp')
-            }
-        except Exception as e:
-            logger.debug(f"Error fetching futures ticker for {symbol}: {e}")
-            return {}
 
-    # ---------- 资金费率 ----------
-
-    def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
-        """
-        获取资金费率（含官方结算间隔）
-
-        返回: {
-            'funding_rate': 当前费率,
-            'next_funding_time': 下次结算时间(ms),
-            'funding_interval': 结算间隔(ms),
-            'predicted_rate': 预测费率(若有),
-            'last_settled_rate': 上期已结算费率(若有),
-            'rate_semantics': 'upcoming' | 'last_settled'
-        }
-        """
-        try:
-            futures_symbol = self._convert_to_futures_symbol(symbol)
-            funding = self.exchange.fetch_funding_rate(futures_symbol)
-
-            funding_interval = self._parse_funding_interval(funding, allow_history=True)
-            predicted_rate, last_settled_rate = self._parse_extra_rates(funding)
-
-            return {
-                'funding_rate': funding.get('fundingRate'),
-                'next_funding_time': funding.get('fundingTimestamp'),
-                'funding_interval': funding_interval,
-                'predicted_rate': predicted_rate,
-                'last_settled_rate': last_settled_rate,
-                'rate_semantics': self.funding_rate_semantics,
-            }
-        except Exception as e:
-            error_msg = str(e)
-            if 'does not have market symbol' in error_msg or 'not found' in error_msg.lower():
-                logger.debug(f"Symbol {symbol} not available for funding rate: {error_msg}")
-            elif 'rate limit' in error_msg.lower():
-                logger.warning(f"Rate limit hit for {symbol}: {error_msg}")
-            else:
-                logger.debug(f"Error fetching funding rate for {symbol}: {error_msg}")
-            return {}
 
     def _parse_funding_interval(self, funding: Dict[str, Any], allow_history: bool = False) -> Optional[int]:
         """
@@ -191,55 +138,8 @@ class BaseExchange(ABC):
 
         return funding_interval
 
-    def _parse_extra_rates(self, funding: Dict[str, Any]):
-        """解析预测费率与上期已结算费率（子类可覆写）"""
-        info = funding.get('info') or {}
-        predicted_rate = None
-        last_settled_rate = None
 
-        if self.funding_rate_semantics == 'upcoming':
-            predicted_rate = funding.get('fundingRate')
-        else:
-            last_settled_rate = funding.get('fundingRate')
 
-        return predicted_rate, last_settled_rate
-
-    # ---------- 订单簿 ----------
-
-    def get_order_book(self, symbol: str, is_futures: bool = False, limit: int = 5) -> Dict[str, Any]:
-        """获取订单簿（用于深度/流动性参考）"""
-        try:
-            if is_futures:
-                symbol = self._convert_to_futures_symbol(symbol)
-
-            orderbook = self.exchange.fetch_order_book(symbol, limit)
-            bids = orderbook['bids'][:limit]
-            asks = orderbook['asks'][:limit]
-
-            return {
-                'bids': bids,
-                'asks': asks,
-                'bid_depth': sum([bid[1] for bid in bids]),
-                'ask_depth': sum([ask[1] for ask in asks])
-            }
-        except Exception as e:
-            logger.debug(f"Error fetching order book for {symbol}: {e}")
-            return {'bids': [], 'asks': [], 'bid_depth': 0, 'ask_depth': 0}
-
-    # ---------- 交易手续费（公共费率，仅供参考） ----------
-
-    def get_trading_fees(self, symbol: str) -> Dict[str, float]:
-        """获取公共交易手续费率"""
-        try:
-            markets = self.exchange.load_markets()
-            market = markets.get(symbol, {})
-            return {
-                'maker': market.get('maker', 0.001),
-                'taker': market.get('taker', 0.001)
-            }
-        except Exception as e:
-            logger.debug(f"Error fetching trading fees: {e}")
-            return {'maker': 0.001, 'taker': 0.001}
 
     @abstractmethod
     def _convert_to_futures_symbol(self, spot_symbol: str) -> str:

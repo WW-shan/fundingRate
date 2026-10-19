@@ -2,7 +2,6 @@
 Gate.io 适配器（监控版）
 """
 import ccxt
-from typing import Dict, Any
 from .base_exchange import BaseExchange
 
 
@@ -17,14 +16,3 @@ class GateAdapter(BaseExchange):
         if ':' not in spot_symbol:
             return f"{spot_symbol}:USDT"
         return spot_symbol
-
-    def _parse_extra_rates(self, funding: Dict[str, Any]):
-        info = funding.get('info') or {}
-        predicted = funding.get('fundingRate')
-        indicative = info.get('funding_rate_indicative')
-        if indicative:
-            try:
-                predicted = float(indicative)
-            except (ValueError, TypeError):
-                pass
-        return predicted, None
