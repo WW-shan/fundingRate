@@ -150,6 +150,15 @@ def stablecoin_history():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@api_bp.route('/issuer-spreads')
+@api_auth_required
+def issuer_spreads():
+    """跨发行商价差（同一标的的不同 RWA 版本）"""
+    market_monitor = current_app.config['MARKET_MONITOR']
+    rows = market_monitor.last_scan.get('issuer_spreads', [])
+    return jsonify({'success': True, 'data': rows, 'total': len(rows)})
+
+
 @api_bp.route('/alerts')
 @api_auth_required
 def alerts():

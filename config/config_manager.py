@@ -89,6 +89,8 @@ class ConfigManager:
         self.set_default('alerts', 'push_depeg', True, True, "稳定币脱锚是否推送")
         self.set_default('alerts', 'persist_cooldown', 1800, True, "同标的告警落库冷却（秒）")
         self.set_default('alerts', 'peg_min_volume_usd', 500000, True, "锚定资产流动性门槛（24h 成交额 USD）")
+        self.set_default('alerts', 'issuer_spread_threshold', 0.01, True, "跨发行商价差告警阈值（1%）")
+        self.set_default('alerts', 'push_issuer_spread', True, True, "跨发行商价差是否推送")
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 

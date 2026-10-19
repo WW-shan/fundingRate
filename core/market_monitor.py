@@ -67,6 +67,7 @@ class MarketMonitor:
         cross_spreads = self.build_cross_exchange_spreads(market_data)
         basis_list = self.build_basis_list(market_data)
         depeg_list = self.build_depeg_list(stablecoin_data)
+        issuer_spreads = self.build_cross_issuer_spreads(stablecoin_data)
 
         self.last_scan = {
             'timestamp': int(time.time() * 1000),
@@ -74,6 +75,7 @@ class MarketMonitor:
             'cross_spreads': cross_spreads,
             'basis': basis_list,
             'depeg': depeg_list,
+            'issuer_spreads': issuer_spreads,
         }
 
         alerts = []
@@ -81,6 +83,7 @@ class MarketMonitor:
         alerts += self._check_cross_spread_anomalies(cross_spreads)
         alerts += self._check_basis_anomalies(basis_list)
         alerts += self._check_depeg_anomalies(depeg_list)
+        alerts += self._check_issuer_spread_anomalies(issuer_spreads)
 
         for cb in self.alert_callbacks:
             try:
@@ -243,6 +246,16 @@ class MarketMonitor:
                 if not price:
                     continue
                 deviation = (price - reference) / reference
+
+                # 映射验证：偏离 > 50% 大概率是符号映射错误（如 RIRON 实际非 Disc Medicine）
+                # 此类数据不参与脱锚判定，避免误报
+                if abs(deviation) > 0.5:
+                    logger.debug(
+                        f"Peg mapping check: {symbol}@{exchange} price={price} vs ref={reference} "
+                        f"({deviation:.1%}) — likely wrong mapping, skipped"
+                    )
+                    continue
+
                 rows.append({
                     'symbol': symbol,
                     'exchange': exchange,
@@ -261,6 +274,57 @@ class MarketMonitor:
                 })
 
         rows.sort(key=lambda r: -r['abs_deviation'])
+        return rows
+
+    # ---------- 跨发行商价差（同一标的的不同 RWA 版本） ----------
+
+    def build_cross_issuer_spreads(self, stablecoin_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        同一标的（如 AAPL）在多个发行商（bStock/Ondo/xStocks/Reality/gStocks）之间的价差
+        这是同一资产的"跨市场价差"，比跨交易所更有意义（发行商不同、托管不同）
+        """
+        from config import peg_assets
+
+        groups = self.data_collector.peg_discovery.get_cross_issuer_groups()
+        rows = []
+
+        for underlying, symbols in groups.items():
+            # 收集该标的的所有报价
+            quotes = []
+            for sym in symbols:
+                entry = self.data_collector.peg_discovery.registry.get(sym) or {}
+                issuer = entry.get('issuer')
+                for exchange, data in (stablecoin_data.get(sym) or {}).items():
+                    price = data.get('price')
+                    if price:
+                        quotes.append({
+                            'symbol': sym,
+                            'exchange': exchange,
+                            'issuer': issuer,
+                            'price': float(price),
+                        })
+
+            if len(quotes) < 2:
+                continue
+
+            prices = [q['price'] for q in quotes]
+            lo, hi = min(prices), max(prices)
+            if lo <= 0:
+                continue
+            spread = (hi - lo) / lo
+
+            rows.append({
+                'underlying': underlying,
+                'quotes': sorted(quotes, key=lambda q: q['price']),
+                'low': lo,
+                'high': hi,
+                'spread': spread,
+                'abs_spread': abs(spread),
+                'issuer_count': len(set(q['issuer'] for q in quotes if q['issuer'])),
+                'exchange_count': len(set(q['exchange'] for q in quotes)),
+            })
+
+        rows.sort(key=lambda r: -r['abs_spread'])
         return rows
 
     # ---------- 异常检测 ----------
@@ -331,6 +395,31 @@ class MarketMonitor:
                     ),
                     'details': row,
                 })
+        return alerts
+
+    def _check_issuer_spread_anomalies(self, spreads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """跨发行商价差告警（同一标的的不同 RWA 版本偏离）"""
+        alerts = []
+        threshold = float(self.config.get('alerts', 'issuer_spread_threshold', 0.01))  # 1%
+
+        for row in spreads:
+            if row['abs_spread'] < threshold:
+                continue
+            quotes = row['quotes']
+            detail = ' | '.join(
+                f"{q['symbol']}({q['issuer'] or q['exchange']}) ${q['price']:.4f}"
+                for q in quotes[:5]
+            )
+            alerts.append({
+                'alert_type': 'issuer_spread',
+                'level': 'critical' if row['abs_spread'] >= threshold * 3 else 'warning',
+                'symbol': row['underlying'],
+                'exchange': 'multi',
+                'message': (
+                    f"{row['underlying']} 跨发行商价差 {row['abs_spread']*100:.2f}%: {detail}"
+                ),
+                'details': row,
+            })
         return alerts
 
     def _check_depeg_anomalies(self, depeg_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

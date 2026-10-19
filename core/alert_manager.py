@@ -23,6 +23,7 @@ class AlertManager:
         'cross_spread': 3600,
         'basis_extreme': 1800,
         'stablecoin_depeg': 600,
+        'issuer_spread': 1800,
     }
 
     def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
@@ -75,6 +76,10 @@ class AlertManager:
         # 稳定币脱锚：低频且重要，始终推送
         if alert_type == 'stablecoin_depeg':
             return bool(self.config.get('alerts', 'push_depeg', True))
+
+        # 跨发行商价差：可配置（默认推送，这是稀缺套利信号）
+        if alert_type == 'issuer_spread':
+            return bool(self.config.get('alerts', 'push_issuer_spread', True))
 
         # 资金费率异常：APR 阈值过滤
         if alert_type == 'funding_extreme':

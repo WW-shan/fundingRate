@@ -114,6 +114,17 @@ class TelegramBot:
                 f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>{closed_note}\n\n"
                 f"时间: {self._fmt_time()}"
             )
+        elif alert_type == 'issuer_spread':
+            d = alert.get('details') or {}
+            lines = [f"{emoji} <b>跨发行商价差</b>\n",
+                     f"标的: <b>{d.get('underlying', 'N/A')}</b>",
+                     f"价差: <b>{d.get('abs_spread', 0)*100:.2f}%</b>",
+                     f"发行商数: {d.get('issuer_count', 0)} | 交易所数: {d.get('exchange_count', 0)}\n"]
+            for q in d.get('quotes', [])[:8]:
+                issuer = q.get('issuer') or q.get('exchange')
+                lines.append(f"  {q['symbol']} ({issuer}): <b>${q['price']:.4f}</b>")
+            lines.append(f"\n时间: {self._fmt_time()}")
+            message = "\n".join(lines)
         else:
             type_label = {
                 'cross_spread': '跨所费率差',

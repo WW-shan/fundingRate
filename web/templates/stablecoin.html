@@ -53,6 +53,16 @@
   </div>
 
   <div class="card">
+    <h3>🔀 跨发行商价差（同一标的的不同 RWA 版本）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>标的</th><th>价差</th><th>发行商数</th><th>各版本价格</th></tr></thead>
+        <tbody id="tbody-issuer"><tr><td colspan="4" class="loading">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>📉 历史价格曲线</h3>
     <div class="filter-bar">
       <select id="hist-symbol" onchange="loadHistory()">
@@ -111,6 +121,27 @@ async function refresh() {
           <td class="${pnlClass(r.deviation)}" ${Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${(r.deviation * 100).toFixed(3)}%</td>
           <td><span class="badge ${cls}">${label}</span>${closedTag}</td>
           <td class="text-muted">${refTimeStr}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // 跨发行商价差
+    const issRes = await fetchJSON('/api/issuer-spreads');
+    const issRows = (issRes && issRes.data) || [];
+    const tbodyIss = document.getElementById('tbody-issuer');
+    if (issRows.length === 0) {
+      tbodyIss.innerHTML = '<tr><td colspan="4" class="empty-state">暂无数据</td></tr>';
+    } else {
+      tbodyIss.innerHTML = issRows.slice(0, 30).map(r => {
+        const quotes = (r.quotes || []).map(q =>
+          `${q.symbol}<span class="text-muted">(${q.issuer || q.exchange})</span> $${q.price.toFixed(2)}`
+        ).join(' · ');
+        const cls = r.abs_spread >= 0.03 ? 'badge-red' : (r.abs_spread >= 0.01 ? 'badge-yellow' : 'badge-green');
+        return `<tr>
+          <td><b>${r.underlying}</b></td>
+          <td><span class="badge ${cls}">${(r.abs_spread * 100).toFixed(2)}%</span></td>
+          <td>${r.issuer_count}</td>
+          <td style="white-space:normal;font-size:12px">${quotes}</td>
         </tr>`;
       }).join('');
     }
