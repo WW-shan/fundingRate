@@ -28,16 +28,25 @@
   </div>
 
   <div class="stats-grid">
-    <div class="stat-card"><div class="stat-label">监控稳定币</div><div class="stat-value" id="stat-count">--</div></div>
-    <div class="stat-card"><div class="stat-label">预警中 (≥0.3%)</div><div class="stat-value warn" id="stat-warn">--</div></div>
-    <div class="stat-card"><div class="stat-label">严重脱锚 (≥1%)</div><div class="stat-value negative" id="stat-critical">--</div></div>
+    <div class="stat-card"><div class="stat-label">监控资产</div><div class="stat-value" id="stat-count">--</div></div>
+    <div class="stat-card"><div class="stat-label">预警中</div><div class="stat-value warn" id="stat-warn">--</div></div>
+    <div class="stat-card"><div class="stat-label">严重脱锚</div><div class="stat-value negative" id="stat-critical">--</div></div>
   </div>
 
   <div class="card">
-    <h3>🪙 稳定币锚定状态（实时）</h3>
+    <h3>🪙 锚定资产监控（稳定币 / 黄金 / 股票）</h3>
+    <div class="filter-bar">
+      <select id="filter-category" onchange="refresh()">
+        <option value="">全部类别</option>
+        <option value="usd_stable">稳定币</option>
+        <option value="eur_stable">欧元稳定币</option>
+        <option value="gold">黄金代币</option>
+        <option value="stock">股票代币</option>
+      </select>
+    </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>稳定币</th><th>交易所</th><th>价格</th><th>买一</th><th>卖一</th><th>偏离</th><th>状态</th><th>更新时间</th></tr></thead>
+        <thead><tr><th>资产</th><th>类别</th><th>交易所</th><th>当前价</th><th>参考价</th><th>偏离</th><th>状态</th><th>参考价时间</th></tr></thead>
         <tbody id="tbody-stable"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
       </table>
     </div>
@@ -47,11 +56,14 @@
     <h3>📉 历史价格曲线</h3>
     <div class="filter-bar">
       <select id="hist-symbol" onchange="loadHistory()">
-        <option value="USDC/USDT">USDC/USDT</option>
-        <option value="FDUSD/USDT">FDUSD/USDT</option>
-        <option value="TUSD/USDT">TUSD/USDT</option>
-        <option value="DAI/USDT">DAI/USDT</option>
-        <option value="USDE/USDT">USDE/USDT</option>
+        <option value="USDC">USDC</option>
+        <option value="FDUSD">FDUSD</option>
+        <option value="USDE">USDE</option>
+        <option value="USD1">USD1</option>
+        <option value="PAXG">PAXG（黄金）</option>
+        <option value="XAUT">XAUT（黄金）</option>
+        <option value="TSLAX">TSLAX（特斯拉）</option>
+        <option value="NVDAX">NVDAX（英伟达）</option>
       </select>
       <select id="hist-hours" onchange="loadHistory()">
         <option value="6">近 6 小时</option>
@@ -70,29 +82,35 @@
 <script>
 async function refresh() {
   try {
-    const res = await fetchJSON('/api/stablecoins');
+    const cat = document.getElementById('filter-category').value;
+    const res = await fetchJSON('/api/stablecoins' + (cat ? '?category=' + cat : ''));
     const rows = (res && res.data) || [];
 
     document.getElementById('stat-count').textContent = new Set(rows.map(r => r.symbol)).size;
-    document.getElementById('stat-warn').textContent = rows.filter(r => r.abs_deviation >= 0.003 && r.abs_deviation < 0.01).length;
-    document.getElementById('stat-critical').textContent = rows.filter(r => r.abs_deviation >= 0.01).length;
+    document.getElementById('stat-warn').textContent = rows.filter(r => r.abs_deviation >= r.threshold_warning && r.abs_deviation < r.threshold_critical).length;
+    document.getElementById('stat-critical').textContent = rows.filter(r => r.abs_deviation >= r.threshold_critical).length;
 
+    const catLabel = { usd_stable: '稳定币', eur_stable: '欧元', gold: '黄金', stock: '股票' };
     const tbody = document.getElementById('tbody-stable');
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据（等待采集）</td></tr>';
     } else {
       tbody.innerHTML = rows.map(r => {
-        const cls = r.abs_deviation >= 0.01 ? 'badge-red' : (r.abs_deviation >= 0.003 ? 'badge-yellow' : 'badge-green');
-        const label = r.abs_deviation >= 0.01 ? '严重脱锚' : (r.abs_deviation >= 0.003 ? '预警' : '正常');
+        const cls = r.abs_deviation >= r.threshold_critical ? 'badge-red' : (r.abs_deviation >= r.threshold_warning ? 'badge-yellow' : 'badge-green');
+        const label = r.abs_deviation >= r.threshold_critical ? '严重脱锚' : (r.abs_deviation >= r.threshold_warning ? '预警' : '正常');
+        const priceStr = r.price < 1 ? r.price.toFixed(6) : r.price.toFixed(4);
+        const refStr = r.reference < 1 ? r.reference.toFixed(6) : r.reference.toFixed(4);
+        const closedTag = r.market_closed ? ' <span class="badge badge-gray" title="标的市场休市，参考价为最近收盘价">休市</span>' : '';
+        const refTimeStr = r.reference_time ? new Date(r.reference_time * 1000).toLocaleString('zh-CN', { hour12: false }) : '实时';
         return `<tr>
           <td><b>${r.symbol}</b></td>
+          <td><span class="badge badge-blue">${catLabel[r.category] || r.category}</span></td>
           <td>${exchangeBadge(r.exchange)}</td>
-          <td class="mono">${r.price.toFixed(6)}</td>
-          <td class="mono text-muted">${r.bid ? Number(r.bid).toFixed(6) : 'N/A'}</td>
-          <td class="mono text-muted">${r.ask ? Number(r.ask).toFixed(6) : 'N/A'}</td>
-          <td class="${pnlClass(r.deviation)}">${(r.deviation * 100).toFixed(3)}%</td>
-          <td><span class="badge ${cls}">${label}</span></td>
-          <td class="text-muted">${fmtTime(r.timestamp)}</td>
+          <td class="mono">${priceStr}</td>
+          <td class="mono text-muted">${refStr}</td>
+          <td class="${pnlClass(r.deviation)}" ${Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${(r.deviation * 100).toFixed(3)}%</td>
+          <td><span class="badge ${cls}">${label}</span>${closedTag}</td>
+          <td class="text-muted">${refTimeStr}</td>
         </tr>`;
       }).join('');
     }

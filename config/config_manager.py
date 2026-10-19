@@ -72,12 +72,10 @@ class ConfigManager:
         self.set_default('global', 'price_refresh_interval', 30, True, "价格刷新间隔（秒）")
         self.set_default('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
         self.set_default('global', 'stablecoin_refresh_interval', 60, True, "稳定币价格刷新间隔（秒）")
+        self.set_default('global', 'reference_refresh_interval', 300, True, "参考价刷新间隔（秒，黄金/欧元/股票）")
         self.set_default('global', 'monitor_scan_interval', 60, True, "异常扫描间隔（秒）")
         self.set_default('global', 'price_stale_threshold', 600, True, "行情陈旧阈值（秒），超过则丢弃")
         self.set_default('global', 'enabled_exchanges', ['binance', 'okx', 'bybit', 'gate', 'bitget'], True, "启用的交易所")
-        self.set_default('global', 'stablecoin_symbols',
-                         ['USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'DAI/USDT', 'USDE/USDT'],
-                         True, "监控的稳定币交易对")
 
         # 告警阈值配置
         self.set_default('alerts', 'funding_rate_threshold', 0.003, True, "单期资金费率告警阈值（0.3%）")
@@ -90,6 +88,7 @@ class ConfigManager:
         self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
         self.set_default('alerts', 'push_depeg', True, True, "稳定币脱锚是否推送")
         self.set_default('alerts', 'persist_cooldown', 1800, True, "同标的告警落库冷却（秒）")
+        self.set_default('alerts', 'peg_min_volume_usd', 500000, True, "锚定资产流动性门槛（24h 成交额 USD）")
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 

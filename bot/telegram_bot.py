@@ -98,12 +98,20 @@ class TelegramBot:
             )
         elif alert_type == 'stablecoin_depeg':
             d = alert.get('details') or {}
+            cat_label = {
+                'usd_stable': '稳定币',
+                'eur_stable': '欧元稳定币',
+                'gold': '黄金代币',
+                'stock': '股票代币',
+            }.get(d.get('category'), '锚定资产')
+            closed_note = '\n⚠️ 标的市场休市中（参考价为最近收盘价）' if d.get('market_closed') else ''
             message = (
-                f"{emoji} <b>稳定币脱锚</b>\n\n"
-                f"稳定币: <b>{d.get('symbol', 'N/A')}</b>\n"
+                f"{emoji} <b>{cat_label}脱锚</b>\n\n"
+                f"资产: <b>{d.get('symbol', 'N/A')}</b>\n"
                 f"交易所: <b>{str(d.get('exchange', 'N/A')).upper()}</b>\n"
-                f"价格: <b>{d.get('price', 0):.6f}</b>\n"
-                f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>\n\n"
+                f"当前价: <b>{d.get('price', 0):.6f}</b>\n"
+                f"参考价: <b>{d.get('reference', 0):.6f}</b>\n"
+                f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>{closed_note}\n\n"
                 f"时间: {self._fmt_time()}"
             )
         else:

@@ -1,20 +1,30 @@
-fix: APR 排行改为按 |APR| 排序（极端负费率被隐藏的 bug）
+feat: 全品类锚定资产监控（稳定币/黄金/股票代币）+ 自动发现
 
-## 问题
-用户反馈"最高的 CT 看不到"。排查发现排序逻辑为 `-(apr or 0)` 按数值降序，
-导致极端负费率（如 CT/USDT -5475%）被排到 4000+ 名之后完全不可见。
+## 新增能力
+覆盖所有锚定资产类别，自动发现 + 流动性过滤：
+- 稳定币：USDC/FDUSD/TUSD/USDP/PYUSD/RLUSD/USD1/USDE/USDS/USDG/USDD/XUSD/
+  BUSD/DAI/FRAX/GHO/CRVUSD/BFUSD/RWUSD/USDGO 等
+- 欧元稳定币：EUR/AEUR/EURI（锚定 EUR/USD 实时汇率）
+- 黄金代币：PAXG/XAUT（锚定现货黄金，Yahoo GC=F）
+- 股票代币：
+  * Binance BStock 系列（AAPLB/TSLAB/NVDAB/SOXLB/MSTRB 等 41+ 个，已逐一验证）
+  * Bybit xStocks（TSLAX/NVDAX/AAPLX 等）
+  * Gate 股票代币（SPCX/MAX/KOX）
 
-## 修复
-- 后端 build_apr_ranking 改为按 |APR| 降序，极端正负费率同等优先
-- 前端新增"极端优先（|APR| 从高到低）"为默认排序选项
-- 保留"APR 从高到低"（只看正费率）/ "从低到高"（只看负费率）供不同场景
-- 首页 Top10 同步按 |APR| 排序
-- |APR| >= 1000% 的条目加粗显示
+## 核心机制
+- PegAssetDiscovery：启动时扫描各所现货 ticker，按 24h 成交额过滤
+  （默认门槛 $500K，可配置 peg_min_volume_usd），每小时重新发现
+- 参考价来源 Yahoo Finance（黄金 GC=F / EURUSD=X / 各股票代码），
+  动态跟随发现的资产，不查无关标的
+- 分级阈值：稳定币 0.3%/1%，欧元 0.5%/2%，黄金 1%/3%，股票 2%/5%
+- 休市识别：参考价行情超 30 分钟未更新标记"休市"（股票周末/盘后），
+  TG 推送附提示"标的市场休市中（参考价为最近收盘价）"
 
-## 验证（重启后实测）
-修复后 Top 5:
-  1. CT/USDT @ bybit  -5475.0%
-  2. CT/USDT @ gate   -4380.0%
-  3. CT/USDT @ bitget -3260.3%
-  4. CT/USDT @ okx    -2190.0%
-  5. BONER/USDT @ gate -2038.7%
+## 实测（本机运行）
+- 发现 50 个锚定资产（12 稳定币 + 1 欧元 + 2 黄金 + 35 股票）
+- 78 条实时报价，脱锚检测与告警正常
+- 当前真实信号：KORUB +15.6%、SOXLB +8.3%、SOXSB -8.1%（周末休市溢价）
+
+## 清理
+- 移除误报资产（USDEB 实为 ~10.7 的非稳定币、BUCK 为 meme 币、SUSD 流动性枯竭）
+- 移除旧 stablecoin_symbols 固定列表配置，改为自动发现

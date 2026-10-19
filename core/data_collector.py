@@ -23,6 +23,9 @@ class DataCollector:
         self.exchanges: Dict[str, Any] = {}
         self.market_data: Dict[str, Dict[str, Any]] = {}   # {symbol: {exchange: {...}}}
         self.stablecoin_data: Dict[str, Dict[str, Any]] = {}  # {symbol: {exchange: {...}}}
+        self.reference_prices: Dict[str, Dict[str, Any]] = {}  # {yahoo_symbol: {...}}
+        from config.peg_assets import PegAssetDiscovery
+        self.peg_discovery = PegAssetDiscovery(config_manager)
         self._init_exchanges()
 
     # ---------- 初始化 ----------
@@ -75,7 +78,8 @@ class DataCollector:
         threading.Thread(target=self._funding_loop, daemon=True).start()
         threading.Thread(target=self._stablecoin_loop, daemon=True).start()
         threading.Thread(target=self._price_loop, daemon=True).start()
-        logger.info("Data collector started (funding + stablecoin + price loops)")
+        threading.Thread(target=self._reference_loop, daemon=True).start()
+        logger.info("Data collector started (funding + peg + price + reference loops)")
 
     def stop(self):
         self.running = False
@@ -243,6 +247,7 @@ class DataCollector:
 
     def _stablecoin_loop(self):
         interval = int(self.config.get('global', 'stablecoin_refresh_interval', 60))
+        time.sleep(5)
         while self.running:
             try:
                 self._collect_stablecoins()
@@ -251,22 +256,27 @@ class DataCollector:
             time.sleep(interval)
 
     def _collect_stablecoins(self):
-        """采集稳定币现货价格（用于脱锚监控）"""
-        symbols = self.config.get('global', 'stablecoin_symbols',
-                                  ['USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'DAI/USDT', 'USDE/USDT'])
-        if isinstance(symbols, str):
-            symbols = [s.strip() for s in symbols.split(',') if s.strip()]
+        """采集锚定资产价格（稳定币/黄金/股票，带流动性过滤）"""
+        registry = self.peg_discovery.refresh(self.exchanges)
+        symbols = list(registry.keys())
+
+        if not symbols:
+            logger.warning("Peg asset registry empty, skipping collection")
+            return
 
         ts = int(time.time() * 1000)
+        collected = 0
         for name, adapter in self.exchanges.items():
-            for symbol in symbols:
+            for sym in symbols:
                 try:
-                    ticker = adapter.get_spot_ticker(symbol)
+                    ticker = adapter.get_spot_ticker(f'{sym}/USDT')
                     price = ticker.get('last') or ticker.get('bid')
                     if not price:
                         continue
                     price = float(price)
-                    self.stablecoin_data.setdefault(symbol, {})[name] = {
+                    if price <= 0:
+                        continue
+                    self.stablecoin_data.setdefault(sym, {})[name] = {
                         'price': price,
                         'bid': ticker.get('bid'),
                         'ask': ticker.get('ask'),
@@ -279,12 +289,85 @@ class DataCollector:
                         ON CONFLICT(exchange, symbol, timestamp) DO UPDATE SET
                             price = excluded.price, bid = excluded.bid, ask = excluded.ask
                         """,
-                        (name, symbol, ts, price, ticker.get('bid'), ticker.get('ask'))
+                        (name, sym, ts, price, ticker.get('bid'), ticker.get('ask'))
                     )
+                    collected += 1
                 except Exception as e:
-                    logger.debug(f"{name} {symbol} stablecoin fetch failed: {e}")
+                    logger.debug(f"{name} {sym} peg asset fetch failed: {e}")
 
-        logger.debug(f"Stablecoin data collected: {len(self.stablecoin_data)} symbols")
+        logger.info(f"Peg assets collected: {collected} quotes across {len(symbols)} symbols")
+
+    # ---------- 参考价采集（黄金/欧元/股票） ----------
+
+    def _reference_loop(self):
+        interval = int(self.config.get('global', 'reference_refresh_interval', 300))
+        # 启动时先执行一次（等待交易所连接就绪）
+        time.sleep(10)
+        while self.running:
+            try:
+                self._collect_reference_prices()
+            except Exception as e:
+                logger.error(f"Reference price collection error: {e}")
+            time.sleep(interval)
+
+    def _collect_reference_prices(self):
+        """从 Yahoo Finance 采集参考价（黄金 / EUR-USD / 已发现的股票代币）"""
+        from config import peg_assets
+        import requests
+
+        proxy = self.config.get('global', 'reference_proxy', '') or os.getenv('PROXY_URL', '')
+        proxies = {'http': proxy, 'https': proxy} if proxy else None
+
+        # 确保 registry 已初始化（首次运行时为空，需先发现）
+        if not self.peg_discovery.registry:
+            self.peg_discovery.refresh(self.exchanges, force=True)
+
+        # 基础参考价
+        targets = {
+            peg_assets.YAHOO_SYMBOLS['gold']: 'gold',
+            peg_assets.YAHOO_SYMBOLS['eurusd']: 'eurusd',
+        }
+        # 动态添加已发现的股票代币（只查 registry 中实际监控的）
+        for sym, entry in self.peg_discovery.registry.items():
+            if entry['category'] == 'stock' and entry.get('reference_symbol'):
+                targets[entry['reference_symbol']] = 'stock'
+
+        ts = int(time.time() * 1000)
+        for yahoo_sym, category in targets.items():
+            try:
+                r = requests.get(
+                    f'https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?interval=1m&range=1d',
+                    proxies=proxies, timeout=15,
+                    headers={'User-Agent': 'Mozilla/5.0'}
+                )
+                d = r.json()
+                result = d['chart']['result'][0]
+                price = result['meta'].get('regularMarketPrice')
+                if not price:
+                    continue
+                self.reference_prices[yahoo_sym] = {
+                    'price': float(price),
+                    'category': category,
+                    'timestamp': ts,
+                    'market_time': result['meta'].get('regularMarketTime'),  # 标的行情时间（判断是否休市）
+                    'previous_close': result['meta'].get('previousClose'),
+                }
+                self.db.execute_query(
+                    """
+                    INSERT INTO reference_prices (source, symbol, timestamp, price, category)
+                    VALUES ('yahoo', ?, ?, ?, ?)
+                    ON CONFLICT(source, symbol, timestamp) DO UPDATE SET
+                        price = excluded.price
+                    """,
+                    (yahoo_sym, ts, float(price), category)
+                )
+            except Exception as e:
+                logger.debug(f"Yahoo {yahoo_sym} failed: {e}")
+
+        logger.info(f"Reference prices updated: {len(self.reference_prices)} symbols")
+
+    def get_reference_prices(self) -> Dict[str, Dict[str, Any]]:
+        return self.reference_prices
 
     # ---------- 供监控模块使用 ----------
 
@@ -300,4 +383,6 @@ class DataCollector:
             'exchanges': list(self.exchanges.keys()),
             'symbols_tracked': len(self.market_data),
             'stablecoins_tracked': len(self.stablecoin_data),
+            'reference_prices': len(self.reference_prices),
+            'peg_assets': len(self.peg_discovery.registry),
         }

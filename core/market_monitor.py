@@ -194,27 +194,72 @@ class MarketMonitor:
         rows.sort(key=lambda r: -abs(r['basis']))
         return rows
 
-    # ---------- 稳定币脱锚 ----------
+    # ---------- 锚定资产脱锚检测（稳定币/黄金/股票） ----------
 
     def build_depeg_list(self, stablecoin_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """稳定币偏离 1.0 的程度（绝对值排序）"""
+        """
+        计算所有锚定资产相对参考价的偏离度
+        参考价来源：
+          - usd_stable: 固定 1.0
+          - eur_stable: Yahoo EURUSD=X
+          - gold:       Yahoo GC=F
+          - stock:      Yahoo 对应股票代码
+        """
+        from config import peg_assets
+
+        refs = self.data_collector.get_reference_prices()
+        registry = self.data_collector.peg_discovery.registry
         rows = []
+
         for symbol, exchanges in stablecoin_data.items():
+            entry = registry.get(symbol)
+            if entry:
+                category = entry['category']
+                ref_symbol = entry.get('reference_symbol')
+            else:
+                category, ref_symbol = peg_assets.classify(symbol)
+            if not category:
+                continue
+
+            # 确定参考价
+            reference_time = None
+            market_closed = False
+            if category == 'usd_stable':
+                reference = 1.0
+            else:
+                ref_data = refs.get(ref_symbol) or {}
+                reference = ref_data.get('price')
+                if not reference:
+                    continue  # 参考价未就绪，跳过（不猜测）
+                reference_time = ref_data.get('market_time')
+                # 标的行情超过 30 分钟未更新 => 休市（股票周末/盘后）
+                if reference_time:
+                    market_closed = (time.time() - reference_time) > 1800
+
+            thresholds = peg_assets.get_thresholds(category)
+
             for exchange, data in exchanges.items():
                 price = data.get('price')
                 if not price:
                     continue
-                deviation = price - 1.0
+                deviation = (price - reference) / reference
                 rows.append({
                     'symbol': symbol,
                     'exchange': exchange,
+                    'category': category,
                     'price': price,
-                    'bid': data.get('bid'),
-                    'ask': data.get('ask'),
+                    'reference': reference,
+                    'reference_time': reference_time,
+                    'market_closed': market_closed,
                     'deviation': deviation,
                     'abs_deviation': abs(deviation),
+                    'threshold_warning': thresholds['warning'],
+                    'threshold_critical': thresholds['critical'],
+                    'bid': data.get('bid'),
+                    'ask': data.get('ask'),
                     'timestamp': data.get('timestamp'),
                 })
+
         rows.sort(key=lambda r: -r['abs_deviation'])
         return rows
 
@@ -289,26 +334,33 @@ class MarketMonitor:
         return alerts
 
     def _check_depeg_anomalies(self, depeg_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """稳定币脱锚告警（分级）"""
+        """锚定资产脱锚告警（分级：稳定币/黄金/股票各有阈值）"""
         alerts = []
-        warn = float(self.config.get('alerts', 'depeg_warning', 0.003))     # 0.3%
-        critical = float(self.config.get('alerts', 'depeg_critical', 0.01))  # 1%
+        category_label = {
+            'usd_stable': '稳定币',
+            'eur_stable': '欧元稳定币',
+            'gold': '黄金代币',
+            'stock': '股票代币',
+        }
         for row in depeg_list:
             dev = row['abs_deviation']
-            if dev >= critical:
+            if dev >= row['threshold_critical']:
                 level = 'critical'
-            elif dev >= warn:
+            elif dev >= row['threshold_warning']:
                 level = 'warning'
             else:
                 continue
+
+            label = category_label.get(row['category'], '锚定资产')
             alerts.append({
                 'alert_type': 'stablecoin_depeg',
                 'level': level,
                 'symbol': row['symbol'],
                 'exchange': row['exchange'],
                 'message': (
-                    f"稳定币脱锚: {row['symbol']} @ {row['exchange']} "
-                    f"价格 {row['price']:.6f} (偏离 {row['deviation']*100:+.3f}%)"
+                    f"{label}脱锚: {row['symbol']} @ {row['exchange']} "
+                    f"价格 {row['price']:.6f} vs 参考 {row['reference']:.6f} "
+                    f"(偏离 {row['deviation']*100:+.3f}%)"
                 ),
                 'details': row,
             })

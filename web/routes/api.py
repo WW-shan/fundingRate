@@ -117,9 +117,12 @@ def basis():
 @api_bp.route('/stablecoins')
 @api_auth_required
 def stablecoins():
-    """稳定币锚定状态"""
+    """锚定资产状态（稳定币/黄金/股票）"""
     market_monitor = current_app.config['MARKET_MONITOR']
     rows = market_monitor.last_scan.get('depeg', [])
+    category = request.args.get('category', '')
+    if category:
+        rows = [r for r in rows if r.get('category') == category]
     return jsonify({'success': True, 'data': rows})
 
 

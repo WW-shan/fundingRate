@@ -121,6 +121,23 @@ class DatabaseManager:
                 ON stablecoin_prices(symbol, timestamp)
             """)
 
+            # 参考价表（黄金/欧元/股票，来自 Yahoo Finance）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS reference_prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source VARCHAR(20),
+                    symbol VARCHAR(30),
+                    timestamp BIGINT,
+                    price DECIMAL(18,8),
+                    category VARCHAR(20),
+                    UNIQUE(source, symbol, timestamp)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_reference_prices
+                ON reference_prices(symbol, timestamp)
+            """)
+
             # 告警表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
