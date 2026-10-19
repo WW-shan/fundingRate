@@ -1,1081 +1,167 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>系统配置 - 资金费率套利系统</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      body {
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        padding: 20px;
-      }
-      .container {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-      .header {
-        background: white;
-        border-radius: 10px;
-        padding: 20px 30px;
-        margin-bottom: 20px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      h1 {
-        color: #667eea;
-        font-size: 24px;
-      }
-      .nav {
-        display: flex;
-        gap: 15px;
-      }
-      .nav a {
-        color: #667eea;
-        text-decoration: none;
-        padding: 8px 15px;
-        border-radius: 5px;
-        transition: all 0.3s;
-      }
-      .nav a:hover,
-      .nav a.active {
-        background: #667eea;
-        color: white;
-      }
-      .content {
-        background: white;
-        border-radius: 10px;
-        padding: 30px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-      }
-      .form-group {
-        margin-bottom: 20px;
-      }
-      label {
-        display: block;
-        color: #374151;
-        font-weight: 500;
-        margin-bottom: 8px;
-      }
-      input[type="number"],
-      input[type="text"],
-      input[type="password"],
-      select {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-      }
-      .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        transition: all 0.3s;
-      }
-      .btn-primary {
-        background: #667eea;
-        color: white;
-      }
-      .btn-primary:hover {
-        background: #5568d3;
-      }
-      .alert {
-        padding: 12px;
-        border-radius: 6px;
-        margin-bottom: 20px;
-        white-space: pre-line;
-        line-height: 1.6;
-      }
-      .alert-success {
-        background: #d1fae5;
-        color: #065f46;
-      }
-      .alert-error {
-        background: #fee2e2;
-        color: #991b1b;
-      }
-      .alert-info {
-        background: #dbeafe;
-        color: #1e40af;
-      }
-      .section {
-        margin-bottom: 30px;
-        padding-bottom: 30px;
-        border-bottom: 1px solid #e5e7eb;
-      }
-      .section:last-child {
-        border-bottom: none;
-      }
-      h3 {
-        color: #667eea;
-        margin-bottom: 15px;
-      }
-      .loading {
-        text-align: center;
-        padding: 40px;
-        color: #666;
-      }
-      .exchange-item {
-        background: #f9fafb;
-        padding: 15px;
-        border-radius: 6px;
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      .exchange-name {
-        font-weight: 600;
-        text-transform: uppercase;
-        color: #667eea;
-      }
-      .exchange-status {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-        margin-left: 10px;
-      }
-      .status-active {
-        background: #d1fae5;
-        color: #065f46;
-      }
-      .status-inactive {
-        background: #fee2e2;
-        color: #991b1b;
-      }
-      .modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 1000;
-        align-items: center;
-        justify-content: center;
-      }
-      .modal.show {
-        display: flex;
-      }
-      .modal-content {
-        background: white;
-        padding: 30px;
-        border-radius: 10px;
-        max-width: 500px;
-        width: 90%;
-      }
-      .modal-header {
-        margin-bottom: 20px;
-        padding-bottom: 15px;
-        border-bottom: 1px solid #e5e7eb;
-      }
-      .modal-header h3 {
-        margin: 0;
-      }
-      .modal-footer {
-        margin-top: 20px;
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-      }
-      .input-group {
-        display: flex;
-        align-items: center;
-        gap: 0;
-      }
-      .input-group input {
-        border-top-right-radius: 0;
-        border-bottom-right-radius: 0;
-        flex: 1;
-      }
-      .input-group .unit {
-        background: #f3f4f6;
-        border: 1px solid #d1d5db;
-        border-left: none;
-        padding: 10px 15px;
-        border-top-right-radius: 6px;
-        border-bottom-right-radius: 6px;
-        color: #6b7280;
-        font-size: 14px;
-        white-space: nowrap;
-        min-width: 80px;
-        text-align: center;
-      }
-      .alert-modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 2000;
-        align-items: center;
-        justify-content: center;
-      }
-      .alert-modal.show {
-        display: flex;
-      }
-      .alert-modal-content {
-        background: white;
-        padding: 25px 30px;
-        border-radius: 10px;
-        max-width: 500px;
-        width: 90%;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        position: relative;
-      }
-      .alert-modal-icon {
-        font-size: 48px;
-        text-align: center;
-        margin-bottom: 15px;
-      }
-      .alert-modal-message {
-        color: #374151;
-        font-size: 15px;
-        line-height: 1.6;
-        white-space: pre-line;
-        text-align: center;
-        margin-bottom: 20px;
-      }
-      .alert-modal-close {
-        padding: 10px 30px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        width: 100%;
-        transition: all 0.3s;
-      }
-      .alert-modal-close.success {
-        background: #10b981;
-        color: white;
-      }
-      .alert-modal-close.success:hover {
-        background: #059669;
-      }
-      .alert-modal-close.error {
-        background: #ef4444;
-        color: white;
-      }
-      .alert-modal-close.error:hover {
-        background: #dc2626;
-      }
-      .alert-modal-close.info {
-        background: #3b82f6;
-        color: white;
-      }
-      .alert-modal-close.info:hover {
-        background: #2563eb;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h1>系统配置</h1>
-        <div class="nav">
-          <a href="/">仪表盘</a>
-          <a href="/opportunities">机会监控</a>
-          <a href="/positions">持仓管理</a>
-          <a href="/config" class="active">系统配置</a>
-        </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>系统配置 - 资金费率监控</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>📡 资金费率监控系统</h1>
+      <div class="subtitle">市场异常监控 · 告警推送 · 纯监控模式（无交易）</div>
+    </div>
+    <div class="header-actions">
+      <span class="last-update" id="last-update">--</span>
+      <a href="/logout" class="btn btn-danger">退出</a>
+    </div>
+  </div>
+
+  <div class="nav-menu">
+    <a href="/" class="">仪表盘</a>
+    <a href="/funding" class="">资金费率</a>
+    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/alerts" class="">告警历史</a>
+    <a href="/config" class="active">系统配置</a>
+  </div>
+
+  <div class="card">
+    <h3>⚙️ 系统配置</h3>
+    <div class="config-group">
+      <h4>全局设置</h4>
+      <div class="config-row">
+        <div><div class="config-label">启用的交易所</div><div class="config-desc">逗号分隔，如 binance,okx,bybit,gate,bitget</div></div>
+        <input id="cfg-enabled_exchanges" type="text" />
+        <button class="btn btn-primary" onclick="save('global','enabled_exchanges','cfg-enabled_exchanges', true)">保存</button>
       </div>
-
-      <div class="content">
-        <div id="alert-container"></div>
-
-        <div class="section">
-          <h3>交易所账户</h3>
-          <div id="exchanges-list" class="loading">加载中...</div>
-          <button
-            class="btn btn-primary"
-            onclick="showAddExchangeModal()"
-            style="margin-top: 15px"
-          >
-            添加交易所
-          </button>
-        </div>
-
-        <div class="section">
-          <h3>全局配置</h3>
-          <div class="form-group">
-            <label>总资金</label>
-            <div class="input-group">
-              <input type="number" id="total_capital" placeholder="100000" />
-              <span class="unit">USDT</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>最大资金使用率</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="max_capital_usage"
-                placeholder="0.8"
-              />
-              <span class="unit">0-1之间</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>最大持仓数量</label>
-            <div class="input-group">
-              <input type="number" id="max_positions" placeholder="10" />
-              <span class="unit">个</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>价格刷新间隔</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="price_refresh_interval"
-                placeholder="5"
-              />
-              <span class="unit">秒</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>资金费率刷新间隔</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="funding_refresh_interval"
-                placeholder="300"
-              />
-              <span class="unit">秒</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>机会扫描间隔</label>
-            <div class="input-group">
-              <input
-                type="number"
-                id="opportunity_scan_interval"
-                placeholder="300"
-              />
-              <span class="unit">秒</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h3>策略3: 单边资金费率趋势策略</h3>
-          <div class="form-group">
-            <label>启用状态</label>
-            <select id="strategy3_enabled">
-              <option value="true">启用</option>
-              <option value="false">禁用</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>开仓金额</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="1"
-                id="strategy3_position_size"
-                placeholder="10"
-              />
-              <span class="unit">USDT</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单笔开仓金额，最小5 USDT</small
-            >
-          </div>
-          <div class="form-group">
-            <label>最小资金费率 (单期)</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.001"
-                id="strategy3_min_funding_rate"
-                placeholder="0.01"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >开仓门槛，输入0.01表示0.01%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>是否检查基差方向</label>
-            <select id="strategy3_check_basis">
-              <option value="true">是 (推荐)</option>
-              <option value="false">否 (仅看费率)</option>
-            </select>
-            <small style="color: #6b7280; font-size: 12px"
-              >做空时要求期货价格>现货价格，增加胜率</small
-            >
-          </div>
-          <div class="form-group">
-            <label>做空退出费率阈值</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.001"
-                id="strategy3_short_exit_threshold"
-                placeholder="0.000"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >做空时，如果费率跌破此值(如0)则平仓</small
-            >
-          </div>
-          <div class="form-group">
-            <label>做多退出费率阈值</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.001"
-                id="strategy3_long_exit_threshold"
-                placeholder="0.000"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >做多时，如果费率涨破此值(如0)则平仓</small
-            >
-          </div>
-        </div>
-
-        <div class="section">
-          <h3>风控配置</h3>
-          <div class="form-group">
-            <label>单笔最大仓位</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="1"
-                id="risk_max_position_size_per_trade"
-                placeholder="30"
-              />
-              <span class="unit">USDT</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单次交易最大仓位，输入30表示30 USDT</small
-            >
-          </div>
-          <div class="form-group">
-            <label>总资金最大回撤率</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="risk_max_drawdown"
-                placeholder="10"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >总资金回撤上限，输入10表示10%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>警告阈值</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="risk_warning_threshold"
-                placeholder="5"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损警告阈值，输入5表示5%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>危险阈值</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="risk_critical_threshold"
-                placeholder="10"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损危险阈值，输入10表示10%</small
-            >
-          </div>
-          <div class="form-group">
-            <label>紧急止损阈值</label>
-            <div class="input-group">
-              <input
-                type="number"
-                step="0.01"
-                id="risk_emergency_threshold"
-                placeholder="15"
-              />
-              <span class="unit">%</span>
-            </div>
-            <small style="color: #6b7280; font-size: 12px"
-              >单个持仓亏损紧急止损阈值，输入15表示15%，达到此阈值将自动平仓</small
-            >
-          </div>
-        </div>
-
-        <button
-          id="saveConfigBtn"
-          class="btn btn-primary"
-          onclick="saveConfig(event)"
-          style="margin-top: 20px"
-        >
-          💾 保存所有配置
-        </button>
+      <div class="config-row">
+        <div><div class="config-label">资金费率刷新间隔（秒）</div></div>
+        <input id="cfg-funding_refresh_interval" type="number" />
+        <button class="btn btn-primary" onclick="save('global','funding_refresh_interval','cfg-funding_refresh_interval')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">稳定币刷新间隔（秒）</div></div>
+        <input id="cfg-stablecoin_refresh_interval" type="number" />
+        <button class="btn btn-primary" onclick="save('global','stablecoin_refresh_interval','cfg-stablecoin_refresh_interval')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">异常扫描间隔（秒）</div></div>
+        <input id="cfg-monitor_scan_interval" type="number" />
+        <button class="btn btn-primary" onclick="save('global','monitor_scan_interval','cfg-monitor_scan_interval')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">监控的稳定币</div><div class="config-desc">逗号分隔，如 USDC/USDT,FDUSD/USDT</div></div>
+        <input id="cfg-stablecoin_symbols" type="text" />
+        <button class="btn btn-primary" onclick="save('global','stablecoin_symbols','cfg-stablecoin_symbols', true)">保存</button>
       </div>
     </div>
 
-    <!-- 提示弹窗 -->
-    <div id="alertModal" class="alert-modal">
-      <div class="alert-modal-content">
-        <div class="alert-modal-icon" id="alertIcon"></div>
-        <div class="alert-modal-message" id="alertMessage"></div>
-        <button
-          class="alert-modal-close"
-          id="alertCloseBtn"
-          onclick="hideAlert()"
-        >
-          确定
-        </button>
+    <div class="config-group">
+      <h4>告警阈值</h4>
+      <div class="config-row">
+        <div><div class="config-label">单期资金费率阈值</div><div class="config-desc">如 0.001 = 0.1%</div></div>
+        <input id="cfg-funding_rate_threshold" type="number" step="0.0001" />
+        <button class="btn btn-primary" onclick="save('alerts','funding_rate_threshold','cfg-funding_rate_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">年化费率阈值</div><div class="config-desc">如 0.30 = 30%</div></div>
+        <input id="cfg-funding_apr_threshold" type="number" step="0.01" />
+        <button class="btn btn-primary" onclick="save('alerts','funding_apr_threshold','cfg-funding_apr_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">跨所年化差阈值</div><div class="config-desc">如 0.50 = 50%</div></div>
+        <input id="cfg-cross_spread_threshold" type="number" step="0.01" />
+        <button class="btn btn-primary" onclick="save('alerts','cross_spread_threshold','cfg-cross_spread_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">基差阈值</div><div class="config-desc">如 0.02 = 2%</div></div>
+        <input id="cfg-basis_threshold" type="number" step="0.001" />
+        <button class="btn btn-primary" onclick="save('alerts','basis_threshold','cfg-basis_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">稳定币脱锚预警</div><div class="config-desc">如 0.003 = 0.3%</div></div>
+        <input id="cfg-depeg_warning" type="number" step="0.001" />
+        <button class="btn btn-primary" onclick="save('alerts','depeg_warning','cfg-depeg_warning')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">稳定币脱锚严重</div><div class="config-desc">如 0.01 = 1%</div></div>
+        <input id="cfg-depeg_critical" type="number" step="0.001" />
+        <button class="btn btn-primary" onclick="save('alerts','depeg_critical','cfg-depeg_critical')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">每日汇总推送时间（小时）</div></div>
+        <input id="cfg-daily_summary_hour" type="number" min="0" max="23" />
+        <button class="btn btn-primary" onclick="save('alerts','daily_summary_hour','cfg-daily_summary_hour')">保存</button>
       </div>
     </div>
 
-    <!-- 添加交易所模态框 -->
-    <div id="addExchangeModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>添加交易所账户</h3>
-        </div>
-        <div class="form-group">
-          <label>交易所</label>
-          <select id="new_exchange_name">
-            <option value="binance">Binance</option>
-            <option value="okx">OKX</option>
-            <option value="bybit">Bybit</option>
-            <option value="gate">Gate.io</option>
-            <option value="bitget">Bitget</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="text" id="new_api_key" placeholder="输入 API Key" />
-        </div>
-        <div class="form-group">
-          <label>API Secret</label>
-          <input
-            type="password"
-            id="new_api_secret"
-            placeholder="输入 API Secret"
-          />
-        </div>
-        <div class="form-group" id="passphrase_group" style="display: none">
-          <label>Passphrase (仅 OKX 需要)</label>
-          <input
-            type="password"
-            id="new_passphrase"
-            placeholder="输入 Passphrase"
-          />
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-primary" onclick="addExchange()">添加</button>
-          <button class="btn" onclick="hideAddExchangeModal()">取消</button>
-        </div>
-      </div>
+    <div class="config-group">
+      <h4>操作</h4>
+      <button class="btn btn-ghost" onclick="reloadExchanges()">重载交易所连接</button>
     </div>
+  </div>
 
-    <script>
-      // 监听交易所选择变化
-      document
-        .getElementById("new_exchange_name")
-        .addEventListener("change", function () {
-          const passphraseGroup = document.getElementById("passphrase_group");
-          const passphraseLabel = passphraseGroup.querySelector("label");
+</div>
+<script src="/static/js/common.js"></script>
+<script>
+async function load() {
+  const res = await fetchJSON('/api/config');
+  const data = (res && res.data) || {};
+  const g = data.global || {};
+  const a = data.alerts || {};
 
-          if (this.value === "okx") {
-            passphraseGroup.style.display = "block";
-            passphraseLabel.textContent = "Passphrase (仅 OKX 需要)";
-          } else if (this.value === "bitget") {
-            passphraseGroup.style.display = "block";
-            passphraseLabel.textContent = "Passphrase (仅 Bitget 需要)";
-          } else {
-            passphraseGroup.style.display = "none";
-          }
-        });
+  document.getElementById('cfg-enabled_exchanges').value = (g.enabled_exchanges || []).join(',');
+  document.getElementById('cfg-funding_refresh_interval').value = g.funding_refresh_interval;
+  document.getElementById('cfg-stablecoin_refresh_interval').value = g.stablecoin_refresh_interval;
+  document.getElementById('cfg-monitor_scan_interval').value = g.monitor_scan_interval;
+  document.getElementById('cfg-stablecoin_symbols').value = (g.stablecoin_symbols || []).join(',');
 
-      async function loadExchanges() {
-        try {
-          const response = await fetch("/api/exchanges");
-          const result = await response.json();
+  document.getElementById('cfg-funding_rate_threshold').value = a.funding_rate_threshold;
+  document.getElementById('cfg-funding_apr_threshold').value = a.funding_apr_threshold;
+  document.getElementById('cfg-cross_spread_threshold').value = a.cross_spread_threshold;
+  document.getElementById('cfg-basis_threshold').value = a.basis_threshold;
+  document.getElementById('cfg-depeg_warning').value = a.depeg_warning;
+  document.getElementById('cfg-depeg_critical').value = a.depeg_critical;
+  document.getElementById('cfg-daily_summary_hour').value = a.daily_summary_hour;
+}
 
-          if (result.success) {
-            const exchanges = result.data;
-            let html = "";
+async function save(category, key, inputId, isList) {
+  const raw = document.getElementById(inputId).value;
+  let value;
+  if (isList) {
+    value = raw.split(',').map(s => s.trim()).filter(Boolean);
+  } else if (raw !== '' && !isNaN(Number(raw))) {
+    value = Number(raw);
+  } else {
+    value = raw;
+  }
 
-            if (exchanges.length === 0) {
-              html =
-                '<p style="color: #666;">暂无交易所账户，请点击下方按钮添加</p>';
-            } else {
-              exchanges.forEach((ex) => {
-                const statusClass = ex.is_active
-                  ? "status-active"
-                  : "status-inactive";
-                const statusText = ex.is_active ? "启用" : "禁用";
-                html += `
-                                <div class="exchange-item">
-                                    <div>
-                                        <span class="exchange-name">${ex.exchange_name}</span>
-                                        <span class="exchange-status ${statusClass}">${statusText}</span>
-                                    </div>
-                                    <div>
-                                        <button class="btn btn-danger" onclick="deleteExchange('${ex.exchange_name}')">删除</button>
-                                    </div>
-                                </div>
-                            `;
-              });
-            }
+  const res = await fetchJSON('/api/config/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category, key, value }),
+  });
 
-            document.getElementById("exchanges-list").innerHTML = html;
-          } else {
-            document.getElementById("exchanges-list").innerHTML =
-              '<p style="color: #ef4444;">加载失败</p>';
-          }
-        } catch (error) {
-          document.getElementById("exchanges-list").innerHTML =
-            '<p style="color: #ef4444;">加载失败</p>';
-        }
-      }
+  if (res.success) {
+    alert('✅ 已保存: ' + category + '.' + key);
+  } else {
+    alert('❌ 保存失败: ' + (res.error || '未知错误'));
+  }
+}
 
-      function showAddExchangeModal() {
-        document.getElementById("addExchangeModal").classList.add("show");
-      }
+async function reloadExchanges() {
+  const res = await fetchJSON('/api/exchanges/reload', { method: 'POST' });
+  if (res.success) {
+    alert('✅ 交易所连接已重载\n当前活跃: ' + (res.active || []).join(', '));
+  } else {
+    alert('❌ 重载失败: ' + (res.error || '未知错误'));
+  }
+}
 
-      function hideAddExchangeModal() {
-        document.getElementById("addExchangeModal").classList.remove("show");
-        document.getElementById("new_api_key").value = "";
-        document.getElementById("new_api_secret").value = "";
-        document.getElementById("new_passphrase").value = "";
-      }
+load();
 
-      async function addExchange() {
-        const exchangeName = document.getElementById("new_exchange_name").value;
-        const apiKey = document.getElementById("new_api_key").value.trim();
-        const apiSecret = document
-          .getElementById("new_api_secret")
-          .value.trim();
-        const passphrase = document
-          .getElementById("new_passphrase")
-          .value.trim();
-
-        if (!apiKey || !apiSecret) {
-          showAlert("请填写 API Key 和 Secret", "error");
-          return;
-        }
-
-        if (
-          (exchangeName === "okx" || exchangeName === "bitget") &&
-          !passphrase
-        ) {
-          showAlert(`${exchangeName.toUpperCase()} 需要 Passphrase`, "error");
-          return;
-        }
-
-        hideAddExchangeModal();
-
-        try {
-          showAlert("⏳ 正在测试连接，请稍候...", "info", false);
-
-          const response = await fetch("/api/exchanges/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              exchange_name: exchangeName,
-              api_key: apiKey,
-              api_secret: apiSecret,
-              passphrase: passphrase,
-            }),
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            showAlert(result.message || "✅ 交易所添加成功！", "success");
-            await loadExchanges();
-          } else {
-            const errorMsg = result.error || "未知错误";
-            showAlert("❌ " + errorMsg.replace(/\\n/g, "\n"), "error");
-          }
-        } catch (error) {
-          showAlert("添加失败: " + error.message, "error");
-        }
-      }
-
-      async function deleteExchange(exchangeName) {
-        if (!confirm(`确定要删除 ${exchangeName.toUpperCase()} 吗？`)) {
-          return;
-        }
-
-        try {
-          const response = await fetch("/api/exchanges/delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ exchange_name: exchangeName }),
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            showAlert("删除成功！", "success");
-            loadExchanges();
-          } else {
-            showAlert("删除失败: " + (result.error || "未知错误"), "error");
-          }
-        } catch (error) {
-          showAlert("删除失败: " + error.message, "error");
-        }
-      }
-
-      async function loadConfig() {
-        try {
-          const response = await fetch("/api/config");
-          const result = await response.json();
-
-          if (result.success) {
-            const config = result.data;
-
-            // 全局配置
-            if (config.global) {
-              document.getElementById("total_capital").value =
-                config.global.total_capital || 100000;
-              document.getElementById("max_capital_usage").value =
-                config.global.max_capital_usage || 0.8;
-              document.getElementById("max_positions").value =
-                config.global.max_positions || 10;
-              document.getElementById("price_refresh_interval").value =
-                config.global.price_refresh_interval || 5;
-              document.getElementById("funding_refresh_interval").value =
-                config.global.funding_refresh_interval || 300;
-              document.getElementById("opportunity_scan_interval").value =
-                config.global.opportunity_scan_interval || 10;
-            }
-
-            // 策略3 配置
-            if (config.strategy3) {
-              document.getElementById("strategy3_enabled").value = String(
-                config.strategy3.enabled || false,
-              ).toLowerCase();
-              document.getElementById("strategy3_position_size").value =
-                config.strategy3.position_size || 10;
-              document.getElementById("strategy3_min_funding_rate").value = (
-                (config.strategy3.min_funding_rate || 0.0001) * 100
-              ).toFixed(4);
-              document.getElementById("strategy3_check_basis").value = String(
-                config.strategy3.check_basis !== undefined
-                  ? config.strategy3.check_basis
-                  : true,
-              ).toLowerCase();
-              document.getElementById("strategy3_short_exit_threshold").value =
-                ((config.strategy3.short_exit_threshold || 0.0) * 100).toFixed(
-                  3,
-                );
-              document.getElementById("strategy3_long_exit_threshold").value = (
-                (config.strategy3.long_exit_threshold || 0.0) * 100
-              ).toFixed(3);
-            }
-
-            // 风控配置
-            if (config.risk) {
-              document.getElementById(
-                "risk_max_position_size_per_trade",
-              ).value = config.risk.max_position_size_per_trade || 30;
-              document.getElementById("risk_max_drawdown").value = (
-                (config.risk.max_drawdown || 0.1) * 100
-              ).toFixed(2);
-              document.getElementById("risk_warning_threshold").value = (
-                (config.risk.warning_threshold || 0.05) * 100
-              ).toFixed(2);
-              document.getElementById("risk_critical_threshold").value = (
-                (config.risk.critical_threshold || 0.10) * 100
-              ).toFixed(2);
-              document.getElementById("risk_emergency_threshold").value = (
-                (config.risk.emergency_threshold || 0.15) * 100
-              ).toFixed(2);
-            }
-          }
-        } catch (error) {
-          showAlert("加载配置失败", "error");
-        }
-      }
-
-      async function saveConfig() {
-        // 防止重复提交
-        const saveBtn = event.target;
-        if (saveBtn.disabled) return;
-        saveBtn.disabled = true;
-        saveBtn.textContent = "⏳ 保存中...";
-
-        try {
-          const updates = [
-            // 全局配置
-            {
-              category: "global",
-              key: "total_capital",
-              value: parseFloat(document.getElementById("total_capital").value),
-            },
-            {
-              category: "global",
-              key: "max_capital_usage",
-              value: parseFloat(
-                document.getElementById("max_capital_usage").value,
-              ),
-            },
-            {
-              category: "global",
-              key: "max_positions",
-              value: parseInt(document.getElementById("max_positions").value),
-            },
-            {
-              category: "global",
-              key: "price_refresh_interval",
-              value: parseInt(
-                document.getElementById("price_refresh_interval").value,
-              ),
-            },
-            {
-              category: "global",
-              key: "funding_refresh_interval",
-              value: parseInt(
-                document.getElementById("funding_refresh_interval").value,
-              ),
-            },
-            {
-              category: "global",
-              key: "opportunity_scan_interval",
-              value: parseInt(
-                document.getElementById("opportunity_scan_interval").value,
-              ),
-            },
-            // 策略3 配置
-            {
-              category: "strategy3",
-              key: "enabled",
-              value:
-                document.getElementById("strategy3_enabled").value === "true",
-            },
-            {
-              category: "strategy3",
-              key: "position_size",
-              value: parseFloat(
-                document.getElementById("strategy3_position_size").value,
-              ),
-            },
-            {
-              category: "strategy3",
-              key: "min_funding_rate",
-              value:
-                parseFloat(
-                  document.getElementById("strategy3_min_funding_rate").value,
-                ) / 100,
-            },
-            {
-              category: "strategy3",
-              key: "check_basis",
-              value:
-                document.getElementById("strategy3_check_basis").value ===
-                "true",
-            },
-            {
-              category: "strategy3",
-              key: "short_exit_threshold",
-              value:
-                parseFloat(
-                  document.getElementById("strategy3_short_exit_threshold")
-                    .value,
-                ) / 100,
-            },
-            {
-              category: "strategy3",
-              key: "long_exit_threshold",
-              value:
-                parseFloat(
-                  document.getElementById("strategy3_long_exit_threshold")
-                    .value,
-                ) / 100,
-            },
-            // 风控配置
-            {
-              category: "risk",
-              key: "max_position_size_per_trade",
-              value: parseFloat(
-                document.getElementById("risk_max_position_size_per_trade")
-                  .value,
-              ),
-            },
-            {
-              category: "risk",
-              key: "max_drawdown",
-              value:
-                parseFloat(document.getElementById("risk_max_drawdown").value) /
-                100,
-            },
-            {
-              category: "risk",
-              key: "warning_threshold",
-              value:
-                parseFloat(
-                  document.getElementById("risk_warning_threshold").value,
-                ) / 100,
-            },
-            {
-              category: "risk",
-              key: "critical_threshold",
-              value:
-                parseFloat(
-                  document.getElementById("risk_critical_threshold").value,
-                ) / 100,
-            },
-            {
-              category: "risk",
-              key: "emergency_threshold",
-              value:
-                parseFloat(
-                  document.getElementById("risk_emergency_threshold").value,
-                ) / 100,
-            },
-          ];
-
-          let success = true;
-          let errors = [];
-
-          async function updateConfigWithRetry(update, maxRetries = 3) {
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-              try {
-                const response = await fetch("/api/config/update", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(update),
-                });
-                const result = await response.json();
-                if (result.success) {
-                  return { success: true };
-                } else if (
-                  result.error &&
-                  result.error.includes("database is locked")
-                ) {
-                  if (attempt < maxRetries) {
-                    await new Promise((resolve) =>
-                      setTimeout(resolve, 100 * attempt),
-                    );
-                    continue;
-                  }
-                }
-                return { success: false, error: result.error };
-              } catch (error) {
-                if (
-                  attempt < maxRetries &&
-                  error.message.includes("database is locked")
-                ) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, 100 * attempt),
-                  );
-                  continue;
-                }
-                return { success: false, error: error.message };
-              }
-            }
-            return { success: false, error: "重试次数已用完" };
-          }
-
-          for (const update of updates) {
-            const result = await updateConfigWithRetry(update);
-            if (!result.success) {
-              success = false;
-              errors.push(`${update.category}.${update.key}: ${result.error}`);
-            }
-            await new Promise((resolve) => setTimeout(resolve, 10));
-          }
-
-          if (success) {
-            showAlert("✅ 配置保存成功！更改将立即生效", "success");
-          } else {
-            showAlert("❌ 配置保存失败:\n" + errors.join("\n"), "error");
-          }
-        } catch (error) {
-          console.error("保存配置时出错:", error);
-          showAlert("❌ 保存配置时出错: " + error.message, "error");
-        } finally {
-          saveBtn.disabled = false;
-          saveBtn.textContent = "💾 保存所有配置";
-        }
-      }
-
-      function showAlert(message, type, autoDismiss = true) {
-        setTimeout(() => {
-          const alertModal = document.getElementById("alertModal");
-          const alertIcon = document.getElementById("alertIcon");
-          const alertMessage = document.getElementById("alertMessage");
-          const alertCloseBtn = document.getElementById("alertCloseBtn");
-
-          if (!alertModal) {
-            alert(message);
-            return;
-          }
-
-          const icons = {
-            success: "✅",
-            error: "❌",
-            info: "ℹ️",
-          };
-          alertIcon.textContent = icons[type] || "ℹ️";
-
-          alertMessage.textContent = message;
-
-          alertCloseBtn.className = `alert-modal-close ${type}`;
-
-          alertModal.style.display = "flex";
-          alertModal.classList.add("show");
-
-          if (autoDismiss) {
-            setTimeout(() => {
-              hideAlert();
-            }, 5000);
-          }
-        }, 0);
-      }
-
-      function hideAlert() {
-        const alertModal = document.getElementById("alertModal");
-        if (alertModal) {
-          alertModal.classList.remove("show");
-          alertModal.style.display = "none";
-        }
-      }
-
-      // 页面加载时执行
-      loadExchanges();
-      loadConfig();
-    </script>
-  </body>
+</script>
+</body>
 </html>

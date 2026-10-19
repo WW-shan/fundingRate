@@ -1,16 +1,8 @@
 """
-核心模块初始化
+核心模块（监控版）
 """
 from .data_collector import DataCollector
-from .opportunity_monitor import OpportunityMonitor
-from .risk_manager import RiskManager
-from .order_manager import OrderManager
-from .strategy_executor import StrategyExecutor
+from .market_monitor import MarketMonitor, annualize_rate
+from .alert_manager import AlertManager
 
-__all__ = [
-    'DataCollector',
-    'OpportunityMonitor',
-    'RiskManager',
-    'OrderManager',
-    'StrategyExecutor'
-]
+__all__ = ['DataCollector', 'MarketMonitor', 'annualize_rate', 'AlertManager']

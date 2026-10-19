@@ -184,6 +184,43 @@ class DatabaseManager:
                 ON funding_rates(exchange, symbol, timestamp)
             """)
 
+            # 稳定币价格表（脱锚监控）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS stablecoin_prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exchange VARCHAR(20),
+                    symbol VARCHAR(20),
+                    timestamp BIGINT,
+                    price DECIMAL(18,8),
+                    bid DECIMAL(18,8),
+                    ask DECIMAL(18,8),
+                    UNIQUE(exchange, symbol, timestamp)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_stablecoin_prices
+                ON stablecoin_prices(symbol, timestamp)
+            """)
+
+            # 告警表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_type VARCHAR(50),
+                    level VARCHAR(20),
+                    symbol VARCHAR(30),
+                    exchange VARCHAR(40),
+                    message TEXT,
+                    details TEXT,
+                    pushed BOOLEAN DEFAULT FALSE,
+                    timestamp BIGINT
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_alerts
+                ON alerts(timestamp)
+            """)
+
             # 市场价格数据表（新增）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS market_prices (
@@ -345,6 +382,7 @@ class DatabaseManager:
 
             # 迁移：为 trading_pair_configs 表添加 trailing stop 配置字段
             try:
+                cursor.execute("ALTER TABLE trading_pair_configs ADD COLUMN s3_trailing_stop_enabled BOOLEAN DEFAULT TRUE")
             except sqlite3.OperationalError:
                 pass
             try:

@@ -1,0 +1,178 @@
+/* 资金费率监控系统 - 共享样式 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+  padding: 20px;
+  color: #1f2937;
+}
+
+.container { max-width: 1400px; margin: 0 auto; }
+
+.header {
+  background: white;
+  border-radius: 10px;
+  padding: 24px 30px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header h1 { color: #4f46e5; font-size: 24px; }
+.header .subtitle { color: #6b7280; font-size: 13px; margin-top: 4px; }
+
+.header-actions { display: flex; gap: 10px; align-items: center; }
+.last-update { font-size: 12px; color: #9ca3af; }
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  transition: all 0.2s;
+  display: inline-block;
+}
+.btn-primary { background: #4f46e5; color: white; }
+.btn-primary:hover { background: #4338ca; }
+.btn-danger { background: #ef4444; color: white; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost { background: #f3f4f6; color: #4f46e5; }
+.btn-ghost:hover { background: #e5e7eb; }
+
+.nav-menu {
+  background: white;
+  border-radius: 10px;
+  padding: 10px 15px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nav-menu a {
+  padding: 9px 18px;
+  background: #f3f4f6;
+  color: #4f46e5;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.nav-menu a:hover, .nav-menu a.active { background: #4f46e5; color: white; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: white;
+  border-radius: 10px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.stat-label { color: #6b7280; font-size: 12px; margin-bottom: 6px; }
+.stat-value { color: #111827; font-size: 24px; font-weight: 700; }
+.stat-value.positive { color: #10b981; }
+.stat-value.negative { color: #ef4444; }
+.stat-value.warn { color: #f59e0b; }
+
+.card {
+  background: white;
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom: 16px;
+}
+.card h3 { color: #4f46e5; font-size: 16px; margin-bottom: 14px; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left;
+  padding: 10px 12px;
+  color: #6b7280;
+  font-weight: 600;
+  border-bottom: 2px solid #f3f4f6;
+  white-space: nowrap;
+}
+td { padding: 10px 12px; border-bottom: 1px solid #f9fafb; white-space: nowrap; }
+tr:hover td { background: #f9fafb; }
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-green { background: #d1fae5; color: #065f46; }
+.badge-yellow { background: #fef3c7; color: #92400e; }
+.badge-red { background: #fee2e2; color: #991b1b; }
+.badge-gray { background: #f3f4f6; color: #4b5563; }
+.badge-blue { background: #dbeafe; color: #1e40af; }
+
+.mono { font-family: "SF Mono", Consolas, monospace; }
+.text-green { color: #10b981; font-weight: 600; }
+.text-red { color: #ef4444; font-weight: 600; }
+.text-muted { color: #9ca3af; font-size: 12px; }
+
+.empty-state { text-align: center; padding: 40px; color: #9ca3af; font-size: 14px; }
+.loading { text-align: center; padding: 30px; color: #9ca3af; }
+
+.filter-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter-bar select, .filter-bar input {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+.filter-bar select:focus, .filter-bar input:focus { border-color: #4f46e5; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.tabs button {
+  padding: 8px 18px;
+  border: none;
+  background: #f3f4f6;
+  color: #4b5563;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tabs button.active { background: #4f46e5; color: white; }
+
+.config-group { margin-bottom: 24px; }
+.config-group h4 { color: #374151; font-size: 14px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f3f4f6; }
+.config-row {
+  display: grid;
+  grid-template-columns: 280px 1fr 100px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f9fafb;
+}
+.config-label { font-size: 13px; color: #374151; }
+.config-desc { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.config-row input {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 100%;
+}

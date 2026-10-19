@@ -10,26 +10,33 @@ pages_bp = Blueprint('pages', __name__)
 @pages_bp.route('/')
 @login_required
 def index():
-    """首页 - 仪表盘"""
+    """总览面板"""
     return render_template('index.html')
 
 
-@pages_bp.route('/opportunities')
+@pages_bp.route('/funding')
 @login_required
-def opportunities():
-    """机会监控页面"""
-    return render_template('opportunities.html')
+def funding():
+    """资金费率监控（APR 排行 + 跨所差）"""
+    return render_template('funding.html')
 
 
-@pages_bp.route('/positions')
+@pages_bp.route('/stablecoin')
 @login_required
-def positions():
-    """持仓管理页面"""
-    return render_template('positions.html')
+def stablecoin():
+    """稳定币脱锚监控"""
+    return render_template('stablecoin.html')
+
+
+@pages_bp.route('/alerts')
+@login_required
+def alerts():
+    """告警历史"""
+    return render_template('alerts.html')
 
 
 @pages_bp.route('/config')
 @login_required
 def config():
-    """配置页面"""
+    """系统配置"""
     return render_template('config.html')

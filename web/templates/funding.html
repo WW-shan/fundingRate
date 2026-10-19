@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>资金费率 - 资金费率监控</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>📡 资金费率监控系统</h1>
+      <div class="subtitle">市场异常监控 · 告警推送 · 纯监控模式（无交易）</div>
+    </div>
+    <div class="header-actions">
+      <span class="last-update" id="last-update">--</span>
+      <a href="/logout" class="btn btn-danger">退出</a>
+    </div>
+  </div>
+
+  <div class="nav-menu">
+    <a href="/" class="">仪表盘</a>
+    <a href="/funding" class="active">资金费率</a>
+    <a href="/stablecoin" class="">稳定币监控</a>
+    <a href="/alerts" class="">告警历史</a>
+    <a href="/config" class="">系统配置</a>
+  </div>
+
+  <div class="card">
+    <h3>📈 资金费率监控</h3>
+    <div class="tabs">
+      <button class="active" onclick="switchTab('apr', this)">APR 排行</button>
+      <button onclick="switchTab('spread', this)">跨所费率差</button>
+      <button onclick="switchTab('basis', this)">期现基差</button>
+    </div>
+
+    <div class="filter-bar">
+      <select id="filter-exchange" onchange="refresh()">
+        <option value="">全部交易所</option>
+        <option value="binance">Binance</option>
+        <option value="okx">OKX</option>
+        <option value="bybit">Bybit</option>
+        <option value="gate">Gate</option>
+        <option value="bitget">Bitget</option>
+      </select>
+      <input id="filter-symbol" type="text" placeholder="搜索币种 (如 BTC)" oninput="debouncedRefresh()" />
+      <select id="filter-sort" onchange="refresh()">
+        <option value="apr_desc">APR 从高到低</option>
+        <option value="apr_asc">APR 从低到高</option>
+        <option value="rate_desc">单期费率从高到低</option>
+      </select>
+    </div>
+
+    <div id="panel-apr">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>币种</th><th>交易所</th><th>APR</th><th>单期费率</th><th>结算周期</th><th>每日次数</th><th>下次结算</th></tr></thead>
+          <tbody id="tbody-apr"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="panel-spread" style="display:none">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>币种</th><th>交易所 A</th><th>APR A</th><th>交易所 B</th><th>APR B</th><th>年化差</th><th>备注</th></tr></thead>
+          <tbody id="tbody-spread"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="panel-basis" style="display:none">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>币种</th><th>交易所</th><th>现货价</th><th>期货价</th><th>基差</th><th>快照时间</th></tr></thead>
+          <tbody id="tbody-basis"><tr><td colspan="7" class="loading">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="/static/js/common.js"></script>
+<script>
+let currentTab = 'apr';
+let debounceTimer = null;
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['apr', 'spread', 'basis'].forEach(t => {
+    document.getElementById('panel-' + t).style.display = (t === tab) ? '' : 'none';
+  });
+  refresh();
+}
+
+function debouncedRefresh() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(refresh, 400);
+}
+
+async function refresh() {
+  const exchange = document.getElementById('filter-exchange').value;
+  const symbol = document.getElementById('filter-symbol').value.trim().toUpperCase();
+  const sortKey = document.getElementById('filter-sort').value;
+
+  try {
+    if (currentTab === 'apr') {
+      let url = '/api/funding/apr?limit=200';
+      if (exchange) url += '&exchange=' + exchange;
+      if (symbol) url += '&symbol=' + encodeURIComponent(symbol);
+      const res = await fetchJSON(url);
+      let rows = (res && res.data) || [];
+
+      if (sortKey === 'apr_asc') {
+        rows = rows.slice().sort((a, b) => (a.apr ?? -Infinity) - (b.apr ?? -Infinity));
+      } else if (sortKey === 'rate_desc') {
+        rows = rows.slice().sort((a, b) => (b.funding_rate || 0) - (a.funding_rate || 0));
+      }
+
+      const tbody = document.getElementById('tbody-apr');
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map((r, i) => {
+          const perDay = r.funding_interval_hours ? (24 / r.funding_interval_hours).toFixed(1) : 'N/A';
+          const semantics = r.rate_semantics === 'last_settled' ? ' <span class="badge badge-gray">上期</span>' : '';
+          return `<tr>
+            <td>${i + 1}</td>
+            <td><b>${r.symbol}</b></td>
+            <td>${exchangeBadge(r.exchange)}${semantics}</td>
+            <td class="${r.apr > 0 ? 'text-green' : (r.apr < 0 ? 'text-red' : '')}">${fmtPct(r.apr, 2)}</td>
+            <td class="${pnlClass(r.funding_rate)}">${fmtPct(r.funding_rate, 4)}</td>
+            <td>${r.funding_interval_hours ? '每' + r.funding_interval_hours + 'h' : '<span class="badge badge-yellow">未知</span>'}</td>
+            <td>${perDay}</td>
+            <td class="text-muted">${fmtTime(r.next_funding_time)}</td>
+          </tr>`;
+        }).join('');
+      }
+    } else if (currentTab === 'spread') {
+      const res = await fetchJSON('/api/funding/spreads?limit=200');
+      let rows = (res && res.data) || [];
+      if (symbol) rows = rows.filter(r => r.symbol.includes(symbol));
+      if (exchange) rows = rows.filter(r => r.exchange_a === exchange || r.exchange_b === exchange);
+
+      const tbody = document.getElementById('tbody-spread');
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map((r, i) => `<tr>
+          <td>${i + 1}</td>
+          <td><b>${r.symbol}</b></td>
+          <td>${exchangeBadge(r.exchange_a)}</td>
+          <td>${fmtPct(r.apr_a, 2)}</td>
+          <td>${exchangeBadge(r.exchange_b)}</td>
+          <td>${fmtPct(r.apr_b, 2)}</td>
+          <td class="text-green">${fmtPct(r.abs_spread, 2)}</td>
+          <td>${r.interval_mismatch ? '<span class="badge badge-yellow">周期不一致</span>' : ''}${r.semantics_mixed ? ' <span class="badge badge-gray">含上期值</span>' : ''}</td>
+        </tr>`).join('');
+      }
+    } else {
+      const res = await fetchJSON('/api/basis?limit=200');
+      let rows = (res && res.data) || [];
+      if (symbol) rows = rows.filter(r => r.symbol.includes(symbol));
+      if (exchange) rows = rows.filter(r => r.exchange === exchange);
+
+      const tbody = document.getElementById('tbody-basis');
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无数据（现货价格采集中）</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map((r, i) => `<tr>
+          <td>${i + 1}</td>
+          <td><b>${r.symbol}</b></td>
+          <td>${exchangeBadge(r.exchange)}</td>
+          <td class="mono">${r.spot_price}</td>
+          <td class="mono">${r.futures_price}</td>
+          <td class="${r.basis > 0 ? 'text-green' : 'text-red'}">${fmtPct(r.basis, 3)}</td>
+          <td class="text-muted">${fmtTime(r.timestamp)}</td>
+        </tr>`).join('');
+      }
+    }
+
+    document.getElementById('last-update').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (e) {
+    console.error('refresh failed', e);
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+
+</script>
+</body>
+</html>

@@ -1,219 +1,156 @@
-# 资金费率套利系统
+# 资金费率监控系统
 
-一个专业的加密货币资金费率套利自动化交易系统，支持多交易所、多策略、Web管理界面和Telegram Bot通知。
+加密货币资金费率与稳定币锚定的**纯监控系统**（无交易功能）：
+多交易所公开数据采集 → 异常检测 → Telegram 实时推送 → Web 监控面板。
 
 ## 功能特性
 
-### 三种套利策略
+### 监控能力
 
-1. **跨交易所资金费率套利**
-   - 在不同交易所之间利用资金费率差异套利
-   - 自动扫描所有交易所组合
-   - 精确计算手续费和滑点成本
-   - 支持自动/半自动执行
+- **资金费率 APR 排行**：五家交易所全市场扫描，结算间隔归一化后按真实 APR 排序
+- **跨所费率差**：两腿各自年化后求差，自动标注周期不一致 / 语义混用（Binance 为上期已结算值）
+- **期现基差监控**：现货 vs 永续价格偏离，含陈旧行情过滤与合理性防护
+- **稳定币脱锚监控**：USDC / FDUSD / TUSD / DAI / USDE 等，分级告警（0.3% 预警 / 1% 严重）
 
-2. **现货-期货资金费率套利**
-   - 持有现货+永续合约空单，收取高额资金费率
-   - 基差风险控制
-   - 自动执行（推荐）
+### 告警推送（Telegram）
 
-3. **现货-期货基差套利**
-   - 当基差异常时开仓，等待基差回归
-   - 需人工确认（风险较高）
-   - TG Bot推送详细分析
+| 告警类型 | 触发条件（可配置） | 默认阈值 |
+|---|---|---|
+| 资金费率异常 | 单期费率 / 年化 APR 超限 | 0.3% / 100% |
+| 跨所费率差 | 年化差超限 | 100% |
+| 基差异常 | 期现偏离超限 | 2% |
+| 稳定币脱锚 | 偏离 1.0 超限 | 0.3% / 1% |
 
-### 核心功能
+- 去重 + 冷却期（同标的冷却期内只推一次，级别升级立即重推）
+- 每轮扫描推送上限（默认 10 条，防刷屏），超出部分仅落库供面板查询
+- 每日汇总推送（可配置时间）
 
-- ✅ **智能监控**: 实时扫描全市场，自动计算最优策略组合
-- ✅ **成本精算**: 手续费、滑点、资金费率全部计入
-- ✅ **风险管理**: 基础+进阶风控，多级预警，异常检测
-- ✅ **Web界面**: 7个管理页面，实时配置，热更新
-- ✅ **TG Bot**: 推送通知、远程查询、紧急控制
-- ✅ **回测系统**: 参数优化、性能分析、可视化
-- ✅ **数据管理**: 历史数据导入、实时采集、自动备份
+### Web 面板
 
-### 支持的交易所
-
-- Binance (币安)
-- OKX
-- Bybit
-- Gate.io
-- Bitget
+1. **仪表盘** (`/`)：APR 排行 / 跨所差 / 稳定币状态 / 最近告警
+2. **资金费率** (`/funding`)：APR 排行、跨所费率差、期现基差三个视图，支持过滤排序
+3. **稳定币监控** (`/stablecoin`)：实时锚定状态 + 历史价格曲线
+4. **告警历史** (`/alerts`)：按时间/级别/类型过滤，含统计卡片
+5. **系统配置** (`/config`)：阈值、刷新间隔、交易所开关热更新
 
 ## 快速开始
 
 ### 1. 环境要求
 
 - Python 3.10+
-- pip
-- SQLite (Python内置)
+- 能访问交易所公开 API 的网络（受限地区需配置代理，见下）
 
 ### 2. 安装
 
 ```bash
-# 克隆项目
 git clone <your-repo-url>
 cd fundingRate
-
-# 创建虚拟环境
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-venv\\Scripts\\activate  # Windows
-
-# 安装依赖
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 ### 3. 配置
 
 ```bash
-# 复制环境变量模板
 cp .env.example .env
-
-# 编辑 .env 文件，填入你的API密钥
-nano .env
 ```
 
-**重要配置项**:
-```bash
-# 交易所API（至少配置一个）
-BINANCE_API_KEY=your_api_key
-BINANCE_API_SECRET=your_api_secret
+关键配置项：
 
-# Telegram Bot（可选）
+```bash
+# Telegram 推送（可选，不配置则仅 Web 面板）
 TG_BOT_TOKEN=your_bot_token
 TG_CHAT_ID=your_chat_id
 
-# 安全开关（默认False）
-ENABLE_TRADING=False  # 设置为True以启用实际交易
+# Web 认证
+WEB_USERNAME=admin
+WEB_PASSWORD_HASH=          # 留空则默认密码 admin123
+
+# 代理（受限网络环境按交易所配置）
+BINANCE_PROXY=http://127.0.0.1:10808
+OKX_PROXY=http://127.0.0.1:10808
+# ... 或统一配置 PROXY_URL=http://127.0.0.1:10808
 ```
 
-### 4. 初始化数据库
+### 4. 运行
 
 ```bash
-python -c "from database import DatabaseManager; from config import ConfigManager; db = DatabaseManager(); db.init_database(); cm = ConfigManager(db); cm.init_default_configs()"
-```
-
-### 5. 运行
-
-```bash
-# 启动系统
 python main.py
 ```
 
-访问 Web界面: http://localhost:5000
+访问 http://localhost:5000
 
 ## 项目结构
 
 ```
 fundingRate/
-├── config/              # 配置管理
-├── core/                # 核心模块
-│   ├── data_collector.py      # 数据采集器
-│   ├── opportunity_monitor.py # 机会监控
-│   ├── strategy_executor.py   # 策略执行
-│   └── risk_manager.py        # 风险管理
-├── strategies/          # 套利策略
-├── exchanges/           # 交易所适配器
-├── web/                 # Web界面
-├── bot/                 # Telegram Bot
-├── backtest/            # 回测系统
-├── database/            # 数据库
-├── utils/               # 工具函数
-├── data/                # 数据存储
-│   ├── database.db
-│   ├── historical/      # 历史数据
-│   └── backups/         # 备份
-├── logs/                # 日志
-├── docs/                # 文档
-├── tests/               # 测试
-├── main.py              # 主程序
-├── requirements.txt     # 依赖
-└── .env                 # 环境变量（不提交到git）
+├── exchanges/          # 交易所适配器（仅公开 API）
+│   ├── base_exchange.py    # 基类：费率/行情/订单簿 + 官方间隔字段解析
+│   └── *_adapter.py        # Binance/OKX/Bybit/Gate/Bitget
+├── core/
+│   ├── data_collector.py   # 批量采集（费率/价格/稳定币）
+│   ├── market_monitor.py   # APR 计算 + 异常检测
+│   └── alert_manager.py    # 告警去重/冷却/限流/落库
+├── bot/                # Telegram 推送 + 查询命令
+├── web/                # Flask 面板（5 页面 + REST API）
+├── database/           # SQLite（funding_rates/market_prices/stablecoin_prices/alerts）
+├── config/             # 三层配置体系（热更新）
+├── utils/              # 日志工具
+└── main.py             # 主入口
 ```
 
-## 使用指南
+## 数据准确性设计
 
-### Web界面
+### 结算间隔归一化
 
-1. **仪表盘** (`/`) - 查看总览和当前持仓
-2. **机会监控** (`/opportunities`) - 实时机会排行榜
-   - 收益排行
-   - 资金费率排行
-   - 基差排行
-   - 综合评分
-3. **持仓管理** (`/positions`) - 查看和管理持仓
-4. **策略配置** (`/config`) - 配置策略参数
-5. **回测系统** (`/backtest`) - 回测和参数优化
-6. **数据管理** (`/data`) - 导入/导出数据
-7. **系统设置** (`/settings`) - 交易所、通知等
+各交易所结算周期不同（1h/2h/4h/8h），系统从官方字段读取逐币种间隔：
 
-### Telegram Bot命令
+| 交易所 | 间隔来源 | 费率语义 |
+|---|---|---|
+| Binance | `fundingInfo.fundingIntervalHours`（批量） | 上期已结算 |
+| OKX | `nextFundingTime − fundingTime`（官方推荐） | 下期预测 |
+| Bybit | tickers `fundingIntervalHour` / instruments `fundingInterval` | 下期将收取 |
+| Gate | `funding_interval`（秒） | 下期将收取 |
+| Bitget | `fundingRateInterval`（小时） | 下期将收取 |
 
-**查询**:
-- `/balance` - 查看余额
-- `/positions` - 查看持仓
-- `/opportunities` - 当前机会
+APR 计算：`单期费率 × (365×24h / 结算间隔) × 100%`（线性年化，与交易所官方展示口径一致）。
+
+跨所比较时两腿各自年化后求差，并标注 `interval_mismatch`（周期不一致）与 `semantics_mixed`（含上期值）。
+
+### 数据质量防护
+
+- 陈旧行情过滤：ticker 时间戳超过阈值（默认 600s）丢弃，避免退市币种残留价格污染基差
+- 基差合理性防护：|基差| > 50% 视为数据异常丢弃
+- 批量接口优先：每家交易所单次调用获取全市场数据（Binance 间隔接口权重为 0）
+
+## Telegram 命令
+
+- `/apr` - APR 排行 Top10
+- `/spread` - 跨所费率差 Top10
+- `/basis` - 基差 Top10
+- `/stable` - 稳定币锚定状态
+- `/alerts` - 最近告警
 - `/status` - 系统状态
-- `/report` - 今日报告
 
-**控制**:
-- `/pause` - 暂停所有策略
-- `/resume` - 恢复策略
-- `/close <ID>` - 平仓
-- `/closeall` - 全部平仓
+## 部署
 
-### 配置说明
-
-#### 三层配置架构
-
-1. **全局配置** - 应用于所有交易对
-2. **策略配置** - 每个策略的默认参数
-3. **交易对配置** - 针对单个交易对的精细配置（优先级最高）
-
-#### 热更新配置
-
-标注 ⚡ 的配置修改后立即生效，其他配置需要重启系统。
-
-## 安全建议
-
-1. **API权限**: 只授予"读取"和"交易"权限，不要授予"提现"权限
-2. **测试模式**: 首次运行建议设置 `ENABLE_TRADING=False` 进行模拟
-3. **小资金测试**: 从小资金开始，逐步增加
-4. **监控告警**: 配置Telegram Bot接收实时通知
-5. **定期备份**: 系统每日自动备份数据库到 `data/backups/`
-6. **API密钥安全**: 不要将 `.env` 文件提交到git
-
-## 风险提示
-
-⚠️ **加密货币交易存在风险，请谨慎操作**
-
-- 套利并非无风险，可能面临价格剧烈波动、流动性不足、交易所故障等风险
-- 资金费率可能突然反转
-- 基差可能继续扩大而非收敛
-- 建议充分测试后再投入真实资金
-- 建议设置合理的止损和仓位限制
-
-## 部署到生产环境
-
-### 使用systemd (Linux)
+### Docker
 
 ```bash
-# 创建服务文件
-sudo nano /etc/systemd/system/funding-arbitrage.service
+docker-compose up -d
 ```
+
+### systemd
 
 ```ini
 [Unit]
-Description=Funding Rate Arbitrage System
+Description=Funding Rate Monitor
 After=network.target
 
 [Service]
 Type=simple
-User=your_user
 WorkingDirectory=/path/to/fundingRate
-Environment="PATH=/path/to/venv/bin"
 ExecStart=/path/to/venv/bin/python main.py
 Restart=always
 RestartSec=10
@@ -222,101 +159,6 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-```bash
-# 启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable funding-arbitrage
-sudo systemctl start funding-arbitrage
-sudo systemctl status funding-arbitrage
-```
-
-### 使用Docker
-
-```bash
-docker-compose up -d
-```
-
-## 开发
-
-### 运行测试
-
-```bash
-pytest tests/
-```
-
-### 回测历史策略
-
-1. 导入历史数据（CSV）到数据库
-2. 在Web界面进入"回测系统"
-3. 配置回测参数
-4. 执行回测
-5. 查看性能分析和图表
-
-### 参数优化
-
-在回测系统中使用"参数优化"功能，系统会自动网格搜索最佳参数组合。
-
-## 常见问题
-
-**Q: 为什么没有发现机会？**
-A: 检查：1) 交易所API是否正确配置 2) 策略是否启用 3) 配置阈值是否过高
-
-**Q: 如何增加新的交易对？**
-A: 在Web界面"策略配置" -> "交易对配置" -> "添加新交易对"
-
-**Q: 可以同时运行多个策略吗？**
-A: 可以，三种策略可以同时运行，系统会智能分配资金
-
-**Q: 数据库文件太大怎么办？**
-A: 在"数据管理"中配置数据保留期限，定期清理旧数据
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
-## 许可证
-
-MIT License
-
 ## 免责声明
 
-本软件仅供学习和研究使用。使用本软件进行实际交易造成的任何损失，作者不承担责任。
-
----
-
-**开发者**: Claude & User
-**版本**: 1.0.0
-**最后更新**: 2026-01-21
-
-## 📤 推送到GitHub
-
-```bash
-# 使用Personal Access Token推送
-# 1. 访问 https://github.com/settings/tokens
-# 2. 生成新token，勾选 repo 权限
-# 3. 执行推送：
-
-git push https://YOUR_TOKEN@github.com/WW-shan/fundingRate.git main
-
-# 或交互式推送：
-git push -u origin main
-# Username: WW-shan
-# Password: your_github_token
-```
-
-## 🧪 测试系统
-
-```bash
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 运行测试
-python test_system.py
-
-# 启动系统（模拟模式）
-python main.py
-```
+本系统仅提供市场数据监控与告警，不执行任何交易操作。数据仅供参考，不构成投资建议。

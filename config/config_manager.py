@@ -84,47 +84,35 @@ class ConfigManager:
         return self._get_default_pair_config(symbol, exchange)
 
     def _get_default_pair_config(self, symbol: str, exchange: Optional[str]) -> Dict[str, Any]:
-        """获取交易对的默认配置"""
+        """交易对默认配置（监控版：仅监控开关）"""
         return {
             'symbol': symbol,
             'exchange': exchange,
-            's3_enabled': self.get('strategy3', 'enabled', True),
-            's3_min_funding_rate': self.get('strategy3', 'min_funding_rate', 0.0001),
-            's3_position_size': self.get('strategy3', 'position_size', 10),
-            's3_short_exit_threshold': self.get('strategy3', 'short_exit_threshold', 0.0),
-            's3_long_exit_threshold': self.get('strategy3', 'long_exit_threshold', 0.0),
-            's3_trailing_stop_enabled': self.get('strategy3', 'trailing_stop_enabled', True),
-            's3_trailing_activation_pct': self.get('strategy3', 'trailing_activation_pct', 0.04),
-            's3_trailing_callback_pct': self.get('strategy3', 'trailing_callback_pct', 0.04),
-            'max_positions': 3,
-            'is_active': True
+            'is_active': True,
         }
 
     def init_default_configs(self):
         """初始化默认配置"""
         # 全局配置
-        self.set_default('global', 'total_capital', 100, True, "总资金池（USDT）")
-        self.set_default('global', 'max_capital_usage', 0.8, True, "最大资金使用率")
-        self.set_default('global', 'max_positions', 10, True, "最大同时持仓数")
-        self.set_default('global', 'price_refresh_interval', 5, True, "价格刷新间隔（秒）")
+        self.set_default('global', 'price_refresh_interval', 30, True, "价格刷新间隔（秒）")
         self.set_default('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
-        self.set_default('global', 'opportunity_scan_interval', 10, True, "机会扫描间隔（秒）")
+        self.set_default('global', 'stablecoin_refresh_interval', 60, True, "稳定币价格刷新间隔（秒）")
+        self.set_default('global', 'monitor_scan_interval', 60, True, "异常扫描间隔（秒）")
+        self.set_default('global', 'price_stale_threshold', 600, True, "行情陈旧阈值（秒），超过则丢弃")
+        self.set_default('global', 'enabled_exchanges', ['binance', 'okx', 'bybit', 'gate', 'bitget'], True, "启用的交易所")
+        self.set_default('global', 'stablecoin_symbols',
+                         ['USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'DAI/USDT', 'USDE/USDT'],
+                         True, "监控的稳定币交易对")
 
-        # 策略3：单边资金费率趋势策略
-        self.set_default('strategy3', 'enabled', True, True, "是否启用")
-        self.set_default('strategy3', 'min_funding_rate', 0.0001, True, "最小资金费率（0.01%）")
-        self.set_default('strategy3', 'position_size', 10, True, "默认开仓金额（USDT）")
-        self.set_default('strategy3', 'short_exit_threshold', 0.0, True, "做空退出费率阈值")
-        self.set_default('strategy3', 'long_exit_threshold', 0.0, True, "做多退出费率阈值")
-        self.set_default('strategy3', 'trailing_stop_enabled', True, True, "是否启用动态追踪止盈")
-        self.set_default('strategy3', 'trailing_activation_pct', 0.04, True, "追踪止盈启动阈值（4%盈利）")
-        self.set_default('strategy3', 'trailing_callback_pct', 0.04, True, "追踪止盈回撤阈值（4%回撤）")
+        # 告警阈值配置
+        self.set_default('alerts', 'funding_rate_threshold', 0.003, True, "单期资金费率告警阈值（0.3%）")
+        self.set_default('alerts', 'funding_apr_threshold', 1.0, True, "年化资金费率告警阈值（100%）")
+        self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
+        self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
+        self.set_default('alerts', 'depeg_warning', 0.003, True, "稳定币脱锚预警阈值（0.3%）")
+        self.set_default('alerts', 'depeg_critical', 0.01, True, "稳定币脱锚严重阈值（1%）")
+        self.set_default('alerts', 'max_pushes_per_scan', 10, True, "每轮扫描最多推送告警数（防刷屏）")
+        self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
+        self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 
-        # 风控配置
-        self.set_default('risk', 'max_position_size_per_trade', 30, True, "单笔最大仓位（USDT）")
-        self.set_default('risk', 'max_drawdown', 0.10, True, "总资金最大回撤")
-        self.set_default('risk', 'warning_threshold', 0.05, True, "警告级别浮亏阈值（5%）")
-        self.set_default('risk', 'critical_threshold', 0.10, True, "严重级别浮亏阈值（10%）")
-        self.set_default('risk', 'emergency_threshold', 0.15, True, "紧急级别浮亏阈值（15%）")
-
-        logger.info("Default configurations initialized")
+        logger.info("Default monitor configs initialized")

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>稳定币监控 - 资金费率监控</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>📡 资金费率监控系统</h1>
+      <div class="subtitle">市场异常监控 · 告警推送 · 纯监控模式（无交易）</div>
+    </div>
+    <div class="header-actions">
+      <span class="last-update" id="last-update">--</span>
+      <a href="/logout" class="btn btn-danger">退出</a>
+    </div>
+  </div>
+
+  <div class="nav-menu">
+    <a href="/" class="">仪表盘</a>
+    <a href="/funding" class="">资金费率</a>
+    <a href="/stablecoin" class="active">稳定币监控</a>
+    <a href="/alerts" class="">告警历史</a>
+    <a href="/config" class="">系统配置</a>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">监控稳定币</div><div class="stat-value" id="stat-count">--</div></div>
+    <div class="stat-card"><div class="stat-label">预警中 (≥0.3%)</div><div class="stat-value warn" id="stat-warn">--</div></div>
+    <div class="stat-card"><div class="stat-label">严重脱锚 (≥1%)</div><div class="stat-value negative" id="stat-critical">--</div></div>
+  </div>
+
+  <div class="card">
+    <h3>🪙 稳定币锚定状态（实时）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>稳定币</th><th>交易所</th><th>价格</th><th>买一</th><th>卖一</th><th>偏离</th><th>状态</th><th>更新时间</th></tr></thead>
+        <tbody id="tbody-stable"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📉 历史价格曲线</h3>
+    <div class="filter-bar">
+      <select id="hist-symbol" onchange="loadHistory()">
+        <option value="USDC/USDT">USDC/USDT</option>
+        <option value="FDUSD/USDT">FDUSD/USDT</option>
+        <option value="TUSD/USDT">TUSD/USDT</option>
+        <option value="DAI/USDT">DAI/USDT</option>
+        <option value="USDE/USDT">USDE/USDT</option>
+      </select>
+      <select id="hist-hours" onchange="loadHistory()">
+        <option value="6">近 6 小时</option>
+        <option value="24" selected>近 24 小时</option>
+        <option value="72">近 3 天</option>
+        <option value="168">近 7 天</option>
+      </select>
+    </div>
+    <div id="chart-container">
+      <div class="empty-state">选择稳定币查看历史价格</div>
+    </div>
+  </div>
+
+</div>
+<script src="/static/js/common.js"></script>
+<script>
+async function refresh() {
+  try {
+    const res = await fetchJSON('/api/stablecoins');
+    const rows = (res && res.data) || [];
+
+    document.getElementById('stat-count').textContent = new Set(rows.map(r => r.symbol)).size;
+    document.getElementById('stat-warn').textContent = rows.filter(r => r.abs_deviation >= 0.003 && r.abs_deviation < 0.01).length;
+    document.getElementById('stat-critical').textContent = rows.filter(r => r.abs_deviation >= 0.01).length;
+
+    const tbody = document.getElementById('tbody-stable');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据（等待采集）</td></tr>';
+    } else {
+      tbody.innerHTML = rows.map(r => {
+        const cls = r.abs_deviation >= 0.01 ? 'badge-red' : (r.abs_deviation >= 0.003 ? 'badge-yellow' : 'badge-green');
+        const label = r.abs_deviation >= 0.01 ? '严重脱锚' : (r.abs_deviation >= 0.003 ? '预警' : '正常');
+        return `<tr>
+          <td><b>${r.symbol}</b></td>
+          <td>${exchangeBadge(r.exchange)}</td>
+          <td class="mono">${r.price.toFixed(6)}</td>
+          <td class="mono text-muted">${r.bid ? Number(r.bid).toFixed(6) : 'N/A'}</td>
+          <td class="mono text-muted">${r.ask ? Number(r.ask).toFixed(6) : 'N/A'}</td>
+          <td class="${pnlClass(r.deviation)}">${(r.deviation * 100).toFixed(3)}%</td>
+          <td><span class="badge ${cls}">${label}</span></td>
+          <td class="text-muted">${fmtTime(r.timestamp)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('last-update').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (e) {
+    console.error('refresh failed', e);
+  }
+}
+
+async function loadHistory() {
+  const symbol = document.getElementById('hist-symbol').value;
+  const hours = document.getElementById('hist-hours').value;
+  const container = document.getElementById('chart-container');
+  container.innerHTML = '<div class="loading">加载中...</div>';
+
+  try {
+    const res = await fetchJSON(`/api/stablecoins/history?symbol=${encodeURIComponent(symbol)}&hours=${hours}`);
+    const rows = (res && res.data) || [];
+    if (rows.length < 2) {
+      container.innerHTML = '<div class="empty-state">历史数据不足（需积累一段时间）</div>';
+      return;
+    }
+
+    // 按交易所分组
+    const byExchange = {};
+    rows.forEach(r => {
+      (byExchange[r.exchange] = byExchange[r.exchange] || []).push(r);
+    });
+
+    // 简单 SVG 折线图
+    const W = 900, H = 320, PAD = 50;
+    const allPrices = rows.map(r => r.price);
+    const minP = Math.min(...allPrices, 0.995);
+    const maxP = Math.max(...allPrices, 1.005);
+    const minT = Math.min(...rows.map(r => r.timestamp));
+    const maxT = Math.max(...rows.map(r => r.timestamp));
+
+    const x = t => PAD + (t - minT) / (maxT - minT || 1) * (W - 2 * PAD);
+    const y = p => H - PAD - (p - minP) / (maxP - minP || 1) * (H - 2 * PAD);
+
+    const colors = { binance: '#f0b90b', okx: '#6b7280', bybit: '#f7a600', gate: '#2354e6', bitget: '#00f0ff' };
+    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#fafafa;border-radius:8px">`;
+
+    // 网格线 + 1.0 基准线
+    svg += `<line x1="${PAD}" y1="${y(1.0)}" x2="${W - PAD}" y2="${y(1.0)}" stroke="#9ca3af" stroke-dasharray="4,4" stroke-width="1"/>`;
+    svg += `<text x="${W - PAD + 4}" y="${y(1.0) + 4}" font-size="11" fill="#6b7280">1.000</text>`;
+
+    Object.entries(byExchange).forEach(([ex, pts]) => {
+      const sorted = pts.slice().sort((a, b) => a.timestamp - b.timestamp);
+      const d = sorted.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.timestamp).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
+      svg += `<path d="${d}" fill="none" stroke="${colors[ex] || '#4f46e5'}" stroke-width="2"/>`;
+    });
+
+    svg += `</svg>`;
+
+    // 图例
+    const legend = Object.keys(byExchange).map(ex =>
+      `<span style="margin-right:14px;font-size:12px"><span style="display:inline-block;width:10px;height:10px;background:${colors[ex] || '#4f46e5'};border-radius:2px;margin-right:4px"></span>${ex}</span>`
+    ).join('');
+
+    container.innerHTML = svg + `<div style="margin-top:10px">${legend}</div>`;
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state">加载失败: ' + e.message + '</div>';
+  }
+}
+
+refresh();
+setInterval(refresh, 30000);
+loadHistory();
+
+</script>
+</body>
+</html>
