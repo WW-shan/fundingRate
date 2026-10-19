@@ -34,6 +34,8 @@ def get_config():
                 'depeg_critical': cm.get('alerts', 'depeg_critical', 0.01),
                 'daily_summary_enabled': cm.get('alerts', 'daily_summary_enabled', True),
                 'daily_summary_hour': cm.get('alerts', 'daily_summary_hour', 9),
+                'push_funding_apr_threshold': cm.get('alerts', 'push_funding_apr_threshold', 10.0),
+                'push_depeg': cm.get('alerts', 'push_depeg', True),
             },
         }
         return jsonify({'success': True, 'data': configs})

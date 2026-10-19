@@ -81,12 +81,14 @@ class ConfigManager:
 
         # 告警阈值配置
         self.set_default('alerts', 'funding_rate_threshold', 0.003, True, "单期资金费率告警阈值（0.3%）")
-        self.set_default('alerts', 'funding_apr_threshold', 1.0, True, "年化资金费率告警阈值（100%）")
+        self.set_default('alerts', 'funding_apr_threshold', 10.0, True, "年化资金费率告警阈值（1000%）")
         self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
         self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
         self.set_default('alerts', 'depeg_warning', 0.003, True, "稳定币脱锚预警阈值（0.3%）")
         self.set_default('alerts', 'depeg_critical', 0.01, True, "稳定币脱锚严重阈值（1%）")
         self.set_default('alerts', 'max_pushes_per_scan', 10, True, "每轮扫描最多推送告警数（防刷屏）")
+        self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
+        self.set_default('alerts', 'push_depeg', True, True, "稳定币脱锚是否推送")
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 

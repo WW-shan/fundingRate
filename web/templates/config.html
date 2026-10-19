@@ -95,6 +95,16 @@
         <input id="cfg-daily_summary_hour" type="number" min="0" max="23" />
         <button class="btn btn-primary" onclick="save('alerts','daily_summary_hour','cfg-daily_summary_hour')">保存</button>
       </div>
+      <div class="config-row">
+        <div><div class="config-label">推送费率阈值（APR）</div><div class="config-desc">仅推送超过该年化值的资金费率，如 10 = 1000%</div></div>
+        <input id="cfg-push_funding_apr_threshold" type="number" step="0.5" />
+        <button class="btn btn-primary" onclick="save('alerts','push_funding_apr_threshold','cfg-push_funding_apr_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false</div></div>
+        <input id="cfg-push_depeg" type="text" />
+        <button class="btn btn-primary" onclick="save('alerts','push_depeg','cfg-push_depeg', false, true)">保存</button>
+      </div>
     </div>
 
     <div class="config-group">
@@ -125,12 +135,16 @@ async function load() {
   document.getElementById('cfg-depeg_warning').value = a.depeg_warning;
   document.getElementById('cfg-depeg_critical').value = a.depeg_critical;
   document.getElementById('cfg-daily_summary_hour').value = a.daily_summary_hour;
+  document.getElementById('cfg-push_funding_apr_threshold').value = a.push_funding_apr_threshold;
+  document.getElementById('cfg-push_depeg').value = a.push_depeg;
 }
 
-async function save(category, key, inputId, isList) {
+async function save(category, key, inputId, isList, isBool) {
   const raw = document.getElementById(inputId).value;
   let value;
-  if (isList) {
+  if (isBool) {
+    value = String(raw).toLowerCase() === 'true';
+  } else if (isList) {
     value = raw.split(',').map(s => s.trim()).filter(Boolean);
   } else if (raw !== '' && !isNaN(Number(raw))) {
     value = Number(raw);

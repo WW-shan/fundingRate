@@ -61,14 +61,33 @@ class AlertManager:
         sorted_alerts = sorted(alerts, key=lambda a: severity_order.get(a.get('level'), 9))
 
         pushed = 0
-        for i, alert in enumerate(sorted_alerts):
-            if i >= max_push:
-                # 超出上限：仅落库不推送
+        for alert in sorted_alerts:
+            if not self._should_push(alert):
+                self._persist(alert, pushed=False)
+                continue
+            if pushed >= max_push:
                 self._persist(alert, pushed=False)
                 continue
             if self.handle_alert(alert):
                 pushed += 1
         return pushed
+
+    def _should_push(self, alert: Dict[str, Any]) -> bool:
+        """推送过滤：资金费率仅推 APR >= 阈值（默认 1000%），脱锚告警始终推送"""
+        alert_type = alert.get('alert_type')
+
+        # 稳定币脱锚：低频且重要，始终推送
+        if alert_type == 'stablecoin_depeg':
+            return bool(self.config.get('alerts', 'push_depeg', True))
+
+        # 资金费率异常：APR 阈值过滤
+        if alert_type == 'funding_extreme':
+            threshold = float(self.config.get('alerts', 'push_funding_apr_threshold', 10.0))
+            apr = (alert.get('details') or {}).get('apr')
+            return apr is not None and abs(apr) >= threshold
+
+        # 其他类型（跨所差/基差）：默认只落库不推送
+        return False
 
     def _persist(self, alert: Dict[str, Any], pushed: bool):
         """仅落库"""

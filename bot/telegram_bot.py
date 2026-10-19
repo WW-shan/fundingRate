@@ -74,19 +74,53 @@ class TelegramBot:
     def push_alert(self, alert: Dict[str, Any]):
         """告警推送（由 AlertManager 回调）"""
         emoji = {'warning': '⚠️', 'critical': '🔴', 'emergency': '🚨'}.get(alert.get('level'), '⚠️')
-        type_label = {
-            'funding_extreme': '资金费率异常',
-            'cross_spread': '跨所费率差',
-            'basis_extreme': '基差异常',
-            'stablecoin_depeg': '稳定币脱锚',
-        }.get(alert.get('alert_type'), alert.get('alert_type'))
+        alert_type = alert.get('alert_type')
 
-        message = (
-            f"{emoji} <b>{type_label}</b>\n\n"
-            f"{alert.get('message', '')}\n\n"
-            f"时间: {self._fmt_time()}"
-        )
+        if alert_type == 'funding_extreme':
+            d = alert.get('details') or {}
+            apr = d.get('apr')
+            rate = d.get('funding_rate')
+            interval_h = d.get('funding_interval_hours')
+            per_day = (24 / interval_h) if interval_h else None
+            semantics = '上期已结算' if d.get('rate_semantics') == 'last_settled' else '下期将收取'
+            next_ts = d.get('next_funding_time')
+
+            message = (
+                f"{emoji} <b>极端资金费率</b>\n\n"
+                f"币种: <b>{d.get('symbol', 'N/A')}</b>\n"
+                f"交易所: <b>{str(d.get('exchange', 'N/A')).upper()}</b>\n"
+                f"当前费率: <b>{rate*100:+.4f}%</b>\n"
+                f"收费频率: <b>{('每 %gh（每日 %.0f 次）' % (interval_h, per_day)) if interval_h else '未知'}</b>\n"
+                f"年化 APR: <b>{apr*100:+.1f}%</b>\n"
+                f"费率类型: {semantics}\n"
+                f"下次结算: {self._fmt_ts(next_ts)}\n\n"
+                f"时间: {self._fmt_time()}"
+            )
+        elif alert_type == 'stablecoin_depeg':
+            d = alert.get('details') or {}
+            message = (
+                f"{emoji} <b>稳定币脱锚</b>\n\n"
+                f"稳定币: <b>{d.get('symbol', 'N/A')}</b>\n"
+                f"交易所: <b>{str(d.get('exchange', 'N/A')).upper()}</b>\n"
+                f"价格: <b>{d.get('price', 0):.6f}</b>\n"
+                f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>\n\n"
+                f"时间: {self._fmt_time()}"
+            )
+        else:
+            type_label = {
+                'cross_spread': '跨所费率差',
+                'basis_extreme': '基差异常',
+            }.get(alert_type, alert_type)
+            message = f"{emoji} <b>{type_label}</b>\n\n{alert.get('message', '')}\n\n时间: {self._fmt_time()}"
+
         self._send_async(message)
+
+    @staticmethod
+    def _fmt_ts(ms):
+        if not ms:
+            return 'N/A'
+        from datetime import datetime
+        return datetime.fromtimestamp(int(ms) / 1000).strftime('%Y-%m-%d %H:%M:%S')
 
     def push_daily_summary(self, summary: Dict[str, Any]):
         """每日汇总推送"""
