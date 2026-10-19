@@ -30,7 +30,8 @@ class AlertManager:
         self.db = db_manager
         self.running = False
         self.push_callbacks = []
-        self._cooldown_cache: Dict[str, Dict[str, Any]] = {}  # key -> {ts, level}
+        self._cooldown_cache: Dict[str, Dict[str, Any]] = {}  # key -> {ts, level}（推送冷却）
+        self._persist_cache: Dict[str, float] = {}  # key -> ts（落库冷却，防止面板噪音）
 
     def register_push_callback(self, callback):
         """注册推送回调（Telegram 等）"""
@@ -49,26 +50,21 @@ class AlertManager:
         """
         批量处理一轮扫描的全部告警：
           1. 按严重度排序（critical 优先）
-          2. 应用每轮推送上限（防止刷屏）
-          3. 逐条走 handle_alert（去重/落库/推送）
+          2. 应用推送过滤（_should_push）与每轮推送上限
+          3. 逐条处理（落库冷却 + 推送冷却）
         返回实际推送数量
         """
         if not alerts:
             return 0
 
         max_push = int(self.config.get('alerts', 'max_pushes_per_scan', 10))
-        severity_order = {'critical': 0, 'warning': 1, 'emergency': 0}
+        severity_order = {'critical': 0, 'emergency': 0, 'warning': 1}
         sorted_alerts = sorted(alerts, key=lambda a: severity_order.get(a.get('level'), 9))
 
         pushed = 0
         for alert in sorted_alerts:
-            if not self._should_push(alert):
-                self._persist(alert, pushed=False)
-                continue
-            if pushed >= max_push:
-                self._persist(alert, pushed=False)
-                continue
-            if self.handle_alert(alert):
+            allow_push = self._should_push(alert) and pushed < max_push
+            if self.handle_alert(alert, allow_push=allow_push):
                 pushed += 1
         return pushed
 
@@ -89,69 +85,41 @@ class AlertManager:
         # 其他类型（跨所差/基差）：默认只落库不推送
         return False
 
-    def _persist(self, alert: Dict[str, Any], pushed: bool):
-        """仅落库"""
-        try:
-            self.db.execute_query(
-                """
-                INSERT INTO alerts (alert_type, level, symbol, exchange, message, details, pushed, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    alert.get('alert_type'), alert.get('level'),
-                    alert.get('symbol'), alert.get('exchange'),
-                    alert.get('message'), str(alert.get('details', {})),
-                    1 if pushed else 0, int(time.time() * 1000),
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to persist alert: {e}")
-
-    def handle_alert(self, alert: Dict[str, Any]) -> bool:
+    def handle_alert(self, alert: Dict[str, Any], allow_push: bool = True) -> bool:
         """
-        处理单条告警：去重 -> 落库 -> 推送
+        处理单条告警：
+          - 落库冷却（persist_cooldown，默认 30 分钟）：同标的同类型冷却期内不重复落库
+          - 推送冷却（各类型独立，默认 30-60 分钟）：冷却期内不重复推送，级别升级立即重推
         返回是否实际推送
         """
         key = self._dedup_key(alert)
         level = alert.get('level', 'warning')
-        cooldown = self._get_cooldown(alert.get('alert_type', ''))
         now = time.time()
 
+        # 落库判定
+        persist_cooldown = int(self.config.get('alerts', 'persist_cooldown', 1800))
+        persist_ok = (now - self._persist_cache.get(key, 0)) >= persist_cooldown
+
+        # 推送判定
+        push_cooldown = self._get_cooldown(alert.get('alert_type', ''))
         cached = self._cooldown_cache.get(key)
-        should_push = True
-        if cached:
+        push_ok = allow_push
+        if push_ok and cached:
             elapsed = now - cached['ts']
             level_upgraded = self._is_upgrade(cached.get('level'), level)
-            if elapsed < cooldown and not level_upgraded:
-                should_push = False
+            if elapsed < push_cooldown and not level_upgraded:
+                push_ok = False
 
-        # 落库（无论是否推送都记录，便于面板统计）
-        try:
-            self.db.execute_query(
-                """
-                INSERT INTO alerts (alert_type, level, symbol, exchange, message, details, pushed, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    alert.get('alert_type'),
-                    level,
-                    alert.get('symbol'),
-                    alert.get('exchange'),
-                    alert.get('message'),
-                    str(alert.get('details', {})),
-                    1 if should_push else 0,
-                    int(now * 1000),
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to persist alert: {e}")
+        if persist_ok:
+            self._persist(alert, pushed=push_ok)
+            self._persist_cache[key] = now
 
-        if should_push:
+        if push_ok:
             self._cooldown_cache[key] = {'ts': now, 'level': level}
             self._dispatch(alert)
             logger.info(f"[ALERT][{level}] {alert.get('message')}")
 
-        return should_push
+        return push_ok
 
     def _dedup_key(self, alert: Dict[str, Any]) -> str:
         return f"{alert.get('alert_type')}|{alert.get('symbol')}|{alert.get('exchange')}"
@@ -171,6 +139,24 @@ class AlertManager:
                 cb(alert)
             except Exception as e:
                 logger.error(f"Push callback error: {e}")
+
+    def _persist(self, alert: Dict[str, Any], pushed: bool):
+        """落库"""
+        try:
+            self.db.execute_query(
+                """
+                INSERT INTO alerts (alert_type, level, symbol, exchange, message, details, pushed, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    alert.get('alert_type'), alert.get('level'),
+                    alert.get('symbol'), alert.get('exchange'),
+                    alert.get('message'), str(alert.get('details', {})),
+                    1 if pushed else 0, int(time.time() * 1000),
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to persist alert: {e}")
 
     # ---------- 查询 ----------
 

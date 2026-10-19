@@ -89,6 +89,7 @@ class ConfigManager:
         self.set_default('alerts', 'max_pushes_per_scan', 10, True, "每轮扫描最多推送告警数（防刷屏）")
         self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
         self.set_default('alerts', 'push_depeg', True, True, "稳定币脱锚是否推送")
+        self.set_default('alerts', 'persist_cooldown', 1800, True, "同标的告警落库冷却（秒）")
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 
