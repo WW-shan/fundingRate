@@ -144,10 +144,6 @@ class MarketMonitor:
                         'apr_spread': apr_b - apr_a,
                         'abs_spread': abs(apr_b - apr_a),
                         'interval_mismatch': a.get('funding_interval') != b.get('funding_interval'),
-                        'semantics_mixed': (
-                            a.get('rate_semantics') == 'last_settled'
-                            or b.get('rate_semantics') == 'last_settled'
-                        ),
                     })
         rows.sort(key=lambda r: -r['abs_spread'])
         return rows
@@ -155,45 +151,38 @@ class MarketMonitor:
     # ---------- 基差 ----------
 
     def build_basis_list(self, market_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """期现基差（需要现货价格，来自 market_prices 表最新快照）"""
+        """Build spot/perp basis from the current in-memory price snapshot."""
         rows = []
-        try:
-            # 只取 15 分钟内的最新快照，避免陈旧基差
-            latest = self.db.execute_query(
-                """
-                SELECT exchange, symbol, spot_price, futures_price, timestamp
-                FROM market_prices_latest
-                WHERE timestamp > ?
-                """,
-                (int(time.time() * 1000) - 15 * 60 * 1000,)
-            )
-        except Exception as e:
-            logger.debug(f"Basis query failed: {e}")
-            return rows
-
+        now_ms = int(time.time() * 1000)
+        max_age_ms = 15 * 60 * 1000
         max_sane_basis = float(self.config.get('alerts', 'basis_sanity_limit', 0.5))
-        for row in latest:
-            spot = row.get('spot_price')
-            futures = row.get('futures_price')
-            if not spot or not futures or spot <= 0:
-                continue
-            basis = (futures - spot) / spot
-            # 合理性防护：永续基差极少超过 50%，超出视为数据异常（如停牌陈旧价）
-            if abs(basis) > max_sane_basis:
-                logger.debug(f"Basis sanity filter: {row['symbol']}@{row['exchange']} basis={basis:.2%} discarded")
-                continue
-            rows.append({
-                'exchange': row['exchange'],
-                'symbol': row['symbol'],
-                'spot_price': spot,
-                'futures_price': futures,
-                'basis': basis,
-                'timestamp': row.get('timestamp'),
-            })
+
+        for symbol, exchanges in market_data.items():
+            for exchange, data in exchanges.items():
+                spot = data.get('spot_price')
+                futures = data.get('futures_price')
+                ts = data.get('timestamp')
+                if not spot or not futures or spot <= 0:
+                    continue
+                if ts and now_ms - ts > max_age_ms:
+                    continue
+                basis = (futures - spot) / spot
+                if abs(basis) > max_sane_basis:
+                    logger.debug(
+                        f"Basis sanity filter: {symbol}@{exchange} basis={basis:.2%} discarded"
+                    )
+                    continue
+                rows.append({
+                    'exchange': exchange,
+                    'symbol': symbol,
+                    'spot_price': spot,
+                    'futures_price': futures,
+                    'basis': basis,
+                    'timestamp': ts,
+                })
+
         rows.sort(key=lambda r: -abs(r['basis']))
         return rows
-
-    # ---------- 锚定资产脱锚检测（稳定币/黄金/股票） ----------
 
     def build_depeg_list(self, stablecoin_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -251,10 +240,12 @@ class MarketMonitor:
 
                 # 映射验证：偏离 > 50% 大概率是符号映射错误（如 RIRON 实际非 Disc Medicine）
                 # 此类数据不参与脱锚判定，避免误报
-                if abs(deviation) > 0.5:
+                # Stablecoins must alert even on extreme moves. For stock/commodity
+                # tokens a >50% gap is more likely a symbol mapping error.
+                if abs(deviation) > 0.5 and category not in ('usd_stable', 'eur_stable'):
                     logger.debug(
                         f"Peg mapping check: {symbol}@{exchange} price={price} vs ref={reference} "
-                        f"({deviation:.1%}) — likely wrong mapping, skipped"
+                        f"({deviation:.1%}) ? likely wrong mapping, skipped"
                     )
                     continue
 
@@ -365,7 +356,7 @@ class MarketMonitor:
             interval_h = row.get('funding_interval_hours')
             per_day = (24 / interval_h) if interval_h else None
             freq = f"每 {interval_h:g}h（每日 {per_day:.0f} 次）" if interval_h else "结算周期未知"
-            semantics = '上期已结算值' if row.get('rate_semantics') == 'last_settled' else '下期将收取值'
+            semantics = '下期将收取值'
 
             alerts.append({
                 'alert_type': 'funding_extreme',

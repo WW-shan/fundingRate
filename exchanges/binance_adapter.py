@@ -6,8 +6,9 @@ from .base_exchange import BaseExchange
 
 
 class BinanceAdapter(BaseExchange):
-    # Binance premiumIndex 的 lastFundingRate 是上一期已结算费率
-    funding_rate_semantics = 'last_settled'
+    # premiumIndex.lastFundingRate 是当前预测/下期将收取费率（字段名有误导性）。
+    # 官方历史结算接口 /fapi/v1/fundingRate 才是上一期已结算值。
+    funding_rate_semantics = 'upcoming'
     # 官方文档：fundingInfo 只返回调整过间隔的币种，未返回的默认 8h
     default_funding_interval_ms = 8 * 3600 * 1000
 

@@ -1,3 +1,4 @@
+import time
 """
 交易所基类（监控版）
 仅使用公开 API 获取行情与资金费率，不需要 API 密钥
@@ -8,9 +9,7 @@ from loguru import logger
 
 
 class BaseExchange(ABC):
-    # 资金费率语义：
-    #   'upcoming'      = 下一期将收取/预测的费率（OKX/Bybit/Gate/Bitget）
-    #   'last_settled'  = 上一期已结算的费率（Binance）
+    # 资金费率语义：'upcoming' = 当前预测/下期将收取的费率（五家统一）
     funding_rate_semantics = 'upcoming'
     # 官方缺省结算间隔（毫秒）。Binance fundingInfo 只返回调整过的币种，其余默认 8h
     default_funding_interval_ms = None
@@ -36,7 +35,9 @@ class BaseExchange(ABC):
         """初始化交易所实例"""
         pass
 
-
+    def canonical_symbol(self, symbol: str) -> str:
+        """?????????????????????????????"""
+        return symbol.split(':')[0]
 
     def _parse_funding_interval(self, funding: Dict[str, Any]) -> Optional[int]:
         """
@@ -121,12 +122,17 @@ class BaseExchange(ABC):
 
 
 
-    def test_connection(self) -> bool:
-        """测试公共 API 连接"""
-        try:
-            self.exchange.fetch_time()
-            logger.info(f"{self.__class__.__name__} connection OK")
-            return True
-        except Exception as e:
-            logger.warning(f"{self.__class__.__name__} connection failed: {e}")
-            return False
+    def test_connection(self, retries: int = 2) -> bool:
+        """Test public API connectivity with short retries for transient errors."""
+        last_error = None
+        for attempt in range(retries + 1):
+            try:
+                self.exchange.fetch_time()
+                logger.info(f"{self.__class__.__name__} connection OK")
+                return True
+            except Exception as e:
+                last_error = e
+                if attempt < retries:
+                    time.sleep(1.5 * (attempt + 1))
+        logger.warning(f"{self.__class__.__name__} connection failed after {retries + 1} attempts: {last_error}")
+        return False

@@ -90,13 +90,18 @@ class AlertManager:
         if alert_type == 'issuer_spread':
             return bool(self.config.get('alerts', 'push_issuer_spread', True))
 
-        # 资金费率异常：APR 阈值过滤
+        # Cross-exchange funding spread and spot/perp basis
+        if alert_type == 'cross_spread':
+            return bool(self.config.get('alerts', 'push_cross_spread', False))
+        if alert_type == 'basis_extreme':
+            return bool(self.config.get('alerts', 'push_basis', True))
+
+        # Funding: only absolute APR >= threshold (default 1000%)
         if alert_type == 'funding_extreme':
             threshold = float(self.config.get('alerts', 'push_funding_apr_threshold', 10.0))
             apr = (alert.get('details') or {}).get('apr')
             return apr is not None and abs(apr) >= threshold
 
-        # 其他类型（跨所差/基差）：默认只落库不推送
         return False
 
     def handle_alert(self, alert: Dict[str, Any], allow_push: bool = True) -> bool:

@@ -47,20 +47,32 @@ def status():
 def health():
     """健康检查"""
     db_manager = current_app.config['DB_MANAGER']
+    config_manager = current_app.config['CONFIG_MANAGER']
     data_collector = current_app.config['DATA_COLLECTOR']
     market_monitor = current_app.config['MARKET_MONITOR']
     try:
         with db_manager.get_connection() as conn:
             conn.execute("SELECT 1").fetchone()
+        expected = config_manager.get(
+            'global', 'enabled_exchanges',
+            ['binance', 'okx', 'bybit', 'gate', 'bitget']
+        )
+        if isinstance(expected, str):
+            expected = [x.strip().lower() for x in expected.split(',') if x.strip()]
+        active = set(data_collector.exchanges) if data_collector else set()
+        missing = sorted(set(expected) - active)
         components = {
             'database': True,
-            'data_collector': data_collector is not None and bool(data_collector.exchanges),
+            'data_collector': data_collector is not None and bool(active),
+            'all_enabled_exchanges': not missing,
             'market_monitor': market_monitor is not None,
         }
         all_healthy = all(components.values())
         return jsonify({
             'status': 'healthy' if all_healthy else 'degraded',
             'components': components,
+            'exchanges': sorted(active),
+            'missing_exchanges': missing,
             'timestamp': time.time(),
         }), 200 if all_healthy else 503
     except Exception as e:
@@ -99,17 +111,27 @@ def summary():
 def funding_apr():
     """APR 排行（支持 ?limit= 和 ?exchange= 和 ?symbol= 过滤）"""
     market_monitor = current_app.config['MARKET_MONITOR']
-    limit = _int_arg('limit', 100, 1000)
+    limit = _int_arg('limit', 1000, 10000)
     exchange = request.args.get('exchange', '').lower()
     symbol = request.args.get('symbol', '').upper()
+    sort_key = request.args.get('sort', 'abs_desc')
 
     ranking = market_monitor.last_scan.get('apr_ranking', [])
     if exchange:
         ranking = [r for r in ranking if r['exchange'] == exchange]
     if symbol:
-        # 优先精确匹配基础币种（CT 不应把 WCT/CTK 一起返回）
         exact = [r for r in ranking if r['symbol'].split('/')[0] == symbol]
         ranking = exact or [r for r in ranking if symbol in r['symbol']]
+
+    if sort_key == 'apr_desc':
+        ranking = sorted(ranking, key=lambda r: (r.get('apr') is None, -(r.get('apr') or 0)))
+    elif sort_key == 'apr_asc':
+        ranking = sorted(ranking, key=lambda r: (r.get('apr') is None, r.get('apr') or 0))
+    elif sort_key == 'rate_desc':
+        ranking = sorted(ranking, key=lambda r: (r.get('funding_rate') is None,
+                                                  -(r.get('funding_rate') or 0)))
+    else:
+        ranking = sorted(ranking, key=lambda r: (r.get('apr') is None, -abs(r.get('apr') or 0)))
 
     return jsonify({'success': True, 'data': ranking[:limit], 'total': len(ranking)})
 

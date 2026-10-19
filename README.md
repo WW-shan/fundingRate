@@ -8,18 +8,18 @@
 - **跨所费率差 / 期现基差**：跨所年化差、现货与永续价差，含陈旧行情过滤。
 - **锚定资产脱锚**：稳定币、欧元稳定币、黄金/白银/原油等大宗商品、股票代币。
 - **跨发行商价差**：同一标的的 bStock / Ondo / xStocks / OKX / gStocks / Bitget Reality 版本比价。
-- **Telegram 推送**：极端资金费率（默认 |APR| ≥ 1000%）、脱锚、跨发行商价差；每轮最多 10 条。
+- **Telegram 推送**：极端资金费率（默认 |APR| ≥ 1000%）、期现基差、脱锚、跨发行商价差；每轮最多 5 条。跨所费率差只进面板。
 - **Web 面板**：仪表盘、资金费率、锚定资产、告警历史、配置。
 
 ## 数据来源与口径
 
 | 交易所 | 资金费率来源 | 结算间隔来源 | 费率语义 |
 |---|---|---|---|
-| Binance | `GET /fapi/v1/premiumIndex` | `GET /fapi/v1/fundingInfo`（仅调整过的币种；缺省 8h） | 上期已结算 |
+| Binance | `GET /fapi/v1/premiumIndex` | `GET /fapi/v1/fundingInfo`（仅调整过的币种；缺省 8h） | 当前预测/下期将收取 |
 | OKX | `GET /api/v5/public/funding-rate` | `nextFundingTime - fundingTime`（官方推荐） | 下期预测 |
 | Bybit | `GET /v5/market/tickers` | tickers `fundingIntervalHour` / instruments `fundingInterval` | 下期将收取 |
 | Gate | `GET /futures/usdt/contracts` | `funding_interval`（秒） | 下期将收取 |
-| Bitget | `GET /api/v3/market/current-fund-rate` | `fundingRateInterval`（小时） | 下期将收取 |
+| Bitget | `GET /api/v2/mix/market/current-fund-rate` | `fundingRateInterval`（小时） | 下期将收取 |
 
 APR 公式：
 
@@ -31,10 +31,10 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 
 注意：
 
-- Binance 公开接口只提供**上期已结算**费率，面板会标注“上期”；其他四家为下一期预测/待收取费率。
+- Binance 的 `lastFundingRate` 字段名有误导性：它是当前预测/下期将收取费率，并非上一期已结算值；上一期结算值需查 `/fapi/v1/fundingRate`。五家统一按下期费率比较。
 - 黄金代币以 Yahoo `GC=F` 黄金期货为参考，存在期现基差，因此大宗商品阈值放宽为 2% / 5%。
 - 股票代币在标的休市时参考价为最近收盘价，休市期间只推送 critical 脱锚。
-- 映射偏离超过 50% 视为符号/份额比例异常，不参与脱锚判定。
+- 股票/商品代币映射偏离超过 50% 视为符号或份额比例异常，不参与脱锚判定；稳定币不受此过滤，极端脱锚仍会告警。
 
 ## 锚定资产范围
 
@@ -52,10 +52,10 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 | 锚定资产脱锚 | 稳定币 0.3%/1%，大宗 2%/5%，股票 2%/5% | 推送（休市 warning 除外） |
 | 跨发行商价差 | ≥ 1% | 推送 |
 | 跨所费率差 | ≥ 100% | 仅落库 |
-| 期现基差 | ≥ 2% | 仅落库 |
+| 期现基差 | ≥ 2% | 推送 |
 
 - 同一 `(类型, 标的, 交易所)` 有落库冷却与推送冷却；级别升级立即重推。
-- 每轮最多推送 10 条，防止极端行情刷屏。
+- 每轮最多推送 5 条，防止极端行情刷屏。
 
 ## 快速开始
 
@@ -78,7 +78,7 @@ python main.py
 PROXY_URL=http://127.0.0.1:10808
 ```
 
-也可按交易所单独配置 `BINANCE_PROXY` / `OKX_PROXY` / `BYBIT_PROXY` / `GATE_PROXY` / `BITGET_PROXY`。
+也可按交易所单独配置 `BINANCE_PROXY` / `OKX_PROXY` / `BYBIT_PROXY` / `GATE_PROXY` / `BITGET_PROXY`。Telegram 默认复用 `PROXY_URL`，也可单独设置 `TG_PROXY`。
 
 ## Telegram
 
@@ -118,9 +118,12 @@ fundingRate/
 
 ```bash
 python -m unittest discover -s tests -v
+python -X utf8 scripts/verify_all_exchanges.py
 ```
 
-覆盖 OKX 2h 毫秒间隔、各所间隔单位、APR 归一化、USDT/黄金分类与份额比例等关键回归点。
+逐所全量对账脚本会并发读取系统采集结果与官方原始接口，逐条核对资金费率、周期、结算时间、价格、锚定资产和内部公式；`--exchange okx` 可单独验证一所。
+
+覆盖 OKX 2h 毫秒间隔、各所间隔单位、APR 归一化、Gate 官方市场 ID 归一化、推送优先级、USDT/黄金分类与份额比例等关键回归点。
 
 ## 部署
 

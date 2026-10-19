@@ -4,6 +4,7 @@ Telegram Bot（监控版）
 """
 import os
 import asyncio
+import threading
 from typing import Any, Dict
 from loguru import logger
 from telegram import Update
@@ -22,6 +23,7 @@ class TelegramBot:
         self.chat_id = os.getenv('TG_CHAT_ID')
         self.app = None
         self._loop = None
+        self._stop_requested = False
 
         if not self.bot_token:
             logger.warning("TG_BOT_TOKEN not set - Telegram Bot disabled")
@@ -31,7 +33,15 @@ class TelegramBot:
 
     def _init_bot(self):
         try:
-            self.app = Application.builder().token(self.bot_token).build()
+            builder = Application.builder().token(self.bot_token)
+            proxy = os.getenv('TG_PROXY') or os.getenv('PROXY_URL')
+            if proxy:
+                builder = builder.proxy(proxy).get_updates_proxy(proxy)
+            builder = (builder.connect_timeout(20)
+                              .read_timeout(30)
+                              .write_timeout(30)
+                              .pool_timeout(20))
+            self.app = builder.build()
             self.app.add_handler(CommandHandler("start", self.cmd_start))
             self.app.add_handler(CommandHandler("help", self.cmd_help))
             self.app.add_handler(CommandHandler("status", self.cmd_status))
@@ -49,30 +59,54 @@ class TelegramBot:
             return
 
         def run_bot():
-            try:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-                self._loop.run_until_complete(self.app.initialize())
-                self._loop.run_until_complete(self.app.start())
-                self._loop.run_until_complete(self.app.updater.start_polling())
-                self._loop.run_forever()
-            except Exception as e:
-                logger.error(f"Telegram bot thread stopped: {e}")
+            import time
+            while not self._stop_requested:
+                self._init_bot()
+                try:
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+                    self._loop.run_until_complete(self.app.initialize())
+                    self._loop.run_until_complete(self.app.start())
+                    self._loop.run_until_complete(self.app.updater.start_polling())
+                    logger.info("Telegram polling loop started")
+                    self._loop.run_forever()
+                except Exception as e:
+                    logger.error(f"Telegram bot thread stopped: {e}")
+                finally:
+                    if self._loop and not self._loop.is_closed():
+                        try:
+                            self._loop.close()
+                        except Exception:
+                            pass
+                    self._loop = None
+                if not self._stop_requested:
+                    logger.info("Restarting Telegram bot in 5 seconds")
+                    time.sleep(5)
 
-        import threading
         threading.Thread(target=run_bot, daemon=True).start()
         logger.info("Telegram Bot started in background thread")
 
     def stop(self):
-        if self.app and self._loop:
-            try:
-                asyncio.run_coroutine_threadsafe(self.app.updater.stop(), self._loop)
-                asyncio.run_coroutine_threadsafe(self.app.stop(), self._loop)
-                asyncio.run_coroutine_threadsafe(self.app.shutdown(), self._loop)
-            except Exception as e:
-                logger.error(f"Error stopping bot: {e}")
+        self._stop_requested = True
+        if not self.app or not self._loop:
+            return
 
-    # ---------- 推送 ----------
+        async def shutdown():
+            try:
+                if self.app.updater and self.app.updater.running:
+                    await self.app.updater.stop()
+            finally:
+                try:
+                    await self.app.stop()
+                finally:
+                    await self.app.shutdown()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(shutdown(), self._loop)
+            future.result(timeout=15)
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception as e:
+            logger.error(f"Error stopping bot: {e}")
 
     def push_alert(self, alert: Dict[str, Any]):
         """告警推送（由 AlertManager 回调）"""
@@ -85,7 +119,7 @@ class TelegramBot:
             rate = d.get('funding_rate')
             interval_h = d.get('funding_interval_hours')
             per_day = (24 / interval_h) if interval_h else None
-            semantics = '上期已结算' if d.get('rate_semantics') == 'last_settled' else '下期将收取'
+            semantics = '下期将收取'
             next_ts = d.get('next_funding_time')
 
             message = (
@@ -179,6 +213,7 @@ class TelegramBot:
     async def _send(self, message: str):
         try:
             await self.app.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
+            logger.info("TG message sent")
         except Exception as e:
             logger.error(f"Failed to send TG message: {e}")
 
@@ -233,10 +268,9 @@ class TelegramBot:
             interval = row.get('funding_interval_hours')
             interval_str = f"每{interval:g}h" if interval else "周期未知"
             rate_str = f"{row['funding_rate']*100:+.4f}%" if row.get('funding_rate') is not None else "N/A"
-            sem = " [上期]" if row.get('rate_semantics') == 'last_settled' else ""
             lines.append(
                 f"{i}. {row['symbol']} @ {row['exchange']}: <b>APR {apr_str}</b> | "
-                f"当前 {rate_str} | {interval_str}{sem}"
+                f"当前 {rate_str} | {interval_str}"
             )
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
 

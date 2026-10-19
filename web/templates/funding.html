@@ -38,7 +38,7 @@
     <div class="config-desc" style="margin-bottom:12px">
       APR = 单期费率 × (365 × 24 / 结算间隔小时)；各交易所/各币结算周期不同，已逐币归一化。
       正费率 = 多头付空头；负费率 = 空头付多头（负值同样是有效信号）。
-      Binance 公开接口只提供上期已结算费率，表中会标注“上期”。
+      五家交易所均使用当前预测/下期将收取费率；Binance 的 lastFundingRate 字段名有误导性，并非上期结算值。
     </div>
 
     <div class="filter-bar">
@@ -115,7 +115,7 @@ async function refresh() {
 
   try {
     if (currentTab === 'apr') {
-      let url = '/api/funding/apr?limit=200';
+      let url = '/api/funding/apr?limit=1000&sort=' + encodeURIComponent(sortKey);
       if (exchange) url += '&exchange=' + exchange;
       if (symbol) url += '&symbol=' + encodeURIComponent(symbol);
       const res = await fetchJSON(url);
@@ -137,11 +137,10 @@ async function refresh() {
       } else {
         tbody.innerHTML = rows.map((r, i) => {
           const perDay = r.funding_interval_hours ? (24 / r.funding_interval_hours).toFixed(1) : 'N/A';
-          const semantics = r.rate_semantics === 'last_settled' ? ' <span class="badge badge-gray">上期</span>' : '';
           return `<tr>
             <td>${i + 1}</td>
             <td><b>${r.symbol}</b></td>
-            <td>${exchangeBadge(r.exchange)}${semantics}</td>
+            <td>${exchangeBadge(r.exchange)}</td>
             <td class="${r.apr > 0 ? 'text-green' : (r.apr < 0 ? 'text-red' : '')}" ${Math.abs(r.apr || 0) >= 10 ? 'style="font-weight:700"' : ''}>${fmtPct(r.apr, 2)}</td>
             <td class="${pnlClass(r.funding_rate)}">${fmtPct(r.funding_rate, 4)}</td>
             <td>${r.funding_interval_hours ? '每' + r.funding_interval_hours + 'h' : '<span class="badge badge-yellow">未知</span>'}</td>
@@ -168,7 +167,7 @@ async function refresh() {
           <td>${exchangeBadge(r.exchange_b)}</td>
           <td>${fmtPct(r.apr_b, 2)}</td>
           <td class="text-green">${fmtPct(r.abs_spread, 2)}</td>
-          <td>${r.interval_mismatch ? '<span class="badge badge-yellow">周期不一致</span>' : ''}${r.semantics_mixed ? ' <span class="badge badge-gray">含上期值</span>' : ''}</td>
+          <td>${r.interval_mismatch ? '<span class="badge badge-yellow">周期不一致</span>' : ''}</td>
         </tr>`).join('');
       }
     } else {

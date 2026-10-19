@@ -102,19 +102,18 @@ class DataCollector:
         for name, adapter in self.exchanges.items():
             try:
                 t0 = time.time()
-                rates = adapter.exchange.fetch_funding_rates()
-                if not rates:
-                    logger.warning(f"{name} returned no funding rates; keeping previous snapshot")
-                    continue
-
-                # 部分交易所（Binance/Bitget）批量接口缺 interval/fundingTimestamp，
-                # 用官方 fundingIntervals 接口补充（Binance 权重 0，一次全量）
+                # Fetch slower interval metadata first; fetch the live predicted rate last.
                 intervals = {}
                 if adapter.exchange.has.get('fetchFundingIntervals'):
                     try:
                         intervals = adapter.exchange.fetch_funding_intervals()
                     except Exception as e:
                         logger.debug(f"{name} fetch_funding_intervals failed: {e}")
+
+                rates = adapter.exchange.fetch_funding_rates()
+                if not rates:
+                    logger.warning(f"{name} returned no funding rates; keeping previous snapshot")
+                    continue
 
                 count = 0
                 ts = int(time.time() * 1000)
@@ -140,7 +139,7 @@ class DataCollector:
                             continue
                     except Exception:
                         pass
-                    base_symbol = symbol.split(':')[0]
+                    base_symbol = adapter.canonical_symbol(symbol)
                     rate = data.get('fundingRate')
                     if rate is None:
                         continue
@@ -217,14 +216,16 @@ class DataCollector:
                     continue
 
                 # 收集有现货且有永续的币种
-                symbols = set()
-                for sym in spot_tickers:
+                spot_map = {}
+                for sym, ticker in spot_tickers.items():
                     if sym.endswith('/USDT') and ':' not in sym:
-                        symbols.add(sym)
+                        canonical = adapter.canonical_symbol(sym)
+                        spot_map[canonical] = (sym, ticker)
                 futures_map = {}
-                for sym, t in futures_tickers.items():
+                for sym, ticker in futures_tickers.items():
                     if sym.endswith(':USDT'):
-                        futures_map[sym.split(':')[0]] = t
+                        canonical = adapter.canonical_symbol(sym)
+                        futures_map[canonical] = (sym, ticker)
 
                 count = 0
                 db_rows = []
@@ -238,11 +239,16 @@ class DataCollector:
                             entry.pop(key, None)
                 stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
                 now_ms = int(time.time() * 1000)
-                for sym in symbols:
-                    if sym not in futures_map:
-                        continue
-                    st = spot_tickers[sym]
-                    ft = futures_map[sym]
+                for sym in spot_map.keys() & futures_map.keys():
+                    spot_symbol, st = spot_map[sym]
+                    futures_symbol, ft = futures_map[sym]
+                    try:
+                        if adapter.exchange.market(spot_symbol).get('active') is False:
+                            continue
+                        if adapter.exchange.market(futures_symbol).get('active') is False:
+                            continue
+                    except Exception:
+                        pass
 
                     # 过滤陈旧行情（退市/停牌币种的 ticker 会保留最后价格）
                     st_ts = st.get('timestamp')
@@ -319,6 +325,7 @@ class DataCollector:
             return
 
         ts = int(time.time() * 1000)
+        stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
         collected = 0
         db_rows = []
         new_data = {}
@@ -329,13 +336,36 @@ class DataCollector:
             except Exception as e:
                 logger.debug(f"{name} peg tickers failed: {e}")
                 continue
+            canonical_tickers = {}
+            for ticker_symbol, ticker in tickers.items():
+                if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
+                    canonical_tickers[adapter.canonical_symbol(ticker_symbol)] = (ticker_symbol, ticker)
             for market_symbol, sym in wanted.items():
-                ticker = tickers.get(market_symbol)
-                if not ticker and sym == 'USDT':
-                    ticker = tickers.get('USDC/USDT')
-                if not ticker:
+                lookup_symbol = 'USDC/USDT' if sym == 'USDT' else market_symbol
+                item = canonical_tickers.get(lookup_symbol)
+                if not item:
                     continue
+                actual_market, ticker = item
+                try:
+                    if adapter.exchange.market(actual_market).get('active') is False:
+                        continue
+                except Exception:
+                    pass
+                ticker_ts = ticker.get('timestamp')
+                stale = bool(ticker_ts and (ts - ticker_ts) > stale_ms)
                 raw_price = ticker.get('last') or ticker.get('bid')
+                if stale:
+                    # Low-liquidity but still active markets may have a stale last
+                    # trade while two-sided bid/ask remain valid. Use mid price.
+                    bid = ticker.get('bid')
+                    ask = ticker.get('ask')
+                    try:
+                        bid_f, ask_f = float(bid), float(ask)
+                    except (TypeError, ValueError):
+                        continue
+                    if bid_f <= 0 or ask_f <= 0 or ask_f < bid_f:
+                        continue
+                    raw_price = (bid_f + ask_f) / 2
                 if not raw_price:
                     continue
                 try:

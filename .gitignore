@@ -37,7 +37,7 @@ env/
 data/
 
 # Logs
-logs/*.log
+logs/
 *.log
 
 # IDE

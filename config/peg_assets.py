@@ -346,6 +346,8 @@ class PegAssetDiscovery:
                 return self.registry
 
             min_volume = float(self.config.get('alerts', 'peg_min_volume_usd', 500_000))
+            now_ms = int(now * 1000)
+            stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
 
             # 第一遍：收集所有候选资产的报价与成交额
             candidates: Dict[str, Dict[str, Any]] = {}
@@ -356,16 +358,36 @@ class PegAssetDiscovery:
                     logger.warning(f"{name} ticker fetch failed during discovery: {e}")
                     continue
 
-                for sym, t in tickers.items():
-                    if not sym.endswith('/USDT') or ':' in sym:
-                        continue
-                    base = sym.split('/')[0]
+                canonical_tickers = {}
+                for ticker_symbol, ticker in tickers.items():
+                    if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
+                        canonical = adapter.canonical_symbol(ticker_symbol)
+                        canonical_tickers[canonical] = (ticker_symbol, ticker)
+
+                for canonical_pair, (ticker_symbol, ticker) in canonical_tickers.items():
+                    base = canonical_pair.split('/')[0]
                     category, ref_symbol, issuer = classify(base)
                     if not category:
                         continue
 
-                    price = t.get('last')
-                    volume = float(t.get('quoteVolume') or 0)
+                    try:
+                        if adapter.exchange.market(ticker_symbol).get('active') is False:
+                            continue
+                    except Exception:
+                        pass
+                    ticker_ts = ticker.get('timestamp')
+                    stale = bool(ticker_ts and (now_ms - ticker_ts) > stale_ms)
+                    price = ticker.get('last')
+                    if stale:
+                        try:
+                            bid = float(ticker.get('bid'))
+                            ask = float(ticker.get('ask'))
+                        except (TypeError, ValueError):
+                            continue
+                        if bid <= 0 or ask <= 0 or ask < bid:
+                            continue
+                        price = (bid + ask) / 2
+                    volume = float(ticker.get('quoteVolume') or 0)
                     if not price or price <= 0:
                         continue
 
@@ -379,25 +401,32 @@ class PegAssetDiscovery:
                     })
                     entry['volume_24h'] += volume
 
-                # USDT 是报价资产，没有 USDT/USDT 交易对；用 USDC/USDT 反算
-                usdc_usdt = tickers.get('USDC/USDT')
-                if usdc_usdt and usdc_usdt.get('last'):
+                # USDT has no USDT/USDT market; derive it from USDC/USDT.
+                usdc_item = canonical_tickers.get('USDC/USDT')
+                if usdc_item:
+                    usdc_market, usdc_usdt = usdc_item
                     try:
-                        usdt_price = 1.0 / float(usdc_usdt['last'])
-                    except (TypeError, ValueError, ZeroDivisionError):
-                        usdt_price = None
-                    if usdt_price and usdt_price > 0:
-                        entry = candidates.setdefault('USDT', {
-                            'symbol': 'USDT',
-                            'category': 'usd_stable',
-                            'reference_symbol': 'USD',
-                            'issuer': STABLE_ISSUERS['USDT'],
-                            'reference_ratio': 1.0,
-                            'volume_24h': 0,
-                        })
-                        entry['volume_24h'] += float(usdc_usdt.get('quoteVolume') or 0)
+                        active = adapter.exchange.market(usdc_market).get('active') is not False
+                    except Exception:
+                        active = True
+                    ticker_ts = usdc_usdt.get('timestamp')
+                    fresh = not ticker_ts or (now_ms - ticker_ts) <= stale_ms
+                    if active and fresh and usdc_usdt.get('last'):
+                        try:
+                            usdt_price = 1.0 / float(usdc_usdt['last'])
+                        except (TypeError, ValueError, ZeroDivisionError):
+                            usdt_price = None
+                        if usdt_price and usdt_price > 0:
+                            entry = candidates.setdefault('USDT', {
+                                'symbol': 'USDT',
+                                'category': 'usd_stable',
+                                'reference_symbol': 'USD',
+                                'issuer': STABLE_ISSUERS['USDT'],
+                                'reference_ratio': 1.0,
+                                'volume_24h': 0,
+                            })
+                            entry['volume_24h'] += float(usdc_usdt.get('quoteVolume') or 0)
 
-            # 第二遍：按全市场总量过滤
             registry = {sym: e for sym, e in candidates.items() if e['volume_24h'] >= min_volume}
 
             # 按标的聚合（跨发行商分组）

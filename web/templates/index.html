@@ -105,11 +105,10 @@ async function refresh() {
       tbodyApr.innerHTML = topApr.map((r, i) => {
         const aprCls = r.apr > 0 ? 'text-green' : (r.apr < 0 ? 'text-red' : '');
         const interval = r.funding_interval_hours ? `每${r.funding_interval_hours}h` : '未知';
-        const semantics = r.rate_semantics === 'last_settled' ? ' <span class="badge badge-gray" title="上期已结算">上期</span>' : '';
         return `<tr>
           <td>${i + 1}</td>
           <td><b>${r.symbol}</b></td>
-          <td>${exchangeBadge(r.exchange)}${semantics}</td>
+          <td>${exchangeBadge(r.exchange)}</td>
           <td class="${aprCls}">${fmtPct(r.apr, 2)}</td>
           <td class="${pnlClass(r.funding_rate)}">${fmtPct(r.funding_rate, 4)}</td>
           <td>${interval}</td>
@@ -130,7 +129,7 @@ async function refresh() {
         <td class="text-green">${fmtPct(r.abs_spread, 2)}</td>
         <td>${fmtPct(r.apr_a, 2)}</td>
         <td>${fmtPct(r.apr_b, 2)}</td>
-        <td>${r.interval_mismatch ? '<span class="badge badge-yellow">周期不一致</span>' : ''}${r.semantics_mixed ? ' <span class="badge badge-gray">含上期值</span>' : ''}</td>
+        <td>${r.interval_mismatch ? '<span class="badge badge-yellow">周期不一致</span>' : ''}</td>
       </tr>`).join('');
     }
 
