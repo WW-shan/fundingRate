@@ -56,6 +56,9 @@
 
   <div class="card">
     <h3>🪙 锚定资产状态（稳定币 / 大宗商品 / 股票代币）</h3>
+    <div class="text-muted" style="font-size:12px;margin:-6px 0 12px">
+      股票代币按其他发行商同标的产品中位价对比（跨产品），无同类产品时不判定偏离。
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>资产</th><th>交易所</th><th>价格</th><th>偏离</th><th>状态</th></tr></thead>
@@ -144,24 +147,29 @@ async function refresh() {
         const warn = r.threshold_warning ?? 0.003;
         const isPeer = r.reference_source === 'peer';
         const isStale = r.reference_source === 'stale_close';
+        const isNoPeer = r.reference_source === 'no_peer' || isStale;
+        const isStockPeer = isPeer && r.category === 'stock';
         let cls, label;
         if (isStale) {
           cls = 'badge-gray';
           label = '休市·无同类';
+        } else if (isNoPeer) {
+          cls = 'badge-gray';
+          label = '无同类可比';
         } else {
           cls = r.abs_deviation >= crit ? 'badge-red' : (r.abs_deviation >= warn ? 'badge-yellow' : 'badge-green');
-          label = r.abs_deviation >= crit ? '严重偏离' : (r.abs_deviation >= warn ? '偏离预警' : '正常');
-          if (isPeer) {
-            label = r.abs_deviation >= crit ? '同类严重偏离'
-                  : (r.abs_deviation >= warn ? '同类偏离预警' : '同类正常');
-          }
+          const prefix = isStockPeer ? '跨产品' : (isPeer ? '同类' : '');
+          label = prefix + (r.abs_deviation >= crit ? '严重偏离' : (r.abs_deviation >= warn ? '偏离预警' : '正常'));
         }
+        let tag = '';
+        if (isStockPeer) tag = ' <span class="badge badge-blue">跨产品</span>';
+        else if (isPeer) tag = ' <span class="badge badge-blue">休市</span>';
         return `<tr>
           <td><b>${r.symbol}</b></td>
           <td>${exchangeBadge(r.exchange)}</td>
           <td class="mono">${r.price.toFixed(6)}</td>
-          <td class="${isStale ? 'text-muted' : pnlClass(r.deviation)}">${isStale ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
-          <td><span class="badge ${cls}">${label}</span>${isPeer ? ' <span class="badge badge-blue">休市</span>' : ''}</td>
+          <td class="${isNoPeer ? 'text-muted' : pnlClass(r.deviation)}">${isNoPeer ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
+          <td><span class="badge ${cls}">${label}</span>${tag}</td>
         </tr>`;
       }).join('');
     }

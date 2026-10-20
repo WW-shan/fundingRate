@@ -37,7 +37,7 @@ function typeLabel(t) {
     funding_extreme: '资金费率异常',
     cross_spread: '跨所费率差',
     basis_extreme: '基差异常',
-    stablecoin_depeg: '锚定资产脱锚',
+    stablecoin_depeg: '锚定资产偏离',
     issuer_spread: '跨发行商价差',
   };
   return map[t] || t;

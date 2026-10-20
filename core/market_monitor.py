@@ -238,18 +238,24 @@ class MarketMonitor:
 
     def build_depeg_list(self, stablecoin_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        计算所有锚定资产相对参考价的偏离度
+        计算所有锚定资产相对参考价的偏离度。
+
         参考价来源：
           - usd_stable: 固定 1.0
           - eur_stable: Yahoo EURUSD=X
-          - gold:       Yahoo GC=F
-          - stock:      Yahoo 对应股票代码
+          - commodity:  Yahoo GC=F / 商品 ETF
+          - stock:      不使用 Yahoo；始终用【其他发行商同标的产品】的中位价
+                        （思路类似跨所价差，但比较的是不同产品/发行商）
 
-        休市处理（非美元稳定币）：
-          - 标的市场休市时参考价为最近收盘价，与链上价格不可比（盘后漂移属正常）
-          - 此时改用【同类产品】（同一标的的其他发行商版本）的中位价作为参考
-          - 休市行不产生脱锚告警（depeg_signal=False），比价信号由跨发行商价差检测承担
-          - 若无同类产品可比，标记 reference_source='stale_close'，仅面板展示
+        股票代币规则：
+          - 有同类产品：reference_source='peer'，按跨产品中位价计算偏离；
+            不产生 stablecoin_depeg 告警，比价信号由 issuer_spread 检测承担
+          - 无同类产品：reference_source='no_peer'，不计算偏离、不参与排序/告警，
+            仅展示链上价格
+          - 休市与否不再影响股票代币的参考价选择
+
+        其他类别保留原逻辑：
+          - 休市时改用同类产品中位价；无同类则 stale_close，仅展示
         """
         from config import peg_assets
 
@@ -258,6 +264,8 @@ class MarketMonitor:
 
         # 同类产品价格索引：underlying -> issuer -> [归一化价格]
         # 先按发行商取中位数，再跨发行商取中位数，避免单一发行商的多个交易所刷权重
+        now_ms = int(time.time() * 1000)
+        max_age_ms = max(120, int(self.config.get('global', 'stablecoin_refresh_interval', 60))) * 2 * 1000
         peer_index: Dict[str, Dict[str, List[float]]] = {}
         for sym, sym_exchanges in stablecoin_data.items():
             e = registry.get(sym) or {}
@@ -268,8 +276,28 @@ class MarketMonitor:
             ratio = float(e.get('reference_ratio', 1.0)) or 1.0
             for data in sym_exchanges.values():
                 p = data.get('price')
-                if p and p > 0:
+                ts = data.get('timestamp')
+                if p and p > 0 and (not ts or now_ms - ts <= max_age_ms):
                     peer_index.setdefault(ref_sym, {}).setdefault(issuer, []).append(float(p) / ratio)
+
+        def _peer_median(ref_sym: str, own_issuer: str):
+            """返回 (其他发行商中位价, 其他发行商数量)。"""
+            issuer_medians = []
+            for issuer, prices in peer_index.get(ref_sym, {}).items():
+                if issuer == own_issuer or not prices:
+                    continue
+                prices = sorted(prices)
+                mid = len(prices) // 2
+                issuer_medians.append(
+                    prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+                )
+            if not issuer_medians:
+                return None, 0
+            issuer_medians.sort()
+            mid = len(issuer_medians) // 2
+            median = (issuer_medians[mid] if len(issuer_medians) % 2
+                      else (issuer_medians[mid - 1] + issuer_medians[mid]) / 2)
+            return median, len(issuer_medians)
 
         issuer_spread_threshold = float(self.config.get('alerts', 'issuer_spread_threshold', 0.01))
 
@@ -290,8 +318,22 @@ class MarketMonitor:
             reference_source = 'reference'
             depeg_signal = True
             ratio = float(entry.get('reference_ratio', 1.0)) if entry else 1.0
+            reference = None
+            peer_count = 0
+
             if category == 'usd_stable':
                 reference = 1.0
+            elif category == 'stock':
+                # 股票代币：只和其他发行商的同标的产品比较，绝不使用 Yahoo 价格。
+                own_issuer = (entry or {}).get('issuer') or symbol.lower()
+                peer_ref, peer_count = _peer_median(ref_symbol, own_issuer)
+                if peer_ref:
+                    reference = peer_ref * ratio
+                    reference_source = 'peer'
+                else:
+                    reference_source = 'no_peer'
+                # 跨产品比价信号统一由 issuer_spread 检测，避免重复告警
+                depeg_signal = False
             else:
                 ref_data = refs.get(ref_symbol) or {}
                 reference = ref_data.get('price')
@@ -303,31 +345,17 @@ class MarketMonitor:
                     continue
                 reference = float(reference) * ratio
                 reference_time = ref_data.get('market_time')
-                # If market_time is unavailable, do not assume the market is open.
-                # Treat it as closed: use peer median when available, otherwise skip.
+                # 无 market_time 时按休市处理：优先同类中位价，否则仅展示
                 if reference_time:
                     market_closed = (time.time() - reference_time) > 1800
                 else:
                     market_closed = True
 
-                if market_closed and category != 'usd_stable':
-                    # 休市：不拿陈旧收盘价当锚，改用【其他发行商】同标的产品中位价
+                if market_closed:
                     own_issuer = (entry or {}).get('issuer') or symbol.lower()
-                    issuer_medians = []
-                    for issuer, prices in peer_index.get(ref_symbol, {}).items():
-                        if issuer == own_issuer or not prices:
-                            continue
-                        prices = sorted(prices)
-                        mid = len(prices) // 2
-                        issuer_medians.append(
-                            prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
-                        )
-                    if issuer_medians:
-                        issuer_medians.sort()
-                        mid = len(issuer_medians) // 2
-                        peer_median = (issuer_medians[mid] if len(issuer_medians) % 2
-                                       else (issuer_medians[mid - 1] + issuer_medians[mid]) / 2)
-                        reference = peer_median * ratio
+                    peer_ref, peer_count = _peer_median(ref_symbol, own_issuer)
+                    if peer_ref:
+                        reference = peer_ref * ratio
                         reference_source = 'peer'
                         reference_time = None
                     else:
@@ -346,15 +374,14 @@ class MarketMonitor:
                 if not price:
                     continue
 
-                # 休市且无同类产品时，收盘价与链上价格没有可比性：
-                # 不计算偏离、不参与排序/告警，仅保留收盘价作为背景信息。
-                if reference_source == 'stale_close':
+                # 无同类产品/仅有背景价时，不计算偏离、不参与排序和告警
+                if reference_source in ('stale_close', 'no_peer'):
                     deviation = None
                 else:
                     deviation = (price - reference) / reference
 
-                    # 映射验证：偏离 > 50% 大概率是符号映射错误（如 RIRON 实际非 Disc Medicine）
-                    # 此类数据不参与脱锚判定，避免误报
+                    # 映射验证：偏离 > 50% 大概率是符号映射错误
+                    # 此类数据不参与判定，避免误报
                     if abs(deviation) > 0.5 and category not in ('usd_stable', 'eur_stable'):
                         logger.debug(
                             f"Peg mapping check: {symbol}@{exchange} price={price} vs ref={reference} "
@@ -371,9 +398,10 @@ class MarketMonitor:
                     'reference_ratio': ratio,
                     'reference_time': reference_time,
                     'reference_source': reference_source,
-                    'comparable': reference_source != 'stale_close',
+                    'comparable': reference_source not in ('stale_close', 'no_peer'),
                     'depeg_signal': depeg_signal,
                     'market_closed': market_closed,
+                    'peer_count': peer_count,
                     'deviation': deviation,
                     'abs_deviation': abs(deviation) if deviation is not None else None,
                     'threshold_warning': thresholds['warning'],
@@ -383,7 +411,7 @@ class MarketMonitor:
                     'timestamp': data.get('timestamp'),
                 })
 
-        # 可比行按偏离排序；休市且无同类的行（deviation=None）排在最后
+        # 可比行按偏离排序；无同类/仅背景价的行排在最后
         rows.sort(key=lambda r: (r['abs_deviation'] is None, -(r['abs_deviation'] or 0)))
         return rows
 
@@ -401,9 +429,11 @@ class MarketMonitor:
 
         for underlying, symbols in groups.items():
             quotes = []
+            category = None
             for sym in symbols:
                 entry = self.data_collector.peg_discovery.registry.get(sym) or {}
                 issuer = entry.get('issuer') or sym.lower()
+                category = category or entry.get('category')
                 ratio = float(entry.get('reference_ratio', 1.0))
                 for exchange, data in (stablecoin_data.get(sym) or {}).items():
                     price = data.get('price')
@@ -445,6 +475,7 @@ class MarketMonitor:
 
             rows.append({
                 'underlying': underlying,
+                'category': category,
                 'quotes': sorted(quotes, key=lambda q: q['price']),
                 'issuer_prices': issuer_prices,
                 'low': lo,
@@ -544,13 +575,14 @@ class MarketMonitor:
                     label += f" [raw ${q['price']:.4f}]"
                 return label
             detail = ' | '.join(_quote_label(q) for q in quotes[:5])
+            label = '跨产品价差' if row.get('category') == 'stock' else '跨发行商价差'
             alerts.append({
                 'alert_type': 'issuer_spread',
                 'level': 'critical' if row['abs_spread'] >= threshold * 3 else 'warning',
                 'symbol': row['underlying'],
                 'exchange': 'multi',
                 'message': (
-                    f"{row['underlying']} 跨发行商价差 {row['abs_spread']*100:.2f}%: {detail}"
+                    f"{row['underlying']} {label} {row['abs_spread']*100:.2f}%: {detail}"
                 ),
                 'details': row,
             })

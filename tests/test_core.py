@@ -175,17 +175,25 @@ class PegAssetTests(unittest.TestCase):
         self.assertEqual(peg_assets.get_thresholds('commodity'), {'warning': 0.02, 'critical': 0.05})
 
 
-class MarketMonitorClosedMarketTests(unittest.TestCase):
-    """休市期间：不拿收盘价当锚，改用同类产品中位价"""
+class MarketMonitorStockComparisonTests(unittest.TestCase):
+    """股票代币：不再和 Yahoo 比，而是和其他发行商同标的产品中位价比较"""
 
     def _build_monitor(self, stablecoin_data, refs, registry):
         from core.market_monitor import MarketMonitor
 
         class FakeDiscovery:
-            pass
+            def __init__(self):
+                self.registry = registry
+
+            def get_cross_issuer_groups(self):
+                groups = {}
+                for sym, entry in registry.items():
+                    ref = entry.get('reference_symbol')
+                    if ref:
+                        groups.setdefault(ref, []).append(sym)
+                return {k: v for k, v in groups.items() if len(v) > 1}
 
         discovery = FakeDiscovery()
-        discovery.registry = registry
 
         class FakeCollector:
             def get_reference_prices(self_inner):
@@ -197,97 +205,53 @@ class MarketMonitorClosedMarketTests(unittest.TestCase):
         config = SimpleNamespace(get=lambda category, key, default=None: default)
         return MarketMonitor(config, None, collector)
 
-    def test_closed_market_uses_peer_median(self):
-        import time
-
-        old_market_time = int(time.time()) - 7200  # 2h 前 => 休市
-        refs = {"AAPL": {"price": 200.0, "timestamp": int(time.time() * 1000), "market_time": old_market_time}}
-        registry = {
+    def _registry(self):
+        return {
             "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
             "AAPLB": {"category": "stock", "reference_symbol": "AAPL", "issuer": "ondo", "reference_ratio": 1.0},
             "AAPLC": {"category": "stock", "reference_symbol": "AAPL", "issuer": "okx", "reference_ratio": 1.0},
         }
-        now = int(time.time() * 1000)
+
+    def test_stock_uses_peer_median_when_market_closed(self):
+        import time
+
+        now_ms = int(time.time() * 1000)
+        old_market_time = int(time.time()) - 7200
+        refs = {"AAPL": {"price": 200.0, "timestamp": now_ms, "market_time": old_market_time}}
         data = {
-            "AAPLA": {"gate": {"price": 180.0, "timestamp": now}},
-            "AAPLB": {"binance": {"price": 181.0, "timestamp": now}},
-            "AAPLC": {"okx": {"price": 182.0, "timestamp": now}},
+            "AAPLA": {"gate": {"price": 180.0, "timestamp": now_ms}},
+            "AAPLB": {"binance": {"price": 181.0, "timestamp": now_ms}},
+            "AAPLC": {"okx": {"price": 182.0, "timestamp": now_ms}},
         }
-        mm = self._build_monitor(data, refs, registry)
+        mm = self._build_monitor(data, refs, self._registry())
         rows = {r["symbol"]: r for r in mm.build_depeg_list(data)}
 
         self.assertEqual(rows["AAPLA"]["reference_source"], "peer")
         self.assertFalse(rows["AAPLA"]["depeg_signal"])
-        self.assertTrue(rows["AAPLA"]["market_closed"])
         # 同类中位价 = median(181, 182) = 181.5（不含自身 180）
         self.assertAlmostEqual(rows["AAPLA"]["reference"], 181.5)
-        # 休市行不产生脱锚告警
         self.assertEqual([a for a in mm._check_depeg_anomalies(list(rows.values()))
                           if a["symbol"] == "AAPLA"], [])
 
-    def test_closed_market_without_peer_marks_stale_close(self):
-        import time
-
-        old_market_time = int(time.time()) - 7200
-        refs = {"AAPL": {"price": 200.0, "timestamp": int(time.time() * 1000), "market_time": old_market_time}}
-        registry = {
-            "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
-        }
-        data = {"AAPLA": {"gate": {"price": 150.0, "timestamp": int(time.time() * 1000)}}}
-        mm = self._build_monitor(data, refs, registry)
-        rows = mm.build_depeg_list(data)
-
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["reference_source"], "stale_close")
-        self.assertFalse(rows[0]["depeg_signal"])
-        self.assertFalse(rows[0]["comparable"])
-        self.assertIsNone(rows[0]["deviation"])
-        self.assertIsNone(rows[0]["abs_deviation"])
-        self.assertEqual(mm._check_depeg_anomalies(rows), [])
-
-    def test_closed_market_without_peer_sorts_after_comparable_rows(self):
+    def test_stock_uses_peer_median_when_market_open(self):
         import time
 
         now_s = int(time.time())
-        old_market_time = now_s - 7200
-        refs = {
-            "AAPL": {"price": 200.0, "timestamp": now_s * 1000, "market_time": now_s - 60},
-            "MSFT": {"price": 300.0, "timestamp": now_s * 1000, "market_time": old_market_time},
-        }
-        registry = {
-            "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
-            "MSFTR": {"category": "stock", "reference_symbol": "MSFT", "issuer": "reality", "reference_ratio": 1.0},
-        }
+        refs = {"AAPL": {"price": 200.0, "timestamp": now_s * 1000, "market_time": now_s - 60}}
         data = {
-            "AAPLA": {"gate": {"price": 210.0, "timestamp": now_s * 1000}},
-            "MSFTR": {"bitget": {"price": 250.0, "timestamp": now_s * 1000}},
+            "AAPLA": {"gate": {"price": 180.0, "timestamp": now_s * 1000}},
+            "AAPLB": {"binance": {"price": 181.0, "timestamp": now_s * 1000}},
+            "AAPLC": {"okx": {"price": 182.0, "timestamp": now_s * 1000}},
         }
-        mm = self._build_monitor(data, refs, registry)
-        rows = mm.build_depeg_list(data)
+        mm = self._build_monitor(data, refs, self._registry())
+        rows = {r["symbol"]: r for r in mm.build_depeg_list(data)}
 
-        self.assertEqual([r["symbol"] for r in rows], ["AAPLA", "MSFTR"])
-        self.assertEqual(rows[0]["reference_source"], "reference")
-        self.assertIsNotNone(rows[0]["abs_deviation"])
-        self.assertEqual(rows[1]["reference_source"], "stale_close")
-        self.assertIsNone(rows[1]["abs_deviation"])
+        # 即使美股开盘，也不使用 Yahoo 的 200，而是用同类中位价 181.5
+        self.assertEqual(rows["AAPLA"]["reference_source"], "peer")
+        self.assertAlmostEqual(rows["AAPLA"]["reference"], 181.5)
+        self.assertFalse(rows["AAPLA"]["depeg_signal"])
 
-    def test_stock_without_market_time_is_not_compared_to_close(self):
-        import time
-
-        refs = {"AAPL": {"price": 200.0, "timestamp": int(time.time() * 1000)}}
-        registry = {
-            "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
-        }
-        data = {"AAPLA": {"gate": {"price": 150.0, "timestamp": int(time.time() * 1000)}}}
-        mm = self._build_monitor(data, refs, registry)
-        rows = mm.build_depeg_list(data)
-
-        self.assertEqual(rows[0]["reference_source"], "stale_close")
-        self.assertTrue(rows[0]["market_closed"])
-        self.assertIsNone(rows[0]["deviation"])
-        self.assertFalse(rows[0]["comparable"])
-
-    def test_open_market_still_uses_reference(self):
+    def test_stock_without_peer_marks_no_peer(self):
         import time
 
         now_s = int(time.time())
@@ -295,16 +259,106 @@ class MarketMonitorClosedMarketTests(unittest.TestCase):
         registry = {
             "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
         }
-        data = {"AAPLA": {"gate": {"price": 190.0, "timestamp": now_s * 1000}}}
+        data = {"AAPLA": {"gate": {"price": 150.0, "timestamp": now_s * 1000}}}
+        mm = self._build_monitor(data, refs, registry)
+        rows = mm.build_depeg_list(data)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reference_source"], "no_peer")
+        self.assertIsNone(rows[0]["reference"])
+        self.assertFalse(rows[0]["depeg_signal"])
+        self.assertFalse(rows[0]["comparable"])
+        self.assertIsNone(rows[0]["deviation"])
+        self.assertIsNone(rows[0]["abs_deviation"])
+        self.assertEqual(mm._check_depeg_anomalies(rows), [])
+
+    def test_no_peer_rows_sort_after_comparable_rows(self):
+        import time
+
+        now_s = int(time.time())
+        refs = {
+            "AAPL": {"price": 200.0, "timestamp": now_s * 1000, "market_time": now_s - 60},
+            "MSFT": {"price": 300.0, "timestamp": now_s * 1000, "market_time": now_s - 60},
+        }
+        registry = {
+            "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
+            "AAPLB": {"category": "stock", "reference_symbol": "AAPL", "issuer": "ondo", "reference_ratio": 1.0},
+            "MSFTR": {"category": "stock", "reference_symbol": "MSFT", "issuer": "reality", "reference_ratio": 1.0},
+        }
+        data = {
+            "AAPLA": {"gate": {"price": 210.0, "timestamp": now_s * 1000}},
+            "AAPLB": {"binance": {"price": 200.0, "timestamp": now_s * 1000}},
+            "MSFTR": {"bitget": {"price": 250.0, "timestamp": now_s * 1000}},
+        }
+        mm = self._build_monitor(data, refs, registry)
+        rows = mm.build_depeg_list(data)
+
+        self.assertEqual(rows[0]["symbol"], "AAPLA")
+        self.assertEqual(rows[1]["symbol"], "AAPLB")
+        self.assertEqual(rows[-1]["symbol"], "MSFTR")
+        self.assertEqual(rows[-1]["reference_source"], "no_peer")
+        self.assertIsNone(rows[-1]["abs_deviation"])
+
+    def test_stock_peer_deviation_does_not_create_depeg_alert(self):
+        import time
+
+        now_s = int(time.time())
+        refs = {"AAPL": {"price": 200.0, "timestamp": now_s * 1000, "market_time": now_s - 60}}
+        data = {
+            "AAPLA": {"gate": {"price": 190.0, "timestamp": now_s * 1000}},
+            "AAPLB": {"binance": {"price": 180.0, "timestamp": now_s * 1000}},
+        }
+        registry = {
+            "AAPLA": {"category": "stock", "reference_symbol": "AAPL", "issuer": "bstock", "reference_ratio": 1.0},
+            "AAPLB": {"category": "stock", "reference_symbol": "AAPL", "issuer": "ondo", "reference_ratio": 1.0},
+        }
+        mm = self._build_monitor(data, refs, registry)
+        rows = mm.build_depeg_list(data)
+
+        # 偏离约 5.6%，但股票代币不产生脱锚告警，交给 issuer_spread
+        self.assertGreater(rows[0]["abs_deviation"], 0.05)
+        self.assertEqual(mm._check_depeg_anomalies(rows), [])
+
+    def test_cross_issuer_spread_detects_stock_divergence(self):
+        import time
+
+        now_s = int(time.time())
+        registry = {
+            "RSOXL": {"category": "stock", "reference_symbol": "SOXL", "issuer": "reality", "reference_ratio": 1.0},
+            "SOXLG": {"category": "stock", "reference_symbol": "SOXL", "issuer": "gstocks", "reference_ratio": 1.0},
+            "XSOXL": {"category": "stock", "reference_symbol": "SOXL", "issuer": "okx", "reference_ratio": 1.0},
+        }
+        data = {
+            "RSOXL": {"bitget": {"price": 92.07, "timestamp": now_s * 1000}},
+            "SOXLG": {"gate": {"price": 92.11, "timestamp": now_s * 1000}},
+            "XSOXL": {"okx": {"price": 94.07, "timestamp": now_s * 1000}},
+        }
+        mm = self._build_monitor(data, {}, registry)
+        spreads = mm.build_cross_issuer_spreads(data)
+        soxl = [s for s in spreads if s["underlying"] == "SOXL"][0]
+
+        self.assertEqual(soxl["category"], "stock")
+        self.assertAlmostEqual(soxl["spread"], (94.07 - 92.07) / 92.07, places=6)
+        self.assertEqual(soxl["issuer_count"], 3)
+        alerts = mm._check_issuer_spread_anomalies(spreads)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["symbol"], "SOXL")
+
+    def test_commodity_still_uses_yahoo_reference(self):
+        import time
+
+        now_s = int(time.time())
+        refs = {"GC=F": {"price": 2000.0, "timestamp": now_s * 1000, "market_time": now_s - 60}}
+        registry = {
+            "XAUT": {"category": "commodity", "reference_symbol": "GC=F", "issuer": "tether", "reference_ratio": 1.0},
+        }
+        data = {"XAUT": {"gate": {"price": 2010.0, "timestamp": now_s * 1000}}}
         mm = self._build_monitor(data, refs, registry)
         rows = mm.build_depeg_list(data)
 
         self.assertEqual(rows[0]["reference_source"], "reference")
         self.assertTrue(rows[0]["depeg_signal"])
-        self.assertAlmostEqual(rows[0]["deviation"], -0.05)
-        alerts = mm._check_depeg_anomalies(rows)
-        self.assertEqual(len(alerts), 1)
-        self.assertEqual(alerts[0]["level"], "critical")
+        self.assertAlmostEqual(rows[0]["deviation"], 0.005)
 
 
 class LiquidityFilterTests(unittest.TestCase):

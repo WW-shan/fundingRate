@@ -187,8 +187,9 @@ class TelegramBot:
                 normalized = q.get("normalized_price", q.get("price", 0))
                 labels.append(f"{q.get('symbol')}({issuer}) ${normalized:.4g}")
             detail = " | ".join(labels)
+            spread_label = "跨产品价差" if d.get("category") == "stock" else "跨发行商价差"
             return (
-                f"\n{emoji} <b>跨发行商价差</b> {d.get('underlying', 'N/A')}\n"
+                f"\n{emoji} <b>{spread_label}</b> {d.get('underlying', 'N/A')}\n"
                 f"   价差 <b>{d.get('abs_spread', 0)*100:.2f}%</b> | {detail}"
             )
         if t == "basis_extreme":
@@ -255,10 +256,11 @@ class TelegramBot:
             )
         elif alert_type == "issuer_spread":
             d = alert.get("details") or {}
-            lines = [f"{emoji} <b>跨发行商价差</b>\n",
+            spread_label = "跨产品价差" if d.get("category") == "stock" else "跨发行商价差"
+            lines = [f"{emoji} <b>{spread_label}</b>\n",
                      f"标的: <b>{d.get('underlying', 'N/A')}</b>",
                      f"价差: <b>{d.get('abs_spread', 0)*100:.2f}%</b>",
-                     f"发行商数: {d.get('issuer_count', 0)} | 交易所数: {d.get('exchange_count', 0)}\n"]
+                     f"产品/发行商数: {d.get('issuer_count', 0)} | 交易所数: {d.get('exchange_count', 0)}\n"]
             for q in d.get("quotes", [])[:8]:
                 issuer = q.get("issuer") or q.get("exchange")
                 normalized = q.get("normalized_price", q["price"])
@@ -412,7 +414,7 @@ class TelegramBot:
                 f"({row['deviation']*100:+.3f}%)"
             )
         if skipped:
-            lines.append(f"\n另有 {skipped} 个休市且无同类产品，未做价格比较")
+            lines.append(f"\n另有 {skipped} 个无同类产品可比，未做价格比较")
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
 
     async def cmd_alerts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

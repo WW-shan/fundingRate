@@ -30,11 +30,14 @@
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-label">监控资产</div><div class="stat-value" id="stat-count">--</div></div>
     <div class="stat-card"><div class="stat-label">预警中</div><div class="stat-value warn" id="stat-warn">--</div></div>
-    <div class="stat-card"><div class="stat-label">严重脱锚</div><div class="stat-value negative" id="stat-critical">--</div></div>
+    <div class="stat-card"><div class="stat-label">严重偏离</div><div class="stat-value negative" id="stat-critical">--</div></div>
   </div>
 
   <div class="card">
     <h3>🪙 锚定资产监控（稳定币 / 大宗商品 / 股票代币）</h3>
+    <div class="text-muted" style="font-size:12px;margin:-6px 0 12px">
+      股票代币不使用 Yahoo 价格判定，改为与【其他发行商同标的产品】中位价对比；无同类产品时不计算偏离。
+    </div>
     <div class="filter-bar">
       <select id="filter-category" onchange="refresh()">
         <option value="">全部类别</option>
@@ -53,7 +56,10 @@
   </div>
 
   <div class="card">
-    <h3>🔀 跨发行商价差（同一标的的不同 RWA 版本）</h3>
+    <h3>🔀 跨产品 / 跨发行商价差（同一标的的不同 RWA 版本）</h3>
+    <div class="text-muted" style="font-size:12px;margin:-6px 0 12px">
+      股票代币的异常判定使用这张表：比较不同发行商/产品的价格，而不是与 Yahoo 参考价比较。
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>标的</th><th>价差</th><th>发行商数</th><th>各版本价格</th></tr></thead>
@@ -90,7 +96,7 @@ async function refresh() {
     const rows = (res && res.data) || [];
 
     document.getElementById('stat-count').textContent = new Set(rows.map(r => r.symbol)).size;
-    const signalRows = rows.filter(r => r.reference_source !== 'stale_close');
+    const signalRows = rows.filter(r => r.reference_source !== 'stale_close' && r.reference_source !== 'no_peer');
     document.getElementById('stat-warn').textContent = signalRows.filter(r => r.abs_deviation >= r.threshold_warning && r.abs_deviation < r.threshold_critical).length;
     document.getElementById('stat-critical').textContent = signalRows.filter(r => r.abs_deviation >= r.threshold_critical).length;
     updateHistorySymbols(rows);
@@ -103,35 +109,39 @@ async function refresh() {
       tbody.innerHTML = rows.map(r => {
         const isPeer = r.reference_source === 'peer';
         const isStale = r.reference_source === 'stale_close';
+        const isNoPeer = r.reference_source === 'no_peer' || isStale;
+        const isStockPeer = isPeer && r.category === 'stock';
         let cls, label;
         if (isStale) {
-          // 休市且无同类产品：收盘价不可比，不参与偏离判定
           cls = 'badge-gray';
           label = '休市·无同类';
+        } else if (isNoPeer) {
+          cls = 'badge-gray';
+          label = '无同类可比';
         } else {
           cls = r.abs_deviation >= r.threshold_critical ? 'badge-red' : (r.abs_deviation >= r.threshold_warning ? 'badge-yellow' : 'badge-green');
-          label = r.abs_deviation >= r.threshold_critical ? '严重偏离' : (r.abs_deviation >= r.threshold_warning ? '偏离预警' : '正常');
-          if (isPeer) {
-            label = r.abs_deviation >= r.threshold_critical ? '同类严重偏离'
-                  : (r.abs_deviation >= r.threshold_warning ? '同类偏离预警' : '同类正常');
-          }
+          const prefix = isStockPeer ? '跨产品' : (isPeer ? '同类' : '');
+          label = prefix + (r.abs_deviation >= r.threshold_critical ? '严重偏离'
+                : (r.abs_deviation >= r.threshold_warning ? '偏离预警' : '正常'));
         }
         const priceStr = r.price < 1 ? r.price.toFixed(6) : r.price.toFixed(4);
-        const refStr = r.reference < 1 ? r.reference.toFixed(6) : r.reference.toFixed(4);
-        const closedTag = isPeer
-          ? ' <span class="badge badge-blue" title="标的市场休市，改用其他发行商同标的版本的中位价作为参考">休市</span>'
-          : '';
-        const refTimeStr = isPeer ? '同类中位价'
-          : (isStale ? '收盘价（不可比）'
-          : (r.reference_time ? new Date(r.reference_time * 1000).toLocaleString('zh-CN', { hour12: false }) : '实时'));
+        const refStr = (r.reference === null || r.reference === undefined) ? '—'
+          : (r.reference < 1 ? r.reference.toFixed(6) : r.reference.toFixed(4));
+        let tag = '';
+        if (isStockPeer) tag = ' <span class="badge badge-blue" title="与其他发行商同标的产品中位价对比">跨产品</span>';
+        else if (isPeer) tag = ' <span class="badge badge-blue" title="标的市场休市，改用其他发行商同标的版本的中位价">休市</span>';
+        const refTimeStr = isStockPeer ? '跨产品中位价'
+          : (isPeer ? '同类中位价'
+          : (isNoPeer ? (isStale ? '收盘价（不可比）' : '无同类产品')
+          : (r.reference_time ? new Date(r.reference_time * 1000).toLocaleString('zh-CN', { hour12: false }) : '实时')));
         return `<tr>
           <td><b>${r.symbol}</b></td>
           <td><span class="badge badge-blue">${catLabel[r.category] || r.category}</span></td>
           <td>${exchangeBadge(r.exchange)}</td>
           <td class="mono">${priceStr}</td>
           <td class="mono text-muted">${refStr}</td>
-          <td class="${isStale ? 'text-muted' : pnlClass(r.deviation)}" ${!isStale && Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${isStale ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
-          <td><span class="badge ${cls}">${label}</span>${closedTag}</td>
+          <td class="${isNoPeer ? 'text-muted' : pnlClass(r.deviation)}" ${!isNoPeer && Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${isNoPeer ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
+          <td><span class="badge ${cls}">${label}</span>${tag}</td>
           <td class="text-muted">${refTimeStr}</td>
         </tr>`;
       }).join('');
@@ -150,7 +160,7 @@ async function refresh() {
         ).join(' · ');
         const cls = r.abs_spread >= 0.03 ? 'badge-red' : (r.abs_spread >= 0.01 ? 'badge-yellow' : 'badge-green');
         return `<tr>
-          <td><b>${r.underlying}</b></td>
+          <td><b>${r.underlying}</b>${r.category ? ` <span class="badge badge-blue">${catLabel[r.category] || r.category}</span>` : ''}</td>
           <td><span class="badge ${cls}">${(r.abs_spread * 100).toFixed(2)}%</span></td>
           <td>${r.issuer_count}</td>
           <td style="white-space:normal;font-size:12px">${quotes}</td>

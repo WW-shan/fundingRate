@@ -106,12 +106,12 @@
         <button class="btn btn-primary" onclick="save('alerts','push_reset_gap','cfg-push_reset_gap')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（休市期间不判脱锚，改由跨发行商价差检测）</div></div>
+        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（股票代币不判脱锚，改由跨产品价差检测）</div></div>
         <input id="cfg-push_depeg" type="text" />
         <button class="btn btn-primary" onclick="save('alerts','push_depeg','cfg-push_depeg', false, true)">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">跨发行商价差阈值</div><div class="config-desc">0.01 = 1%</div></div>
+        <div><div class="config-label">跨产品 / 跨发行商价差阈值</div><div class="config-desc">0.01 = 1%；股票代币按不同发行商/产品价格比较</div></div>
         <input id="cfg-issuer_spread_threshold" type="number" step="0.001" />
         <button class="btn btn-primary" onclick="save('alerts','issuer_spread_threshold','cfg-issuer_spread_threshold')">保存</button>
       </div>
@@ -121,7 +121,7 @@
         <button class="btn btn-primary" onclick="save('alerts','peg_min_volume_usd','cfg-peg_min_volume_usd')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">推送跨发行商价差</div><div class="config-desc">true / false</div></div>
+        <div><div class="config-label">推送跨产品 / 跨发行商价差</div><div class="config-desc">true / false</div></div>
         <input id="cfg-push_issuer_spread" type="text" />
         <button class="btn btn-primary" onclick="save('alerts','push_issuer_spread','cfg-push_issuer_spread', false, true)">保存</button>
       </div>

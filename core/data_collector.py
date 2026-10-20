@@ -478,7 +478,7 @@ class DataCollector:
         active_symbols = set(self.stablecoin_data)
         for sym, entry in self.peg_discovery.registry.items():
             ref = entry.get('reference_symbol')
-            if sym in active_symbols and ref and entry.get('category') in ('stock', 'commodity', 'eur_stable'):
+            if sym in active_symbols and ref and entry.get('category') in ('commodity', 'eur_stable'):
                 targets[ref] = entry['category']
 
         ts = int(time.time() * 1000)
