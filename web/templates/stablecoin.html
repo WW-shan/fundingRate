@@ -154,11 +154,13 @@ async function refresh() {
     if (issRows.length === 0) {
       tbodyIss.innerHTML = '<tr><td colspan="4" class="empty-state">暂无数据</td></tr>';
     } else {
-      tbodyIss.innerHTML = issRows.slice(0, 30).map(r => {
+      tbodyIss.innerHTML = issRows.slice(0, 100).map(r => {
         const quotes = (r.quotes || []).map(q =>
           `${q.symbol}<span class="text-muted">(${q.issuer || q.exchange})</span> $${q.price.toFixed(2)}`
         ).join(' · ');
-        const cls = r.abs_spread >= 0.03 ? 'badge-red' : (r.abs_spread >= 0.01 ? 'badge-yellow' : 'badge-green');
+        const issWarn = r.threshold_warning ?? 0.01;
+        const issCrit = r.threshold_critical ?? 0.03;
+        const cls = r.abs_spread >= issCrit ? 'badge-red' : (r.abs_spread >= issWarn ? 'badge-yellow' : 'badge-green');
         return `<tr>
           <td><b>${r.underlying}</b>${r.category ? ` <span class="badge badge-blue">${catLabel[r.category] || r.category}</span>` : ''}</td>
           <td><span class="badge ${cls}">${(r.abs_spread * 100).toFixed(2)}%</span></td>

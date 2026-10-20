@@ -151,14 +151,15 @@ async function refresh() {
         }).join('');
       }
     } else if (currentTab === 'spread') {
-      const res = await fetchJSON('/api/funding/spreads?limit=200');
+      let url = '/api/funding/spreads?limit=1000';
+      if (exchange) url += '&exchange=' + encodeURIComponent(exchange);
+      if (symbol) url += '&symbol=' + encodeURIComponent(symbol);
+      const res = await fetchJSON(url);
       let rows = (res && res.data) || [];
-      if (symbol) rows = rows.filter(r => r.symbol.includes(symbol));
-      if (exchange) rows = rows.filter(r => r.exchange_a === exchange || r.exchange_b === exchange);
 
       const tbody = document.getElementById('tbody-spread');
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据</td></tr>';
       } else {
         tbody.innerHTML = rows.map((r, i) => `<tr>
           <td>${i + 1}</td>
@@ -172,10 +173,11 @@ async function refresh() {
         </tr>`).join('');
       }
     } else {
-      const res = await fetchJSON('/api/basis?limit=200');
+      let url = '/api/basis?limit=1000';
+      if (exchange) url += '&exchange=' + encodeURIComponent(exchange);
+      if (symbol) url += '&symbol=' + encodeURIComponent(symbol);
+      const res = await fetchJSON(url);
       let rows = (res && res.data) || [];
-      if (symbol) rows = rows.filter(r => r.symbol.includes(symbol));
-      if (exchange) rows = rows.filter(r => r.exchange === exchange);
 
       const tbody = document.getElementById('tbody-basis');
       if (rows.length === 0) {

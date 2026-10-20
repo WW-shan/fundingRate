@@ -327,8 +327,27 @@ class PegAssetDiscovery:
         self.registry: Dict[str, Dict[str, Any]] = {}       # symbol -> {category, reference_symbol, issuer, reference_ratio, volume_24h}
         self.by_underlying: Dict[str, List[str]] = {}       # yahoo_symbol -> [symbols]（跨发行商分组）
         self.last_refresh = 0
-        self.refresh_interval = 3600
+        self.refresh_interval = 600
+        self._shrink_streak = 0
         self._refresh_lock = threading.Lock()
+
+    @staticmethod
+    def _ticker_quote_volume(ticker: Dict[str, Any]) -> float:
+        """24h 成交额（报价币种）；quoteVolume 缺失时用 baseVolume × 价格回退"""
+        qv = ticker.get('quoteVolume')
+        try:
+            qv_f = float(qv) if qv is not None else 0.0
+        except (TypeError, ValueError):
+            qv_f = 0.0
+        if qv_f <= 0:
+            bv = ticker.get('baseVolume')
+            px = ticker.get('last') or ticker.get('bid') or ticker.get('ask')
+            if bv is not None and px is not None:
+                try:
+                    qv_f = float(bv) * float(px)
+                except (TypeError, ValueError):
+                    qv_f = 0.0
+        return max(0.0, qv_f)
 
     def refresh(self, exchanges: Dict[str, Any], force: bool = False) -> Dict[str, Dict[str, Any]]:
         """扫描交易所，重建注册表（流动性按全市场总量判定）"""
@@ -340,9 +359,9 @@ class PegAssetDiscovery:
             if not force and (now - self.last_refresh) < self.refresh_interval and self.registry:
                 return self.registry
 
-            min_volume = float(self.config.get('alerts', 'peg_min_volume_usd', 500_000))
+            min_volume = self.config.get_float('alerts', 'peg_min_volume_usd', 500_000)
             now_ms = int(now * 1000)
-            stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
+            stale_ms = self.config.get_int('global', 'price_stale_threshold', 600) * 1000
 
             # 第一遍：收集所有候选资产的报价与成交额
             candidates: Dict[str, Dict[str, Any]] = {}
@@ -353,76 +372,105 @@ class PegAssetDiscovery:
                     logger.warning(f"{name} ticker fetch failed during discovery: {e}")
                     continue
 
-                canonical_tickers = {}
-                for ticker_symbol, ticker in tickers.items():
-                    if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
-                        canonical = adapter.canonical_symbol(ticker_symbol)
-                        canonical_tickers[canonical] = (ticker_symbol, ticker)
+                try:
+                    canonical_tickers = {}
+                    for ticker_symbol, ticker in tickers.items():
+                        if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
+                            canonical = adapter.canonical_symbol(ticker_symbol)
+                            canonical_tickers[canonical] = (ticker_symbol, ticker)
 
-                for canonical_pair, (ticker_symbol, ticker) in canonical_tickers.items():
-                    base = canonical_pair.split('/')[0]
-                    category, ref_symbol, issuer = classify(base)
-                    if not category:
-                        continue
-
-                    try:
-                        if adapter.exchange.market(ticker_symbol).get('active') is False:
+                    for canonical_pair, (ticker_symbol, ticker) in canonical_tickers.items():
+                        base = canonical_pair.split('/')[0]
+                        category, ref_symbol, issuer = classify(base)
+                        if not category:
                             continue
-                    except Exception:
-                        pass
-                    ticker_ts = ticker.get('timestamp')
-                    stale = bool(ticker_ts and (now_ms - ticker_ts) > stale_ms)
-                    price = ticker.get('last')
-                    if stale:
+
                         try:
-                            bid = float(ticker.get('bid'))
-                            ask = float(ticker.get('ask'))
+                            if adapter.exchange.market(ticker_symbol).get('active') is False:
+                                continue
+                        except Exception:
+                            pass
+                        ticker_ts = ticker.get('timestamp')
+                        stale = bool(ticker_ts and (now_ms - ticker_ts) > stale_ms)
+                        price = ticker.get('last') or ticker.get('bid') or ticker.get('ask')
+                        if stale:
+                            try:
+                                bid = float(ticker.get('bid'))
+                                ask = float(ticker.get('ask'))
+                            except (TypeError, ValueError):
+                                continue
+                            if bid <= 0 or ask <= 0 or ask < bid:
+                                continue
+                            price = (bid + ask) / 2
+                        volume = self._ticker_quote_volume(ticker)
+                        try:
+                            price = float(price)
                         except (TypeError, ValueError):
                             continue
-                        if bid <= 0 or ask <= 0 or ask < bid:
+                        if price <= 0:
                             continue
-                        price = (bid + ask) / 2
-                    volume = float(ticker.get('quoteVolume') or 0)
-                    if not price or price <= 0:
-                        continue
 
-                    entry = candidates.setdefault(base, {
-                        'symbol': base,
-                        'category': category,
-                        'reference_symbol': ref_symbol,
-                        'issuer': issuer,
-                        'reference_ratio': get_reference_ratio(base),
-                        'volume_24h': 0,
-                    })
-                    entry['volume_24h'] += volume
+                        entry = candidates.setdefault(base, {
+                            'symbol': base,
+                            'category': category,
+                            'reference_symbol': ref_symbol,
+                            'issuer': issuer,
+                            'reference_ratio': get_reference_ratio(base),
+                            'volume_24h': 0,
+                        })
+                        entry['volume_24h'] += volume
 
-                # USDT has no USDT/USDT market; derive it from USDC/USDT.
-                usdc_item = canonical_tickers.get('USDC/USDT')
-                if usdc_item:
-                    usdc_market, usdc_usdt = usdc_item
-                    try:
-                        active = adapter.exchange.market(usdc_market).get('active') is not False
-                    except Exception:
-                        active = True
-                    ticker_ts = usdc_usdt.get('timestamp')
-                    fresh = not ticker_ts or (now_ms - ticker_ts) <= stale_ms
-                    if active and fresh and usdc_usdt.get('last'):
+                    # USDT has no USDT/USDT market; derive it from USDC/USDT.
+                    usdc_item = canonical_tickers.get('USDC/USDT')
+                    if usdc_item:
+                        usdc_market, usdc_usdt = usdc_item
                         try:
-                            usdt_price = 1.0 / float(usdc_usdt['last'])
-                        except (TypeError, ValueError, ZeroDivisionError):
-                            usdt_price = None
-                        if usdt_price and usdt_price > 0:
-                            entry = candidates.setdefault('USDT', {
-                                'symbol': 'USDT',
-                                'category': 'usd_stable',
-                                'reference_symbol': 'USD',
-                                'issuer': STABLE_ISSUERS['USDT'],
-                                'reference_ratio': 1.0,
-                                'volume_24h': 0,
-                            })
-                            entry['volume_24h'] += float(usdc_usdt.get('quoteVolume') or 0)
+                            active = adapter.exchange.market(usdc_market).get('active') is not False
+                        except Exception:
+                            active = True
+                        ticker_ts = usdc_usdt.get('timestamp')
+                        fresh = not ticker_ts or (now_ms - ticker_ts) <= stale_ms
+                        usdc_price = usdc_usdt.get('last') or usdc_usdt.get('bid') or usdc_usdt.get('ask')
+                        if not fresh:
+                            try:
+                                bid = float(usdc_usdt.get('bid'))
+                                ask = float(usdc_usdt.get('ask'))
+                                usdc_price = (bid + ask) / 2 if bid > 0 and ask >= bid else None
+                            except (TypeError, ValueError):
+                                usdc_price = None
+                        if active and usdc_price:
+                            try:
+                                usdt_price = 1.0 / float(usdc_price)
+                            except (TypeError, ValueError, ZeroDivisionError):
+                                usdt_price = None
+                            if usdt_price and usdt_price > 0:
+                                entry = candidates.setdefault('USDT', {
+                                    'symbol': 'USDT',
+                                    'category': 'usd_stable',
+                                    'reference_symbol': 'USD',
+                                    'issuer': STABLE_ISSUERS['USDT'],
+                                    'reference_ratio': 1.0,
+                                    'volume_24h': 0,
+                                })
+                                entry['volume_24h'] += self._ticker_quote_volume(usdc_usdt)
+                except Exception as e:
+                    logger.error(f"{name} ticker processing failed during discovery: {e}")
+                    continue
 
             registry = {sym: e for sym, e in candidates.items() if e['volume_24h'] >= min_volume}
+
+            # 防止单次交易所接口异常导致注册表大幅缩水；连续 3 次缩水才接受
+            previous = self.registry
+            if previous and len(registry) < len(previous) * 0.9:
+                self._shrink_streak += 1
+                if self._shrink_streak < 3:
+                    logger.warning(
+                        f"Peg discovery shrank {len(previous)} -> {len(registry)}; "
+                        f"keeping previous registry (retry in 60s)"
+                    )
+                    self.last_refresh = now - self.refresh_interval + 60
+                    return previous
+            self._shrink_streak = 0
 
             # 按标的聚合（跨发行商分组）
             by_underlying: Dict[str, List[str]] = {}

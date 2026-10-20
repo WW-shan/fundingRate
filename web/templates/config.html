@@ -52,7 +52,7 @@
         <button class="btn btn-primary" onclick="save('global','monitor_scan_interval','cfg-monitor_scan_interval')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">参考价刷新间隔（秒）</div><div class="config-desc">黄金/欧元/股票参考价（Yahoo Finance）</div></div>
+        <div><div class="config-label">参考价刷新间隔（秒）</div><div class="config-desc">黄金/欧元/商品参考价（Yahoo Finance）</div></div>
         <input id="cfg-reference_refresh_interval" type="number" />
         <button class="btn btn-primary" onclick="save('global','reference_refresh_interval','cfg-reference_refresh_interval')">保存</button>
       </div>
@@ -106,7 +106,7 @@
         <button class="btn btn-primary" onclick="save('alerts','push_reset_gap','cfg-push_reset_gap')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（股票代币不判脱锚，改由跨产品价差检测）</div></div>
+        <div><div class="config-label">推送锚定资产偏离告警</div><div class="config-desc">true / false（股票代币不判脱锚，改由跨产品价差检测）</div></div>
         <input id="cfg-push_depeg" type="text" />
         <button class="btn btn-primary" onclick="save('alerts','push_depeg','cfg-push_depeg', false, true)">保存</button>
       </div>

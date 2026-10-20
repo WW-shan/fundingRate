@@ -24,6 +24,8 @@ class TelegramBot:
         self.app = None
         self._loop = None
         self._stop_requested = False
+        self._pending_messages: List[str] = []
+        self._pending_lock = threading.Lock()
 
         if not self.bot_token:
             logger.warning("TG_BOT_TOKEN not set - Telegram Bot disabled")
@@ -69,6 +71,7 @@ class TelegramBot:
                     self._loop.run_until_complete(self.app.start())
                     self._loop.run_until_complete(self.app.updater.start_polling())
                     logger.info("Telegram polling loop started")
+                    self._flush_pending_messages()
                     self._loop.run_forever()
                 except Exception as e:
                     logger.error(f"Telegram bot thread stopped: {e}")
@@ -286,7 +289,7 @@ class TelegramBot:
     def push_daily_summary(self, summary: Dict[str, Any]):
         """每日汇总推送"""
         top_apr = summary.get('top_apr', [])[:5]
-        lines = [f"📊 <b>每日监控汇总</b>\n"]
+        lines = ["📊 <b>每日监控汇总</b>\n"]
         if top_apr:
             lines.append("<b>APR 排行 Top5</b>")
             for i, row in enumerate(top_apr, 1):
@@ -298,16 +301,32 @@ class TelegramBot:
         self._send_async("\n".join(lines))
 
     def _send_async(self, message: str):
-        """异步发送（loop 未就绪时记录警告而非静默丢弃）"""
+        """异步发送；loop 未就绪时先入队，启动后统一补发，避免启动窗口丢消息"""
         if not self.app or not self.chat_id:
             return
-        if not self._loop or not self._loop.is_running():
-            logger.warning("TG loop not ready, message dropped (will retry on next alert)")
-            return
-        try:
-            asyncio.run_coroutine_threadsafe(self._send(message), self._loop)
-        except Exception as e:
-            logger.error(f"Failed to queue message: {e}")
+        loop = self._loop
+        if loop and loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(self._send(message), loop)
+                return
+            except Exception as e:
+                logger.error(f"Failed to queue message: {e}")
+                return
+        with self._pending_lock:
+            self._pending_messages.append(message)
+            pending = len(self._pending_messages)
+        logger.warning(f"TG loop not ready, message queued (pending={pending})")
+
+    def _flush_pending_messages(self):
+        """在 bot loop 启动后补发启动窗口内积压的消息"""
+        with self._pending_lock:
+            messages = self._pending_messages
+            self._pending_messages = []
+        for message in messages:
+            try:
+                self._loop.create_task(self._send(message))
+            except Exception as e:
+                logger.error(f"Failed to flush pending message: {e}")
 
     async def _send(self, message: str):
         try:
@@ -349,7 +368,7 @@ class TelegramBot:
             f"运行中: {'✅' if status['running'] else '❌'}\n"
             f"已连接交易所: {', '.join(status['exchanges']) or '无'}\n"
             f"监控币种: {status['symbols_tracked']}\n"
-            f"锚定资产: {status.get('peg_assets', 0)} 个（{status['stablecoins_tracked']} 条报价）\n"
+            f"锚定资产: {status.get('peg_assets', 0)} 个（{status['stablecoins_tracked']} 个标的）\n"
             f"24h 异常记录: {stats['total']} 条（推送 {stats.get('pushed_total', 0)} 条）"
         )
         await update.message.reply_text(text, parse_mode='HTML')
@@ -409,9 +428,13 @@ class TelegramBot:
             crit = row.get('threshold_critical', 0.01)
             warn = row.get('threshold_warning', 0.003)
             flag = "🔴" if row['abs_deviation'] >= crit else ("⚠️" if row['abs_deviation'] >= warn else "✅")
+            if row.get('reference_source') == 'peer':
+                source_note = " [跨产品]" if row.get('category') == 'stock' else " [同类]"
+            else:
+                source_note = ""
             lines.append(
                 f"{flag} {row['symbol']} @ {row['exchange']}: {row['price']:.6g} "
-                f"({row['deviation']*100:+.3f}%)"
+                f"({row['deviation']*100:+.3f}%){source_note}"
             )
         if skipped:
             lines.append(f"\n另有 {skipped} 个无同类产品可比，未做价格比较")

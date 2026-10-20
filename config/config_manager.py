@@ -30,10 +30,41 @@ class ConfigManager:
         if value is None:
             return default
 
+        # 兼容通过 API/表单写入的大小写布尔字符串
+        if isinstance(value, str):
+            stripped = value.strip()
+            lowered = stripped.lower()
+            if lowered == 'true':
+                return True
+            if lowered == 'false':
+                return False
+            if lowered in ('none', 'null'):
+                return None
+
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
+
+    def get_int(self, category: str, key: str, default: int = 0) -> int:
+        try:
+            return int(self.get(category, key, default))
+        except (TypeError, ValueError):
+            return int(default)
+
+    def get_float(self, category: str, key: str, default: float = 0.0) -> float:
+        try:
+            return float(self.get(category, key, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    def get_bool(self, category: str, key: str, default: bool = False) -> bool:
+        value = self.get(category, key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value)
 
     def set(self, category: str, key: str, value: Any,
             is_hot_reload: bool = True, description: str = ""):
@@ -62,7 +93,7 @@ class ConfigManager:
         self.set_default('global', 'price_refresh_interval', 30, True, "价格刷新间隔（秒）")
         self.set_default('global', 'funding_refresh_interval', 300, True, "资金费率刷新间隔（秒）")
         self.set_default('global', 'stablecoin_refresh_interval', 60, True, "稳定币价格刷新间隔（秒）")
-        self.set_default('global', 'reference_refresh_interval', 300, True, "参考价刷新间隔（秒，黄金/欧元/股票）")
+        self.set_default('global', 'reference_refresh_interval', 300, True, "参考价刷新间隔（秒，黄金/欧元/商品）")
         self.set_default('global', 'monitor_scan_interval', 60, True, "异常扫描间隔（秒）")
         self.set_default('global', 'price_stale_threshold', 600, True, "行情陈旧阈值（秒），超过则丢弃")
         self.set_default('global', 'funding_min_volume_usd', 500000, True,
@@ -78,9 +109,9 @@ class ConfigManager:
         self.set_default('alerts', 'push_basis_threshold', 0.03, True, "基差推送阈值（3%）：低于此值只上面板不推送")
         self.set_default('alerts', 'push_reset_gap', 3600, True, "同一异常消失多久后视为恢复、再次出现时重新推送（秒）")
         self.set_default('alerts', 'push_reminder_cooldown', 86400, True, "同一档位持续存在时的最长提醒间隔（秒，默认24h）")
-        self.set_default('alerts', 'push_depeg', True, True, "??????????")
-        self.set_default('alerts', 'push_cross_spread', False, True, "???????????")
-        self.set_default('alerts', 'push_basis', True, True, "??????????")
+        self.set_default('alerts', 'push_depeg', True, True, "推送锚定资产偏离告警")
+        self.set_default('alerts', 'push_cross_spread', False, True, "推送跨所费率差（默认关闭，仅面板）")
+        self.set_default('alerts', 'push_basis', True, True, "推送期现基差告警")
         self.set_default('alerts', 'persist_cooldown', 1800, True, "同标的告警落库冷却（秒）")
         self.set_default('alerts', 'peg_min_volume_usd', 500000, True, "锚定资产流动性门槛（24h 成交额 USD）")
         self.set_default('alerts', 'issuer_spread_threshold', 0.01, True, "跨发行商价差告警阈值（1%）")

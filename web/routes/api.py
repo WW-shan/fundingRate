@@ -30,7 +30,7 @@ def status():
     scan = market_monitor.last_scan if market_monitor else {}
 
     return jsonify({
-        'status': 'running',
+        'status': 'running' if dc_status.get('running') else 'stopped',
         'mode': 'monitor',
         'exchanges': dc_status.get('exchanges', []),
         'symbols_tracked': dc_status.get('symbols_tracked', 0),
@@ -61,11 +61,16 @@ def health():
             expected = [x.strip().lower() for x in expected.split(',') if x.strip()]
         active = set(data_collector.exchanges) if data_collector else set()
         missing = sorted(set(expected) - active)
+        scan = (market_monitor.last_scan or {}) if market_monitor else {}
+        scan_ts = scan.get('timestamp')
+        scan_age = (time.time() * 1000 - scan_ts) / 1000 if scan_ts else None
+        scan_interval = config_manager.get_int('global', 'monitor_scan_interval', 60)
+        scan_fresh = scan_age is not None and scan_age <= max(300, scan_interval * 3)
         components = {
             'database': True,
             'data_collector': data_collector is not None and bool(active),
             'all_enabled_exchanges': not missing,
-            'market_monitor': market_monitor is not None,
+            'market_monitor': market_monitor is not None and scan_fresh,
         }
         all_healthy = all(components.values())
         return jsonify({
@@ -73,6 +78,7 @@ def health():
             'components': components,
             'exchanges': sorted(active),
             'missing_exchanges': missing,
+            'last_scan_age_seconds': round(scan_age, 1) if scan_age is not None else None,
             'timestamp': time.time(),
         }), 200 if all_healthy else 503
     except Exception as e:
@@ -139,20 +145,34 @@ def funding_apr():
 @api_bp.route('/funding/spreads')
 @api_auth_required
 def funding_spreads():
-    """跨所费率差"""
+    """跨所费率差（支持 ?exchange= 和 ?symbol= 过滤）"""
     market_monitor = current_app.config['MARKET_MONITOR']
     limit = _int_arg('limit', 100, 1000)
+    exchange = request.args.get('exchange', '').lower()
+    symbol = request.args.get('symbol', '').upper()
     rows = market_monitor.last_scan.get('cross_spreads', [])
+    if exchange:
+        rows = [r for r in rows if r['exchange_a'] == exchange or r['exchange_b'] == exchange]
+    if symbol:
+        exact = [r for r in rows if r['symbol'].split('/')[0] == symbol]
+        rows = exact or [r for r in rows if symbol in r['symbol']]
     return jsonify({'success': True, 'data': rows[:limit], 'total': len(rows)})
 
 
 @api_bp.route('/basis')
 @api_auth_required
 def basis():
-    """基差列表"""
+    """基差列表（支持 ?exchange= 和 ?symbol= 过滤）"""
     market_monitor = current_app.config['MARKET_MONITOR']
     limit = _int_arg('limit', 100, 1000)
+    exchange = request.args.get('exchange', '').lower()
+    symbol = request.args.get('symbol', '').upper()
     rows = market_monitor.last_scan.get('basis', [])
+    if exchange:
+        rows = [r for r in rows if r['exchange'] == exchange]
+    if symbol:
+        exact = [r for r in rows if r['symbol'].split('/')[0] == symbol]
+        rows = exact or [r for r in rows if symbol in r['symbol']]
     return jsonify({'success': True, 'data': rows[:limit], 'total': len(rows)})
 
 
@@ -214,7 +234,8 @@ def alerts():
     rows = alert_manager.get_recent_alerts(
         limit=limit, hours=hours, level=level, alert_type=alert_type
     )
-    return jsonify({'success': True, 'data': rows, 'total': len(rows)})
+    total = alert_manager.count_alerts(hours=hours, level=level, alert_type=alert_type)
+    return jsonify({'success': True, 'data': rows, 'total': total})
 
 
 @api_bp.route('/alerts/stats')

@@ -49,7 +49,11 @@ class MarketMonitor:
 
     def _monitor_loop(self):
         while self.running:
-            interval = int(self.config.get('global', 'monitor_scan_interval', 60))
+            interval = self.config.get_int('global', 'monitor_scan_interval', 60)
+            # 采集线程尚未产出任何数据时先等待，避免启动瞬间写入空快照
+            if not self.data_collector.market_data and not self.data_collector.stablecoin_data:
+                time.sleep(2)
+                continue
             try:
                 self.scan_once()
             except Exception as e:
@@ -130,11 +134,19 @@ class MarketMonitor:
         """全市场 APR 排行（结算间隔归一化 + 流动性过滤）"""
         rows = []
         min_volume = self._funding_min_volume()
+        now_ms = int(time.time() * 1000)
+        funding_max_age_ms = max(
+            600, self.config.get_int('global', 'funding_refresh_interval', 300) * 2
+        ) * 1000
         for symbol, exchanges in market_data.items():
             for exchange, data in exchanges.items():
                 rate = data.get('funding_rate')
                 interval_ms = data.get('funding_interval')
                 if rate is None:
+                    continue
+                # Ignore stale funding rates left over after a failed exchange fetch.
+                funding_ts = data.get('funding_timestamp')
+                if funding_ts and now_ms - funding_ts > funding_max_age_ms:
                     continue
                 futures_volume = self._futures_volume(exchange, symbol, data)
                 if not self._volume_ok(futures_volume, min_volume):
@@ -162,11 +174,20 @@ class MarketMonitor:
         """跨所年化费率差（两腿各自年化后求差 + 双腿流动性过滤）"""
         rows = []
         min_volume = self._funding_min_volume()
+        now_ms = int(time.time() * 1000)
+        funding_max_age_ms = max(
+            600, self.config.get_int('global', 'funding_refresh_interval', 300) * 2
+        ) * 1000
         for symbol, exchanges in market_data.items():
             names = list(exchanges.keys())
             for i, ex_a in enumerate(names):
                 for ex_b in names[i + 1:]:
                     a, b = exchanges[ex_a], exchanges[ex_b]
+                    ts_a = a.get('funding_timestamp')
+                    ts_b = b.get('funding_timestamp')
+                    if ((ts_a and now_ms - ts_a > funding_max_age_ms)
+                            or (ts_b and now_ms - ts_b > funding_max_age_ms)):
+                        continue
                     apr_a = annualize_rate(a.get('funding_rate'), a.get('funding_interval'))
                     apr_b = annualize_rate(b.get('funding_rate'), b.get('funding_interval'))
                     if apr_a is None or apr_b is None:
@@ -198,8 +219,8 @@ class MarketMonitor:
         """Build spot/perp basis from the current in-memory price snapshot."""
         rows = []
         now_ms = int(time.time() * 1000)
-        max_age_ms = 15 * 60 * 1000
-        max_sane_basis = float(self.config.get('alerts', 'basis_sanity_limit', 0.5))
+        max_age_ms = max(60, self.config.get_int('global', 'price_stale_threshold', 600)) * 1000
+        max_sane_basis = self.config.get_float('alerts', 'basis_sanity_limit', 0.5)
         min_volume = self._funding_min_volume()
 
         for symbol, exchanges in market_data.items():
@@ -207,7 +228,7 @@ class MarketMonitor:
                 spot = data.get('spot_price')
                 futures = data.get('futures_price')
                 ts = data.get('timestamp')
-                if not spot or not futures or spot <= 0:
+                if not spot or not futures or spot <= 0 or futures <= 0:
                     continue
                 if ts and now_ms - ts > max_age_ms:
                     continue
@@ -265,7 +286,7 @@ class MarketMonitor:
         # 同类产品价格索引：underlying -> issuer -> [归一化价格]
         # 先按发行商取中位数，再跨发行商取中位数，避免单一发行商的多个交易所刷权重
         now_ms = int(time.time() * 1000)
-        max_age_ms = max(120, int(self.config.get('global', 'stablecoin_refresh_interval', 60))) * 2 * 1000
+        max_age_ms = max(120, self.config.get_int('global', 'stablecoin_refresh_interval', 60)) * 2 * 1000
         peer_index: Dict[str, Dict[str, List[float]]] = {}
         for sym, sym_exchanges in stablecoin_data.items():
             e = registry.get(sym) or {}
@@ -299,7 +320,7 @@ class MarketMonitor:
                       else (issuer_medians[mid - 1] + issuer_medians[mid]) / 2)
             return median, len(issuer_medians)
 
-        issuer_spread_threshold = float(self.config.get('alerts', 'issuer_spread_threshold', 0.01))
+        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)
 
         rows = []
         for symbol, exchanges in stablecoin_data.items():
@@ -363,15 +384,20 @@ class MarketMonitor:
                     depeg_signal = False
 
             if reference_source == 'peer':
-                # 同类产品应紧密跟踪，采用跨发行商价差同口径阈值
-                thresholds = {'warning': issuer_spread_threshold,
-                              'critical': issuer_spread_threshold * 3}
+                # 单产品偏离中位价约为跨产品价差的一半，阈值同步折半，
+                # 保证面板预警与 issuer_spread 告警口径一致
+                thresholds = {'warning': issuer_spread_threshold / 2,
+                              'critical': issuer_spread_threshold * 1.5}
             else:
                 thresholds = peg_assets.get_thresholds(category)
 
             for exchange, data in exchanges.items():
                 price = data.get('price')
-                if not price:
+                if not price or price <= 0:
+                    continue
+                # Do not compare quotes kept from an old snapshot after a failed fetch.
+                ts = data.get('timestamp')
+                if ts and now_ms - ts > max_age_ms:
                     continue
 
                 # 无同类产品/仅有背景价时，不计算偏离、不参与排序和告警
@@ -423,22 +449,24 @@ class MarketMonitor:
         同一发行商在多个交易所的报价先取中位数，避免把跨所价差误当成跨发行商价差。
         """
         groups = self.data_collector.peg_discovery.get_cross_issuer_groups()
+        registry = self.data_collector.peg_discovery.registry
         now_ms = int(time.time() * 1000)
-        max_age_ms = max(120, int(self.config.get('global', 'stablecoin_refresh_interval', 60))) * 2 * 1000
+        max_age_ms = max(120, self.config.get_int('global', 'stablecoin_refresh_interval', 60)) * 2 * 1000
+        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)
         rows = []
 
         for underlying, symbols in groups.items():
             quotes = []
             category = None
             for sym in symbols:
-                entry = self.data_collector.peg_discovery.registry.get(sym) or {}
+                entry = registry.get(sym) or {}
                 issuer = entry.get('issuer') or sym.lower()
                 category = category or entry.get('category')
                 ratio = float(entry.get('reference_ratio', 1.0))
                 for exchange, data in (stablecoin_data.get(sym) or {}).items():
                     price = data.get('price')
                     ts = data.get('timestamp')
-                    if not price or (ts and now_ms - ts > max_age_ms):
+                    if not price or price <= 0 or (ts and now_ms - ts > max_age_ms):
                         continue
                     quotes.append({
                         'symbol': sym,
@@ -484,6 +512,8 @@ class MarketMonitor:
                 'abs_spread': abs(spread),
                 'issuer_count': len(issuer_prices),
                 'exchange_count': len(set(q['exchange'] for q in quotes)),
+                'threshold_warning': issuer_spread_threshold,
+                'threshold_critical': issuer_spread_threshold * 3,
             })
 
         rows.sort(key=lambda r: -r['abs_spread'])
@@ -494,7 +524,7 @@ class MarketMonitor:
     def _check_funding_anomalies(self, apr_ranking: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """极端资金费率告警（APR 口径）"""
         alerts = []
-        min_abs_apr = float(self.config.get('alerts', 'funding_apr_threshold', 10.0))  # 年化 1000%
+        min_abs_apr = self.config.get_float('alerts', 'funding_apr_threshold', 10.0)  # 年化 1000%
         for row in apr_ranking:
             rate = row['funding_rate']
             apr = row['apr']
@@ -522,7 +552,7 @@ class MarketMonitor:
     def _check_cross_spread_anomalies(self, spreads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """跨所费率差告警"""
         alerts = []
-        threshold = float(self.config.get('alerts', 'cross_spread_threshold', 0.50))  # 年化差 50%
+        threshold = self.config.get_float('alerts', 'cross_spread_threshold', 0.50)  # 年化差 50%
         for row in spreads[:50]:
             if row['abs_spread'] >= threshold:
                 alerts.append({
@@ -543,7 +573,7 @@ class MarketMonitor:
     def _check_basis_anomalies(self, basis_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """基差异常告警"""
         alerts = []
-        threshold = float(self.config.get('alerts', 'basis_threshold', 0.02))  # 2%
+        threshold = self.config.get_float('alerts', 'basis_threshold', 0.02)  # 2%
         for row in basis_list[:50]:
             if abs(row['basis']) >= threshold:
                 alerts.append({
@@ -562,9 +592,12 @@ class MarketMonitor:
     def _check_issuer_spread_anomalies(self, spreads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """跨发行商价差告警（同一标的的不同 RWA 版本偏离）"""
         alerts = []
-        threshold = float(self.config.get('alerts', 'issuer_spread_threshold', 0.01))  # 1%
+        threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)  # 1%
 
         for row in spreads:
+            # 稳定币/欧元稳定币已有 stablecoin_depeg 告警，避免同一事件重复推送
+            if row.get('category') in ('usd_stable', 'eur_stable'):
+                continue
             if row['abs_spread'] < threshold:
                 continue
             quotes = row['quotes']
@@ -604,6 +637,8 @@ class MarketMonitor:
                 continue
 
             dev = row['abs_deviation']
+            if dev is None:
+                continue
             if dev >= row['threshold_critical']:
                 level = 'critical'
             elif dev >= row['threshold_warning']:

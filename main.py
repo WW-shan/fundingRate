@@ -109,10 +109,10 @@ class FundingRateMonitorSystem:
         last_sent_date = None
         while True:
             try:
-                if self.config_manager.get('alerts', 'daily_summary_enabled', True):
+                if self.config_manager.get_bool('alerts', 'daily_summary_enabled', True):
                     from datetime import datetime
                     now = datetime.now()
-                    target_hour = int(self.config_manager.get('alerts', 'daily_summary_hour', 9))
+                    target_hour = self.config_manager.get_int('alerts', 'daily_summary_hour', 9)
                     today = now.date()
                     if now.hour == target_hour and last_sent_date != today:
                         scan = self.market_monitor.last_scan

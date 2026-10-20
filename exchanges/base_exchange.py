@@ -1,8 +1,8 @@
-import time
 """
 交易所基类（监控版）
 仅使用公开 API 获取行情与资金费率，不需要 API 密钥
 """
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Any
 from loguru import logger
@@ -36,7 +36,7 @@ class BaseExchange(ABC):
         pass
 
     def canonical_symbol(self, symbol: str) -> str:
-        """?????????????????????????????"""
+        """规范化交易所符号：去掉 :USDT 等结算后缀，统一为 BASE/QUOTE 格式"""
         return symbol.split(':')[0]
 
     def _parse_funding_interval(self, funding: Dict[str, Any]) -> Optional[int]:

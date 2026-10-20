@@ -13,10 +13,10 @@ class GateAdapter(BaseExchange):
         self.exchange = ccxt.gate(self._ccxt_config())
 
     def canonical_symbol(self, symbol: str) -> str:
-        """Gate ? CCXT ???????????? ID ???
+        """Gate 的 symbol 与 CCXT 标准符号可能不一致，需要用 market ID 反推。
 
-        ???? RED_USDT ? CCXT ??? RedLang/USDT??????
-        ?? ID ? BASE_QUOTE ????????????????????
+        例如 RED_USDT 在 CCXT 中是 RedLang/USDT，直接取 base 会得到 RedLang，
+        导致无法与 Binance/OKX 的 RED 对齐。这里用 market ID 的 BASE_QUOTE 结构还原。
         """
         try:
             market = self.exchange.market(symbol)

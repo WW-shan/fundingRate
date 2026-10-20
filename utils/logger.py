@@ -9,7 +9,9 @@ import os
 def setup_logger(log_file: str = "logs/app.log", log_level: str = "INFO"):
     """配置日志系统"""
     # 确保日志目录存在
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
     # 移除默认handler
     logger.remove()

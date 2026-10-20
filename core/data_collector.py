@@ -35,18 +35,19 @@ class DataCollector:
     def _ticker_quote_volume(ticker: Dict[str, Any]) -> float:
         """ticker 的 24h 成交额（报价币种，通常为 USDT）"""
         qv = ticker.get("quoteVolume")
-        if qv is None:
+        try:
+            qv_f = float(qv) if qv is not None else 0.0
+        except (TypeError, ValueError):
+            qv_f = 0.0
+        if qv_f <= 0:
             bv = ticker.get("baseVolume")
             px = ticker.get("last") or ticker.get("bid") or ticker.get("ask")
             if bv is not None and px is not None:
                 try:
-                    qv = float(bv) * float(px)
+                    qv_f = float(bv) * float(px)
                 except (TypeError, ValueError):
-                    qv = 0
-        try:
-            return float(qv or 0)
-        except (TypeError, ValueError):
-            return 0.0
+                    qv_f = 0.0
+        return max(0.0, qv_f)
 
     def get_futures_volume(self, exchange: str, symbol: str) -> float:
         """获取某交易所某永续的 24h 成交额（USDT）"""
@@ -67,6 +68,8 @@ class DataCollector:
                                   ['binance', 'okx', 'bybit', 'gate', 'bitget'])
         if isinstance(enabled, str):
             enabled = [e.strip() for e in enabled.split(',') if e.strip()]
+        if not enabled:
+            enabled = ['binance', 'okx', 'bybit', 'gate', 'bitget']
 
         new_exchanges = {}
         for name in enabled:
@@ -88,12 +91,34 @@ class DataCollector:
 
         # 原子替换，避免采集线程在 clear/repopulate 期间遍历字典报错
         self.exchanges = new_exchanges
+        # 清理已禁用交易所的残留快照，避免面板继续展示旧数据
+        active = set(new_exchanges)
+        for sym, exchanges in list(self.market_data.items()):
+            for ex in list(exchanges):
+                if ex not in active:
+                    del exchanges[ex]
+            if not exchanges:
+                del self.market_data[sym]
+        for ex in list(self.futures_volume):
+            if ex not in active:
+                del self.futures_volume[ex]
+        for sym, exchanges in list(self.stablecoin_data.items()):
+            for ex in list(exchanges):
+                if ex not in active:
+                    del exchanges[ex]
+            if not exchanges:
+                del self.stablecoin_data[sym]
         logger.info(f"Active exchanges: {list(self.exchanges.keys())}")
 
     def reload_exchanges(self):
         """重新加载交易所连接（热更新）"""
         logger.info("Reloading exchange connections...")
         self._init_exchanges()
+        # 让锚定资产注册表按新的交易所集合重建
+        self.peg_discovery.registry = {}
+        self.peg_discovery.by_underlying = {}
+        self.peg_discovery.last_refresh = 0
+        self.peg_discovery._shrink_streak = 0
 
     # ---------- 生命周期 ----------
 
@@ -112,7 +137,7 @@ class DataCollector:
 
     def _funding_loop(self):
         while self.running:
-            interval = int(self.config.get('global', 'funding_refresh_interval', 300))
+            interval = self.config.get_int('global', 'funding_refresh_interval', 300)
             try:
                 self._collect_funding_rates()
             except Exception as e:
@@ -122,6 +147,8 @@ class DataCollector:
     def _collect_funding_rates(self):
         """批量采集全市场资金费率（每家 1 次 API 调用）"""
         for name, adapter in self.exchanges.items():
+            if self.exchanges.get(name) is not adapter:
+                continue
             try:
                 t0 = time.time()
                 # Fetch slower interval metadata first; fetch the live predicted rate last.
@@ -144,7 +171,7 @@ class DataCollector:
                 # 只移除该交易所上一轮资金费率字段，保留价格字段
                 funding_fields = ('funding_rate', 'next_funding_time', 'funding_interval',
                                   'rate_semantics', 'funding_timestamp')
-                for exchanges in self.market_data.values():
+                for exchanges in list(self.market_data.values()):
                     entry = exchanges.get(name)
                     if entry:
                         for key in funding_fields:
@@ -165,6 +192,10 @@ class DataCollector:
                     rate = data.get('fundingRate')
                     if rate is None:
                         continue
+                    try:
+                        rate = float(rate)
+                    except (TypeError, ValueError):
+                        continue
 
                     iv_data = intervals.get(symbol) or {}
                     interval_ms = (adapter._parse_funding_interval(data)
@@ -173,7 +204,7 @@ class DataCollector:
                     next_ts = data.get('fundingTimestamp') or iv_data.get('fundingTimestamp')
 
                     entry = {
-                        'funding_rate': float(rate),
+                        'funding_rate': rate,
                         'next_funding_time': next_ts,
                         'funding_interval': interval_ms,
                         'rate_semantics': adapter.funding_rate_semantics,
@@ -210,7 +241,7 @@ class DataCollector:
     def _price_loop(self):
         time.sleep(5)
         while self.running:
-            interval = int(self.config.get('global', 'price_refresh_interval', 30))
+            interval = self.config.get_int('global', 'price_refresh_interval', 30)
             try:
                 self._collect_prices()
             except Exception as e:
@@ -221,6 +252,8 @@ class DataCollector:
         """批量采集现货+永续价格（每家各 1 次批量调用）"""
         ts = int(time.time() * 1000)
         for name, adapter in self.exchanges.items():
+            if self.exchanges.get(name) is not adapter:
+                continue
             try:
                 spot_tickers = {}
                 futures_tickers = {}
@@ -264,12 +297,12 @@ class DataCollector:
                 price_fields = ('spot_bid', 'spot_ask', 'spot_price', 'spot_quote_volume',
                                 'futures_bid', 'futures_ask', 'futures_price',
                                 'futures_quote_volume', 'timestamp')
-                for exchanges in self.market_data.values():
+                for exchanges in list(self.market_data.values()):
                     entry = exchanges.get(name)
                     if entry:
                         for key in price_fields:
                             entry.pop(key, None)
-                stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
+                stale_ms = self.config.get_int('global', 'price_stale_threshold', 600) * 1000
                 now_ms = int(time.time() * 1000)
                 for sym in spot_map.keys() & futures_map.keys():
                     spot_symbol, st = spot_map[sym]
@@ -290,9 +323,14 @@ class DataCollector:
                     if ft_ts and (now_ms - ft_ts) > stale_ms:
                         continue
 
-                    spot_price = st.get('last') or st.get('bid')
-                    futures_price = ft.get('last') or ft.get('bid')
-                    if not spot_price or not futures_price:
+                    spot_price = st.get('last') or st.get('bid') or st.get('ask')
+                    futures_price = ft.get('last') or ft.get('bid') or ft.get('ask')
+                    try:
+                        spot_price = float(spot_price)
+                        futures_price = float(futures_price)
+                    except (TypeError, ValueError):
+                        continue
+                    if spot_price <= 0 or futures_price <= 0:
                         continue
 
                     entry = {
@@ -341,7 +379,7 @@ class DataCollector:
     def _stablecoin_loop(self):
         time.sleep(5)
         while self.running:
-            interval = int(self.config.get('global', 'stablecoin_refresh_interval', 60))
+            interval = self.config.get_int('global', 'stablecoin_refresh_interval', 60)
             try:
                 self._collect_stablecoins()
             except Exception as e:
@@ -359,74 +397,98 @@ class DataCollector:
             return
 
         ts = int(time.time() * 1000)
-        stale_ms = int(self.config.get('global', 'price_stale_threshold', 600)) * 1000
+        stale_ms = self.config.get_int('global', 'price_stale_threshold', 600) * 1000
         collected = 0
         db_rows = []
         new_data = {}
         wanted = {f'{sym}/USDT': sym for sym in symbols}
         for name, adapter in self.exchanges.items():
+            if self.exchanges.get(name) is not adapter:
+                continue
             try:
                 tickers = adapter.exchange.fetch_tickers(params={'type': 'spot'})
             except Exception as e:
                 logger.debug(f"{name} peg tickers failed: {e}")
                 continue
-            canonical_tickers = {}
-            for ticker_symbol, ticker in tickers.items():
-                if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
-                    canonical_tickers[adapter.canonical_symbol(ticker_symbol)] = (ticker_symbol, ticker)
-            for market_symbol, sym in wanted.items():
-                lookup_symbol = 'USDC/USDT' if sym == 'USDT' else market_symbol
-                item = canonical_tickers.get(lookup_symbol)
-                if not item:
-                    continue
-                actual_market, ticker = item
-                try:
-                    if adapter.exchange.market(actual_market).get('active') is False:
+
+            # 单个交易所处理失败不影响其他交易所
+            try:
+                canonical_tickers = {}
+                for ticker_symbol, ticker in tickers.items():
+                    if ticker_symbol.endswith('/USDT') and ':' not in ticker_symbol:
+                        canonical_tickers[adapter.canonical_symbol(ticker_symbol)] = (ticker_symbol, ticker)
+
+                for market_symbol, sym in wanted.items():
+                    lookup_symbol = 'USDC/USDT' if sym == 'USDT' else market_symbol
+                    item = canonical_tickers.get(lookup_symbol)
+                    if not item:
                         continue
-                except Exception:
-                    pass
-                ticker_ts = ticker.get('timestamp')
-                stale = bool(ticker_ts and (ts - ticker_ts) > stale_ms)
-                raw_price = ticker.get('last') or ticker.get('bid')
-                if stale:
-                    # Low-liquidity but still active markets may have a stale last
-                    # trade while two-sided bid/ask remain valid. Use mid price.
-                    bid = ticker.get('bid')
-                    ask = ticker.get('ask')
+                    actual_market, ticker = item
                     try:
-                        bid_f, ask_f = float(bid), float(ask)
+                        if adapter.exchange.market(actual_market).get('active') is False:
+                            continue
+                    except Exception:
+                        pass
+                    ticker_ts = ticker.get('timestamp')
+                    stale = bool(ticker_ts and (ts - ticker_ts) > stale_ms)
+                    raw_price = ticker.get('last') or ticker.get('bid') or ticker.get('ask')
+                    if stale:
+                        # 低流动性但仍活跃的市场可能没有最新成交，使用有效买一/卖一中间价
+                        bid = ticker.get('bid')
+                        ask = ticker.get('ask')
+                        try:
+                            bid_f, ask_f = float(bid), float(ask)
+                        except (TypeError, ValueError):
+                            continue
+                        if bid_f <= 0 or ask_f <= 0 or ask_f < bid_f:
+                            continue
+                        raw_price = (bid_f + ask_f) / 2
+                    if not raw_price:
+                        continue
+                    try:
+                        raw_price = float(raw_price)
                     except (TypeError, ValueError):
                         continue
-                    if bid_f <= 0 or ask_f <= 0 or ask_f < bid_f:
+                    if raw_price <= 0:
                         continue
-                    raw_price = (bid_f + ask_f) / 2
-                if not raw_price:
-                    continue
-                try:
-                    raw_price = float(raw_price)
-                except (TypeError, ValueError):
-                    continue
-                if raw_price <= 0:
-                    continue
-                if sym == 'USDT':
-                    # USDC/USDT -> USDT/USD（USDC≈1）；bid/ask 方向相反
-                    price = 1.0 / raw_price
-                    bid = (1.0 / float(ticker['ask'])) if ticker.get('ask') else None
-                    ask = (1.0 / float(ticker['bid'])) if ticker.get('bid') else None
-                else:
-                    price = raw_price
-                    bid = ticker.get('bid')
-                    ask = ticker.get('ask')
-                new_data.setdefault(sym, {})[name] = {
-                    'price': price,
-                    'bid': bid,
-                    'ask': ask,
-                    'timestamp': ticker.get('timestamp') or ts,
-                }
-                db_rows.append((name, sym, ts, price, bid, ask))
-                collected += 1
+                    if sym == 'USDT':
+                        # USDC/USDT -> USDT/USD（USDC≈1）；bid/ask 方向相反
+                        price = 1.0 / raw_price
+                        try:
+                            ask_f = float(ticker.get('ask') or 0)
+                            bid_f = float(ticker.get('bid') or 0)
+                        except (TypeError, ValueError):
+                            ask_f = bid_f = 0.0
+                        bid = (1.0 / ask_f) if ask_f > 0 else None
+                        ask = (1.0 / bid_f) if bid_f > 0 else None
+                    else:
+                        price = raw_price
+                        bid = ticker.get('bid')
+                        ask = ticker.get('ask')
+                    # 快照时间统一用采集时间，避免低流动性标的的旧 ticker 时间戳
+                    # 导致同类产品比价时被误判为过期而漏掉
+                    new_data.setdefault(sym, {})[name] = {
+                        'price': price,
+                        'bid': bid,
+                        'ask': ask,
+                        'timestamp': ts,
+                    }
+                    db_rows.append((name, sym, ts, price, bid, ask))
+                    collected += 1
+            except Exception as e:
+                logger.error(f"{name} peg ticker processing failed: {e}")
+                continue
+
         if not new_data:
             logger.warning("Peg asset collection returned no quotes; keeping previous snapshot")
+            return
+        # 防止单所临时失败导致快照大幅缩水；覆盖率过低时保留上一轮完整快照
+        coverage = len(new_data) / max(1, len(symbols))
+        if self.stablecoin_data and coverage < 0.9:
+            logger.warning(
+                f"Peg asset collection incomplete ({len(new_data)}/{len(symbols)} symbols, "
+                f"coverage={coverage:.0%}); keeping previous snapshot"
+            )
             return
         self.stablecoin_data = new_data
 
@@ -450,7 +512,7 @@ class DataCollector:
                 break
             time.sleep(5)
         while self.running:
-            interval = int(self.config.get('global', 'reference_refresh_interval', 300))
+            interval = self.config.get_int('global', 'reference_refresh_interval', 300)
             try:
                 self._collect_reference_prices()
             except Exception as e:
@@ -530,15 +592,23 @@ class DataCollector:
         logger.info(f"Reference prices updated: {len(db_rows)}/{len(targets)} symbols")
 
     def get_reference_prices(self) -> Dict[str, Dict[str, Any]]:
-        return self.reference_prices
+        # 返回快照，避免监控线程遍历时与采集线程写入互相干扰
+        return {sym: dict(entry) for sym, entry in list(self.reference_prices.items())}
 
     # ---------- 供监控模块使用 ----------
 
     def get_market_data(self) -> Dict[str, Dict[str, Any]]:
-        return self.market_data
+        # 深一层拷贝：外层与每个交易所 entry 都复制，避免采集线程并发修改
+        return {
+            sym: {ex: dict(entry) for ex, entry in list(exchanges.items())}
+            for sym, exchanges in list(self.market_data.items())
+        }
 
     def get_stablecoin_data(self) -> Dict[str, Dict[str, Any]]:
-        return self.stablecoin_data
+        return {
+            sym: {ex: dict(entry) for ex, entry in list(exchanges.items())}
+            for sym, exchanges in list(self.stablecoin_data.items())
+        }
 
     def get_status(self) -> Dict[str, Any]:
         return {

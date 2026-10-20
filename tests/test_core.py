@@ -12,6 +12,36 @@ from core.alert_manager import AlertManager
 from config import peg_assets
 
 
+class FakeConfig:
+    """测试用配置对象，提供与 ConfigManager 相同的数值/布尔读取接口"""
+
+    def __init__(self, values=None):
+        self.values = values or {}
+
+    def get(self, category, key, default=None):
+        return self.values.get(f"{category}.{key}", default)
+
+    def get_int(self, category, key, default=0):
+        try:
+            return int(self.get(category, key, default))
+        except (TypeError, ValueError):
+            return int(default)
+
+    def get_float(self, category, key, default=0.0):
+        try:
+            return float(self.get(category, key, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    def get_bool(self, category, key, default=False):
+        value = self.get(category, key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value)
+
+
 class DummyExchange:
     _parse_funding_interval = BaseExchange._parse_funding_interval
 
@@ -75,7 +105,7 @@ class AlertPushTests(unittest.TestCase):
             "alerts.persist_cooldown": 1800,
             "alerts.max_pushes_per_scan": 20,
         }
-        config = SimpleNamespace(get=lambda category, key, default=None: self.values.get(f"{category}.{key}", default))
+        config = FakeConfig(self.values)
         self.manager = AlertManager(config, FakeDB())
 
     def test_basis_is_push_enabled(self):
@@ -89,7 +119,7 @@ class AlertPushTests(unittest.TestCase):
         }))
 
     def test_cross_spread_is_panel_only_by_default(self):
-        config = SimpleNamespace(get=lambda category, key, default=None: default)
+        config = FakeConfig()
         manager = AlertManager(config, None)
         self.assertFalse(manager._should_push({"alert_type": "cross_spread"}))
 
@@ -202,7 +232,7 @@ class MarketMonitorStockComparisonTests(unittest.TestCase):
         collector = FakeCollector()
         collector.peg_discovery = discovery
 
-        config = SimpleNamespace(get=lambda category, key, default=None: default)
+        config = FakeConfig()
         return MarketMonitor(config, None, collector)
 
     def _registry(self):
@@ -368,9 +398,7 @@ class LiquidityFilterTests(unittest.TestCase):
         import time
         self.now = int(time.time() * 1000)
         values = {"global.funding_min_volume_usd": 500_000}
-        config = SimpleNamespace(
-            get=lambda category, key, default=None: values.get(f"{category}.{key}", default)
-        )
+        config = FakeConfig(values)
 
         class FakeCollector:
             def __init__(self):
@@ -452,5 +480,113 @@ class TelegramDigestTests(unittest.TestCase):
         self.assertIn("另有", msg)
 
 
+class StalenessRegressionTests(unittest.TestCase):
+    """Stale snapshots must not keep producing APR/spread/depeg signals."""
+
+    def test_stale_funding_rows_are_ignored(self):
+        import time
+        from core.market_monitor import MarketMonitor
+
+        mm = MarketMonitor(FakeConfig(), None, None)
+        old = int(time.time() * 1000) - 3600 * 1000
+        data = {
+            "BTC/USDT": {
+                "binance": {"funding_rate": 0.01, "funding_interval": 8 * 3600 * 1000,
+                            "funding_timestamp": old, "futures_quote_volume": 10_000_000},
+                "gate": {"funding_rate": -0.01, "funding_interval": 8 * 3600 * 1000,
+                         "funding_timestamp": old, "futures_quote_volume": 10_000_000},
+            }
+        }
+        self.assertEqual(mm.build_apr_ranking(data), [])
+        self.assertEqual(mm.build_cross_exchange_spreads(data), [])
+
+    def test_stale_depeg_quotes_are_ignored(self):
+        import time
+        from core.market_monitor import MarketMonitor
+
+        class FakeDiscovery:
+            registry = {
+                "USDCA": {"category": "usd_stable", "reference_symbol": "USD",
+                          "issuer": "circle", "reference_ratio": 1.0},
+            }
+
+            def get_cross_issuer_groups(self):
+                return {}
+
+        class FakeCollector:
+            def get_reference_prices(self):
+                return {}
+
+            peg_discovery = FakeDiscovery()
+
+        mm = MarketMonitor(FakeConfig(), None, FakeCollector())
+        old = int(time.time() * 1000) - 3600 * 1000
+        data = {"USDCA": {"binance": {"price": 0.5, "timestamp": old}}}
+        self.assertEqual(mm.build_depeg_list(data), [])
+
+
 if __name__ == '__main__':
     unittest.main()
+
+class RegressionAuditTests(unittest.TestCase):
+    """本轮端到端审计发现的回归点"""
+
+    def test_cross_spread_dedup_key_is_order_independent(self):
+        am = AlertManager(FakeConfig(), None)
+        a = {"alert_type": "cross_spread", "symbol": "X/USDT", "exchange": "binance/gate"}
+        b = {"alert_type": "cross_spread", "symbol": "X/USDT", "exchange": "gate/binance"}
+        self.assertEqual(am._dedup_key(a), am._dedup_key(b))
+
+    def test_issuer_spread_alert_skips_stablecoins(self):
+        from core.market_monitor import MarketMonitor
+
+        mm = MarketMonitor(FakeConfig(), None, None)
+        rows = [
+            {"category": "usd_stable", "underlying": "USD", "abs_spread": 0.02, "quotes": []},
+            {"category": "stock", "underlying": "AAPL", "abs_spread": 0.02, "quotes": []},
+        ]
+        alerts = mm._check_issuer_spread_anomalies(rows)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["symbol"], "AAPL")
+
+    def test_peg_quote_volume_falls_back_to_base_volume(self):
+        self.assertAlmostEqual(
+            peg_assets.PegAssetDiscovery._ticker_quote_volume(
+                {"quoteVolume": None, "baseVolume": 10, "last": 2.5}
+            ),
+            25.0,
+        )
+        self.assertAlmostEqual(
+            peg_assets.PegAssetDiscovery._ticker_quote_volume({"quoteVolume": 7.5}),
+            7.5,
+        )
+
+    def test_market_data_snapshot_is_isolated(self):
+        from core.data_collector import DataCollector
+
+        obj = SimpleNamespace(market_data={"A/USDT": {"binance": {"x": 1}}})
+        snap = DataCollector.get_market_data(obj)
+        snap["A/USDT"]["binance"]["x"] = 2
+        snap["B/USDT"] = {}
+        self.assertEqual(obj.market_data["A/USDT"]["binance"]["x"], 1)
+        self.assertNotIn("B/USDT", obj.market_data)
+    def test_telegram_queues_message_when_loop_not_ready(self):
+        import threading
+        from bot.telegram_bot import TelegramBot
+
+        bot = object.__new__(TelegramBot)
+        bot.app = object()
+        bot.chat_id = "test"
+        bot._loop = None
+        bot._pending_messages = []
+        bot._pending_lock = threading.Lock()
+        bot._send_async("hello")
+        self.assertEqual(bot._pending_messages, ["hello"])
+
+    def test_config_get_accepts_capitalized_boolean_strings(self):
+        from config.config_manager import ConfigManager
+
+        cm = object.__new__(ConfigManager)
+        cm._config_cache = {"alerts.push_depeg": "False", "alerts.push_basis": "True"}
+        self.assertFalse(cm.get("alerts", "push_depeg", True))
+        self.assertTrue(cm.get("alerts", "push_basis", False))

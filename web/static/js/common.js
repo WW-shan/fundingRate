@@ -38,7 +38,7 @@ function typeLabel(t) {
     cross_spread: '跨所费率差',
     basis_extreme: '基差异常',
     stablecoin_depeg: '锚定资产偏离',
-    issuer_spread: '跨发行商价差',
+    issuer_spread: '跨产品 / 跨发行商价差',
   };
   return map[t] || t;
 }
