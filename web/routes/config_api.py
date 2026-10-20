@@ -23,6 +23,7 @@ def get_config():
                 'stablecoin_refresh_interval': cm.get('global', 'stablecoin_refresh_interval', 60),
                 'reference_refresh_interval': cm.get('global', 'reference_refresh_interval', 300),
                 'monitor_scan_interval': cm.get('global', 'monitor_scan_interval', 60),
+                'funding_min_volume_usd': cm.get('global', 'funding_min_volume_usd', 500000),
             },
             'alerts': {
                 'funding_apr_threshold': cm.get('alerts', 'funding_apr_threshold', 10.0),
@@ -32,6 +33,9 @@ def get_config():
                 'peg_min_volume_usd': cm.get('alerts', 'peg_min_volume_usd', 500000),
                 'max_pushes_per_scan': cm.get('alerts', 'max_pushes_per_scan', 10),
                 'push_funding_apr_threshold': cm.get('alerts', 'push_funding_apr_threshold', 10.0),
+                'push_basis_threshold': cm.get('alerts', 'push_basis_threshold', 0.03),
+                'push_reset_gap': cm.get('alerts', 'push_reset_gap', 3600),
+                'push_reminder_cooldown': cm.get('alerts', 'push_reminder_cooldown', 86400),
                 'push_depeg': cm.get('alerts', 'push_depeg', True),
                 'push_issuer_spread': cm.get('alerts', 'push_issuer_spread', True),
                 'daily_summary_enabled': cm.get('alerts', 'daily_summary_enabled', True),

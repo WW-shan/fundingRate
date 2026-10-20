@@ -695,11 +695,23 @@ def verify_internal(report: dict, dc: DataCollector, mm: MarketMonitor):
 
     depeg = mm.build_depeg_list(dc.stablecoin_data)
     stats['depeg_rows'] = len(depeg)
+    stats['depeg_peer_reference_rows'] = 0
+    stats['depeg_stale_no_peer_rows'] = 0
     for r in depeg:
-        expected = (r['price'] - r['reference']) / r['reference']
-        if not close_enough(r.get('deviation'), expected, 1e-9, 1e-12):
+        source = r.get('reference_source', 'reference')
+        # 休市且无同类产品时不计算偏离，仅校验来源标记
+        if source != 'stale_close':
+            expected = (r['price'] - r['reference']) / r['reference']
+            if not close_enough(r.get('deviation'), expected, 1e-9, 1e-12):
+                stats['depeg_formula_mismatch'] += 1
+                add_mismatch(report, r['exchange'], 'internal', r['symbol'], 'deviation', r.get('deviation'), expected)
+        if source == 'peer':
+            stats['depeg_peer_reference_rows'] += 1
+        elif source == 'stale_close':
+            stats['depeg_stale_no_peer_rows'] += 1
+        elif source != 'reference':
             stats['depeg_formula_mismatch'] += 1
-            add_mismatch(report, r['exchange'], 'internal', r['symbol'], 'deviation', r.get('deviation'), expected)
+            add_mismatch(report, r['exchange'], 'internal', r['symbol'], 'reference_source', source, 'reference')
 
     spreads = mm.build_cross_issuer_spreads(dc.stablecoin_data)
     stats['issuer_rows'] = len(spreads)

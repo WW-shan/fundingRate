@@ -93,16 +93,51 @@ class MarketMonitor:
 
         return self.last_scan
 
+    def _funding_min_volume(self) -> float:
+        """资金费率/基差机会的最小 24h 成交额（USDT）"""
+        try:
+            return max(0.0, float(self.config.get('global', 'funding_min_volume_usd', 500_000) or 0))
+        except (TypeError, ValueError):
+            return 500_000.0
+
+    @staticmethod
+    def _volume_ok(volume: Any, min_volume: float) -> bool:
+        if min_volume <= 0:
+            return True
+        try:
+            return float(volume or 0) >= min_volume
+        except (TypeError, ValueError):
+            return False
+
+    def _futures_volume(self, exchange: str, symbol: str, data: Dict[str, Any]) -> float:
+        """优先使用价格快照中的成交量，缺失时回退到采集器的全量永续成交量快照"""
+        volume = data.get('futures_quote_volume')
+        if volume is None and self.data_collector:
+            getter = getattr(self.data_collector, 'get_futures_volume', None)
+            if getter:
+                try:
+                    volume = getter(exchange, symbol)
+                except Exception:
+                    volume = None
+        try:
+            return float(volume or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
     # ---------- APR 排行 ----------
 
     def build_apr_ranking(self, market_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """全市场 APR 排行（结算间隔归一化，线性年化）"""
+        """全市场 APR 排行（结算间隔归一化 + 流动性过滤）"""
         rows = []
+        min_volume = self._funding_min_volume()
         for symbol, exchanges in market_data.items():
             for exchange, data in exchanges.items():
                 rate = data.get('funding_rate')
                 interval_ms = data.get('funding_interval')
                 if rate is None:
+                    continue
+                futures_volume = self._futures_volume(exchange, symbol, data)
+                if not self._volume_ok(futures_volume, min_volume):
                     continue
                 apr = annualize_rate(rate, interval_ms)
                 rows.append({
@@ -114,6 +149,8 @@ class MarketMonitor:
                     'apr': apr,
                     'next_funding_time': data.get('next_funding_time'),
                     'rate_semantics': data.get('rate_semantics', 'upcoming'),
+                    'futures_quote_volume': futures_volume,
+                    'spot_quote_volume': data.get('spot_quote_volume'),
                 })
         # 按 |APR| 降序：极端正负费率都排前面（如 -4380% 与 +4380% 同等重要）
         rows.sort(key=lambda r: (r['apr'] is None, -abs(r['apr'] or 0)))
@@ -122,8 +159,9 @@ class MarketMonitor:
     # ---------- 跨所费率差 ----------
 
     def build_cross_exchange_spreads(self, market_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """跨所年化费率差（两腿各自年化后求差）"""
+        """跨所年化费率差（两腿各自年化后求差 + 双腿流动性过滤）"""
         rows = []
+        min_volume = self._funding_min_volume()
         for symbol, exchanges in market_data.items():
             names = list(exchanges.keys())
             for i, ex_a in enumerate(names):
@@ -132,6 +170,10 @@ class MarketMonitor:
                     apr_a = annualize_rate(a.get('funding_rate'), a.get('funding_interval'))
                     apr_b = annualize_rate(b.get('funding_rate'), b.get('funding_interval'))
                     if apr_a is None or apr_b is None:
+                        continue
+                    vol_a = self._futures_volume(ex_a, symbol, a)
+                    vol_b = self._futures_volume(ex_b, symbol, b)
+                    if not (self._volume_ok(vol_a, min_volume) and self._volume_ok(vol_b, min_volume)):
                         continue
                     rows.append({
                         'symbol': symbol,
@@ -144,6 +186,8 @@ class MarketMonitor:
                         'apr_spread': apr_b - apr_a,
                         'abs_spread': abs(apr_b - apr_a),
                         'interval_mismatch': a.get('funding_interval') != b.get('funding_interval'),
+                        'volume_a': vol_a,
+                        'volume_b': vol_b,
                     })
         rows.sort(key=lambda r: -r['abs_spread'])
         return rows
@@ -156,6 +200,7 @@ class MarketMonitor:
         now_ms = int(time.time() * 1000)
         max_age_ms = 15 * 60 * 1000
         max_sane_basis = float(self.config.get('alerts', 'basis_sanity_limit', 0.5))
+        min_volume = self._funding_min_volume()
 
         for symbol, exchanges in market_data.items():
             for exchange, data in exchanges.items():
@@ -165,6 +210,11 @@ class MarketMonitor:
                 if not spot or not futures or spot <= 0:
                     continue
                 if ts and now_ms - ts > max_age_ms:
+                    continue
+                spot_volume = data.get('spot_quote_volume')
+                futures_volume = self._futures_volume(exchange, symbol, data)
+                if not (self._volume_ok(spot_volume, min_volume)
+                        and self._volume_ok(futures_volume, min_volume)):
                     continue
                 basis = (futures - spot) / spot
                 if abs(basis) > max_sane_basis:
@@ -179,6 +229,8 @@ class MarketMonitor:
                     'futures_price': futures,
                     'basis': basis,
                     'timestamp': ts,
+                    'spot_quote_volume': spot_volume,
+                    'futures_quote_volume': futures_volume,
                 })
 
         rows.sort(key=lambda r: -abs(r['basis']))
@@ -192,13 +244,36 @@ class MarketMonitor:
           - eur_stable: Yahoo EURUSD=X
           - gold:       Yahoo GC=F
           - stock:      Yahoo 对应股票代码
+
+        休市处理（非美元稳定币）：
+          - 标的市场休市时参考价为最近收盘价，与链上价格不可比（盘后漂移属正常）
+          - 此时改用【同类产品】（同一标的的其他发行商版本）的中位价作为参考
+          - 休市行不产生脱锚告警（depeg_signal=False），比价信号由跨发行商价差检测承担
+          - 若无同类产品可比，标记 reference_source='stale_close'，仅面板展示
         """
         from config import peg_assets
 
         refs = self.data_collector.get_reference_prices()
         registry = self.data_collector.peg_discovery.registry
-        rows = []
 
+        # 同类产品价格索引：underlying -> issuer -> [归一化价格]
+        # 先按发行商取中位数，再跨发行商取中位数，避免单一发行商的多个交易所刷权重
+        peer_index: Dict[str, Dict[str, List[float]]] = {}
+        for sym, sym_exchanges in stablecoin_data.items():
+            e = registry.get(sym) or {}
+            ref_sym = e.get('reference_symbol')
+            if not ref_sym:
+                continue
+            issuer = e.get('issuer') or sym.lower()
+            ratio = float(e.get('reference_ratio', 1.0)) or 1.0
+            for data in sym_exchanges.values():
+                p = data.get('price')
+                if p and p > 0:
+                    peer_index.setdefault(ref_sym, {}).setdefault(issuer, []).append(float(p) / ratio)
+
+        issuer_spread_threshold = float(self.config.get('alerts', 'issuer_spread_threshold', 0.01))
+
+        rows = []
         for symbol, exchanges in stablecoin_data.items():
             entry = registry.get(symbol)
             if entry:
@@ -212,6 +287,8 @@ class MarketMonitor:
             # 确定参考价
             reference_time = None
             market_closed = False
+            reference_source = 'reference'
+            depeg_signal = True
             ratio = float(entry.get('reference_ratio', 1.0)) if entry else 1.0
             if category == 'usd_stable':
                 reference = 1.0
@@ -226,28 +303,64 @@ class MarketMonitor:
                     continue
                 reference = float(reference) * ratio
                 reference_time = ref_data.get('market_time')
-                # 标的行情超过 30 分钟未更新 => 休市（股票周末/盘后）
+                # If market_time is unavailable, do not assume the market is open.
+                # Treat it as closed: use peer median when available, otherwise skip.
                 if reference_time:
                     market_closed = (time.time() - reference_time) > 1800
+                else:
+                    market_closed = True
 
-            thresholds = peg_assets.get_thresholds(category)
+                if market_closed and category != 'usd_stable':
+                    # 休市：不拿陈旧收盘价当锚，改用【其他发行商】同标的产品中位价
+                    own_issuer = (entry or {}).get('issuer') or symbol.lower()
+                    issuer_medians = []
+                    for issuer, prices in peer_index.get(ref_symbol, {}).items():
+                        if issuer == own_issuer or not prices:
+                            continue
+                        prices = sorted(prices)
+                        mid = len(prices) // 2
+                        issuer_medians.append(
+                            prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+                        )
+                    if issuer_medians:
+                        issuer_medians.sort()
+                        mid = len(issuer_medians) // 2
+                        peer_median = (issuer_medians[mid] if len(issuer_medians) % 2
+                                       else (issuer_medians[mid - 1] + issuer_medians[mid]) / 2)
+                        reference = peer_median * ratio
+                        reference_source = 'peer'
+                        reference_time = None
+                    else:
+                        reference_source = 'stale_close'
+                    depeg_signal = False
+
+            if reference_source == 'peer':
+                # 同类产品应紧密跟踪，采用跨发行商价差同口径阈值
+                thresholds = {'warning': issuer_spread_threshold,
+                              'critical': issuer_spread_threshold * 3}
+            else:
+                thresholds = peg_assets.get_thresholds(category)
 
             for exchange, data in exchanges.items():
                 price = data.get('price')
                 if not price:
                     continue
-                deviation = (price - reference) / reference
 
-                # 映射验证：偏离 > 50% 大概率是符号映射错误（如 RIRON 实际非 Disc Medicine）
-                # 此类数据不参与脱锚判定，避免误报
-                # Stablecoins must alert even on extreme moves. For stock/commodity
-                # tokens a >50% gap is more likely a symbol mapping error.
-                if abs(deviation) > 0.5 and category not in ('usd_stable', 'eur_stable'):
-                    logger.debug(
-                        f"Peg mapping check: {symbol}@{exchange} price={price} vs ref={reference} "
-                        f"({deviation:.1%}) ? likely wrong mapping, skipped"
-                    )
-                    continue
+                # 休市且无同类产品时，收盘价与链上价格没有可比性：
+                # 不计算偏离、不参与排序/告警，仅保留收盘价作为背景信息。
+                if reference_source == 'stale_close':
+                    deviation = None
+                else:
+                    deviation = (price - reference) / reference
+
+                    # 映射验证：偏离 > 50% 大概率是符号映射错误（如 RIRON 实际非 Disc Medicine）
+                    # 此类数据不参与脱锚判定，避免误报
+                    if abs(deviation) > 0.5 and category not in ('usd_stable', 'eur_stable'):
+                        logger.debug(
+                            f"Peg mapping check: {symbol}@{exchange} price={price} vs ref={reference} "
+                            f"({deviation:.1%}) ? likely wrong mapping, skipped"
+                        )
+                        continue
 
                 rows.append({
                     'symbol': symbol,
@@ -257,9 +370,12 @@ class MarketMonitor:
                     'reference': reference,
                     'reference_ratio': ratio,
                     'reference_time': reference_time,
+                    'reference_source': reference_source,
+                    'comparable': reference_source != 'stale_close',
+                    'depeg_signal': depeg_signal,
                     'market_closed': market_closed,
                     'deviation': deviation,
-                    'abs_deviation': abs(deviation),
+                    'abs_deviation': abs(deviation) if deviation is not None else None,
                     'threshold_warning': thresholds['warning'],
                     'threshold_critical': thresholds['critical'],
                     'bid': data.get('bid'),
@@ -267,7 +383,8 @@ class MarketMonitor:
                     'timestamp': data.get('timestamp'),
                 })
 
-        rows.sort(key=lambda r: -r['abs_deviation'])
+        # 可比行按偏离排序；休市且无同类的行（deviation=None）排在最后
+        rows.sort(key=lambda r: (r['abs_deviation'] is None, -(r['abs_deviation'] or 0)))
         return rows
 
     # ---------- 跨发行商价差（同一标的的不同 RWA 版本） ----------
@@ -449,16 +566,17 @@ class MarketMonitor:
             'stock': '股票代币',
         }
         for row in depeg_list:
+            # 休市行（对比同类产品/无同类产品可比）不产生脱锚告警：
+            # 盘后漂移属正常，比价信号由跨发行商价差检测承担
+            if not row.get('depeg_signal', True):
+                continue
+
             dev = row['abs_deviation']
             if dev >= row['threshold_critical']:
                 level = 'critical'
             elif dev >= row['threshold_warning']:
                 level = 'warning'
             else:
-                continue
-
-            # 标的休市时参考价为收盘价，非 critical 偏离不推送，避免周末/盘后误报
-            if row.get('market_closed') and level != 'critical':
                 continue
 
             label = category_label.get(row['category'], '锚定资产')

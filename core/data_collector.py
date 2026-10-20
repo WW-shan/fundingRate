@@ -22,6 +22,7 @@ class DataCollector:
         self.running = False
         self.exchanges: Dict[str, Any] = {}
         self.market_data: Dict[str, Dict[str, Any]] = {}   # {symbol: {exchange: {...}}}
+        self.futures_volume: Dict[str, Dict[str, float]] = {}  # {exchange: {symbol: 24h quote volume}}
         self.stablecoin_data: Dict[str, Dict[str, Any]] = {}  # {symbol: {exchange: {...}}}
         self.reference_prices: Dict[str, Dict[str, Any]] = {}  # {yahoo_symbol: {...}}
         from config.peg_assets import PegAssetDiscovery
@@ -29,6 +30,27 @@ class DataCollector:
         self._init_exchanges()
 
     # ---------- 初始化 ----------
+
+    @staticmethod
+    def _ticker_quote_volume(ticker: Dict[str, Any]) -> float:
+        """ticker 的 24h 成交额（报价币种，通常为 USDT）"""
+        qv = ticker.get("quoteVolume")
+        if qv is None:
+            bv = ticker.get("baseVolume")
+            px = ticker.get("last") or ticker.get("bid") or ticker.get("ask")
+            if bv is not None and px is not None:
+                try:
+                    qv = float(bv) * float(px)
+                except (TypeError, ValueError):
+                    qv = 0
+        try:
+            return float(qv or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def get_futures_volume(self, exchange: str, symbol: str) -> float:
+        """获取某交易所某永续的 24h 成交额（USDT）"""
+        return float((self.futures_volume.get(exchange) or {}).get(symbol) or 0)
 
     def _get_proxy(self, exchange_name: str) -> str:
         """按交易所读取代理配置（环境变量优先，其次全局配置）"""
@@ -211,6 +233,15 @@ class DataCollector:
                 except Exception as e:
                     logger.debug(f"{name} swap tickers failed: {e}")
 
+                # 先记录所有永续的 24h 成交额（即使没有现货对，也可用于资金费率流动性过滤）
+                new_futures_volume = {}
+                for sym, ticker in (futures_tickers or {}).items():
+                    if sym.endswith(':USDT'):
+                        canonical = adapter.canonical_symbol(sym)
+                        new_futures_volume[canonical] = self._ticker_quote_volume(ticker)
+                if new_futures_volume:
+                    self.futures_volume[name] = new_futures_volume
+
                 if not spot_tickers or not futures_tickers:
                     logger.warning(f"{name} price tickers incomplete; keeping previous snapshot")
                     continue
@@ -230,8 +261,9 @@ class DataCollector:
                 count = 0
                 db_rows = []
                 # 只移除该交易所上一轮价格字段，保留资金费率字段
-                price_fields = ('spot_bid', 'spot_ask', 'spot_price', 'futures_bid',
-                                'futures_ask', 'futures_price', 'timestamp')
+                price_fields = ('spot_bid', 'spot_ask', 'spot_price', 'spot_quote_volume',
+                                'futures_bid', 'futures_ask', 'futures_price',
+                                'futures_quote_volume', 'timestamp')
                 for exchanges in self.market_data.values():
                     entry = exchanges.get(name)
                     if entry:
@@ -267,9 +299,11 @@ class DataCollector:
                         'spot_bid': st.get('bid'),
                         'spot_ask': st.get('ask'),
                         'spot_price': spot_price,
+                        'spot_quote_volume': self._ticker_quote_volume(st),
                         'futures_bid': ft.get('bid'),
                         'futures_ask': ft.get('ask'),
                         'futures_price': futures_price,
+                        'futures_quote_volume': self._ticker_quote_volume(ft),
                         'timestamp': ts,
                     }
                     self.market_data.setdefault(sym, {}).setdefault(name, {}).update(entry)

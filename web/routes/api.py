@@ -211,12 +211,9 @@ def alerts():
     level = request.args.get('level', '')
     alert_type = request.args.get('type', '')
 
-    rows = alert_manager.get_recent_alerts(limit=limit, hours=hours)
-    if level:
-        rows = [r for r in rows if r['level'] == level]
-    if alert_type:
-        rows = [r for r in rows if r['alert_type'] == alert_type]
-
+    rows = alert_manager.get_recent_alerts(
+        limit=limit, hours=hours, level=level, alert_type=alert_type
+    )
     return jsonify({'success': True, 'data': rows, 'total': len(rows)})
 
 

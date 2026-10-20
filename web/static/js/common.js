@@ -47,3 +47,14 @@ function exchangeBadge(ex) {
   const colors = { binance: 'badge-yellow', okx: 'badge-gray', bybit: 'badge-blue', gate: 'badge-green', bitget: 'badge-blue' };
   return `<span class="badge ${colors[ex] || 'badge-gray'}">${ex}</span>`;
 }
+
+
+function fmtUsd(v) {
+  if (v === null || v === undefined) return 'N/A';
+  const n = Number(v);
+  if (!isFinite(n)) return 'N/A';
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(0);
+}

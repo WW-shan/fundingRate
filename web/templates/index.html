@@ -107,7 +107,7 @@ async function refresh() {
         const interval = r.funding_interval_hours ? `每${r.funding_interval_hours}h` : '未知';
         return `<tr>
           <td>${i + 1}</td>
-          <td><b>${r.symbol}</b></td>
+          <td><b>${r.symbol}</b><div class="text-muted" style="font-size:11px">${fmtUsd(r.futures_quote_volume)}</div></td>
           <td>${exchangeBadge(r.exchange)}</td>
           <td class="${aprCls}">${fmtPct(r.apr, 2)}</td>
           <td class="${pnlClass(r.funding_rate)}">${fmtPct(r.funding_rate, 4)}</td>
@@ -142,14 +142,26 @@ async function refresh() {
       tbodyStable.innerHTML = depeg.map(r => {
         const crit = r.threshold_critical ?? 0.01;
         const warn = r.threshold_warning ?? 0.003;
-        const cls = r.abs_deviation >= crit ? 'badge-red' : (r.abs_deviation >= warn ? 'badge-yellow' : 'badge-green');
-        const label = r.abs_deviation >= crit ? '严重脱锚' : (r.abs_deviation >= warn ? '预警' : '正常');
+        const isPeer = r.reference_source === 'peer';
+        const isStale = r.reference_source === 'stale_close';
+        let cls, label;
+        if (isStale) {
+          cls = 'badge-gray';
+          label = '休市·无同类';
+        } else {
+          cls = r.abs_deviation >= crit ? 'badge-red' : (r.abs_deviation >= warn ? 'badge-yellow' : 'badge-green');
+          label = r.abs_deviation >= crit ? '严重偏离' : (r.abs_deviation >= warn ? '偏离预警' : '正常');
+          if (isPeer) {
+            label = r.abs_deviation >= crit ? '同类严重偏离'
+                  : (r.abs_deviation >= warn ? '同类偏离预警' : '同类正常');
+          }
+        }
         return `<tr>
           <td><b>${r.symbol}</b></td>
           <td>${exchangeBadge(r.exchange)}</td>
           <td class="mono">${r.price.toFixed(6)}</td>
-          <td class="${pnlClass(r.deviation)}">${(r.deviation * 100).toFixed(3)}%</td>
-          <td><span class="badge ${cls}">${label}</span></td>
+          <td class="${isStale ? 'text-muted' : pnlClass(r.deviation)}">${isStale ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
+          <td><span class="badge ${cls}">${label}</span>${isPeer ? ' <span class="badge badge-blue">休市</span>' : ''}</td>
         </tr>`;
       }).join('');
     }

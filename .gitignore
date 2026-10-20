@@ -65,3 +65,6 @@ backtest_results/
 # Claude AI
 .claude/
 *SOLUTION*.md
+
+# Playwright CLI artifacts
+.playwright-cli/

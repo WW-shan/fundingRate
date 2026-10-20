@@ -151,6 +151,18 @@ class DatabaseManager:
                     timestamp BIGINT
                 )
             """)
+
+            # 推送状态（跨重启去重，避免重启后重复推送当前异常）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alert_push_state (
+                    key TEXT PRIMARY KEY,
+                    ts REAL,
+                    band INTEGER,
+                    level TEXT,
+                    last_seen REAL,
+                    timestamp BIGINT
+                )
+            """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_alerts
                 ON alerts(timestamp)
@@ -187,6 +199,7 @@ class DatabaseManager:
         'reference_prices': 1,      # 仅用于最新参考价
         'stablecoin_prices': 8,     # 面板历史曲线最长 7 天
         'alerts': 30,               # 告警历史面板最长 7 天
+        'alert_push_state': 2,      # 推送状态（跨重启去重）
     }
 
     def cleanup_old_data(self) -> int:

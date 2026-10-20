@@ -56,6 +56,11 @@
         <input id="cfg-reference_refresh_interval" type="number" />
         <button class="btn btn-primary" onclick="save('global','reference_refresh_interval','cfg-reference_refresh_interval')">保存</button>
       </div>
+      <div class="config-row">
+        <div><div class="config-label">资金费率最小成交额（USD）</div><div class="config-desc">24h 永续成交额低于此值不进入 APR 排行/告警；默认 500,000</div></div>
+        <input id="cfg-funding_min_volume_usd" type="number" step="100000" />
+        <button class="btn btn-primary" onclick="save('global','funding_min_volume_usd','cfg-funding_min_volume_usd')">保存</button>
+      </div>
     </div>
 
     <div class="config-group">
@@ -71,7 +76,7 @@
         <button class="btn btn-primary" onclick="save('alerts','cross_spread_threshold','cfg-cross_spread_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">基差阈值</div><div class="config-desc">0.02 = 2%（仅落库，不推送）</div></div>
+        <div><div class="config-label">基差阈值</div><div class="config-desc">0.02 = 2%（落库/面板阈值；推送阈值见下方）</div></div>
         <input id="cfg-basis_threshold" type="number" step="0.001" />
         <button class="btn btn-primary" onclick="save('alerts','basis_threshold','cfg-basis_threshold')">保存</button>
       </div>
@@ -81,12 +86,27 @@
         <button class="btn btn-primary" onclick="save('alerts','push_funding_apr_threshold','cfg-push_funding_apr_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">每轮最多推送条数</div><div class="config-desc">防止极端行情刷屏，默认 10</div></div>
+        <div><div class="config-label">基差推送阈值</div><div class="config-desc">0.03 = 3%；低于此值只上面板不推送（避免 2-3% 噪音）</div></div>
+        <input id="cfg-push_basis_threshold" type="number" step="0.005" />
+        <button class="btn btn-primary" onclick="save('alerts','push_basis_threshold','cfg-push_basis_threshold')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">每轮最多推送条数</div><div class="config-desc">每轮所有告警合并为 1 条汇总消息，此值限制单条消息内的条目数</div></div>
         <input id="cfg-max_pushes_per_scan" type="number" step="1" />
         <button class="btn btn-primary" onclick="save('alerts','max_pushes_per_scan','cfg-max_pushes_per_scan')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（休市期间只推 critical）</div></div>
+        <div><div class="config-label">持续异常提醒间隔（秒）</div><div class="config-desc">同一档位持续存在时，最长多久重复提醒一次；默认 86400（24h）</div></div>
+        <input id="cfg-push_reminder_cooldown" type="number" step="3600" />
+        <button class="btn btn-primary" onclick="save('alerts','push_reminder_cooldown','cfg-push_reminder_cooldown')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">恢复判定间隔（秒）</div><div class="config-desc">异常连续多久未出现即视为恢复，下次再出现会重新推送；默认 3600（1h）</div></div>
+        <input id="cfg-push_reset_gap" type="number" step="300" />
+        <button class="btn btn-primary" onclick="save('alerts','push_reset_gap','cfg-push_reset_gap')">保存</button>
+      </div>
+      <div class="config-row">
+        <div><div class="config-label">推送脱锚告警</div><div class="config-desc">true / false（休市期间不判脱锚，改由跨发行商价差检测）</div></div>
         <input id="cfg-push_depeg" type="text" />
         <button class="btn btn-primary" onclick="save('alerts','push_depeg','cfg-push_depeg', false, true)">保存</button>
       </div>
@@ -137,12 +157,16 @@ async function load() {
   document.getElementById('cfg-stablecoin_refresh_interval').value = g.stablecoin_refresh_interval;
   document.getElementById('cfg-monitor_scan_interval').value = g.monitor_scan_interval;
   document.getElementById('cfg-reference_refresh_interval').value = g.reference_refresh_interval;
+  document.getElementById('cfg-funding_min_volume_usd').value = g.funding_min_volume_usd;
 
   document.getElementById('cfg-funding_apr_threshold').value = a.funding_apr_threshold;
   document.getElementById('cfg-cross_spread_threshold').value = a.cross_spread_threshold;
   document.getElementById('cfg-basis_threshold').value = a.basis_threshold;
   document.getElementById('cfg-push_funding_apr_threshold').value = a.push_funding_apr_threshold;
   document.getElementById('cfg-max_pushes_per_scan').value = a.max_pushes_per_scan;
+  document.getElementById('cfg-push_basis_threshold').value = a.push_basis_threshold;
+  document.getElementById('cfg-push_reminder_cooldown').value = a.push_reminder_cooldown;
+  document.getElementById('cfg-push_reset_gap').value = a.push_reset_gap;
   document.getElementById('cfg-push_depeg').value = a.push_depeg;
   document.getElementById('cfg-issuer_spread_threshold').value = a.issuer_spread_threshold;
   document.getElementById('cfg-peg_min_volume_usd').value = a.peg_min_volume_usd;

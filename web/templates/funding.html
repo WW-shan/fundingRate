@@ -62,8 +62,8 @@
     <div id="panel-apr">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>#</th><th>币种</th><th>交易所</th><th>APR</th><th>单期费率</th><th>结算周期</th><th>每日次数</th><th>下次结算</th></tr></thead>
-          <tbody id="tbody-apr"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
+          <thead><tr><th>#</th><th>币种</th><th>交易所</th><th>24h成交额</th><th>APR</th><th>单期费率</th><th>结算周期</th><th>每日次数</th><th>下次结算</th></tr></thead>
+          <tbody id="tbody-apr"><tr><td colspan="9" class="loading">加载中...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -133,7 +133,7 @@ async function refresh() {
 
       const tbody = document.getElementById('tbody-apr');
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无数据</td></tr>';
       } else {
         tbody.innerHTML = rows.map((r, i) => {
           const perDay = r.funding_interval_hours ? (24 / r.funding_interval_hours).toFixed(1) : 'N/A';
@@ -141,6 +141,7 @@ async function refresh() {
             <td>${i + 1}</td>
             <td><b>${r.symbol}</b></td>
             <td>${exchangeBadge(r.exchange)}</td>
+            <td class="mono text-muted">${fmtUsd(r.futures_quote_volume)}</td>
             <td class="${r.apr > 0 ? 'text-green' : (r.apr < 0 ? 'text-red' : '')}" ${Math.abs(r.apr || 0) >= 10 ? 'style="font-weight:700"' : ''}>${fmtPct(r.apr, 2)}</td>
             <td class="${pnlClass(r.funding_rate)}">${fmtPct(r.funding_rate, 4)}</td>
             <td>${r.funding_interval_hours ? '每' + r.funding_interval_hours + 'h' : '<span class="badge badge-yellow">未知</span>'}</td>
@@ -157,7 +158,7 @@ async function refresh() {
 
       const tbody = document.getElementById('tbody-spread');
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无数据</td></tr>';
       } else {
         tbody.innerHTML = rows.map((r, i) => `<tr>
           <td>${i + 1}</td>

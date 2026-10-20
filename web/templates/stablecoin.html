@@ -46,7 +46,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>资产</th><th>类别</th><th>交易所</th><th>当前价</th><th>参考价</th><th>偏离</th><th>状态</th><th>参考价时间</th></tr></thead>
+        <thead><tr><th>资产</th><th>类别</th><th>交易所</th><th>当前价</th><th>参考价</th><th>偏离</th><th>状态</th><th>参考时间 / 来源</th></tr></thead>
         <tbody id="tbody-stable"><tr><td colspan="8" class="loading">加载中...</td></tr></tbody>
       </table>
     </div>
@@ -90,8 +90,9 @@ async function refresh() {
     const rows = (res && res.data) || [];
 
     document.getElementById('stat-count').textContent = new Set(rows.map(r => r.symbol)).size;
-    document.getElementById('stat-warn').textContent = rows.filter(r => r.abs_deviation >= r.threshold_warning && r.abs_deviation < r.threshold_critical).length;
-    document.getElementById('stat-critical').textContent = rows.filter(r => r.abs_deviation >= r.threshold_critical).length;
+    const signalRows = rows.filter(r => r.reference_source !== 'stale_close');
+    document.getElementById('stat-warn').textContent = signalRows.filter(r => r.abs_deviation >= r.threshold_warning && r.abs_deviation < r.threshold_critical).length;
+    document.getElementById('stat-critical').textContent = signalRows.filter(r => r.abs_deviation >= r.threshold_critical).length;
     updateHistorySymbols(rows);
 
     const catLabel = { usd_stable: '稳定币', eur_stable: '欧元', commodity: '大宗商品', stock: '股票' };
@@ -100,19 +101,36 @@ async function refresh() {
       tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无数据（等待采集）</td></tr>';
     } else {
       tbody.innerHTML = rows.map(r => {
-        const cls = r.abs_deviation >= r.threshold_critical ? 'badge-red' : (r.abs_deviation >= r.threshold_warning ? 'badge-yellow' : 'badge-green');
-        const label = r.abs_deviation >= r.threshold_critical ? '严重脱锚' : (r.abs_deviation >= r.threshold_warning ? '预警' : '正常');
+        const isPeer = r.reference_source === 'peer';
+        const isStale = r.reference_source === 'stale_close';
+        let cls, label;
+        if (isStale) {
+          // 休市且无同类产品：收盘价不可比，不参与偏离判定
+          cls = 'badge-gray';
+          label = '休市·无同类';
+        } else {
+          cls = r.abs_deviation >= r.threshold_critical ? 'badge-red' : (r.abs_deviation >= r.threshold_warning ? 'badge-yellow' : 'badge-green');
+          label = r.abs_deviation >= r.threshold_critical ? '严重偏离' : (r.abs_deviation >= r.threshold_warning ? '偏离预警' : '正常');
+          if (isPeer) {
+            label = r.abs_deviation >= r.threshold_critical ? '同类严重偏离'
+                  : (r.abs_deviation >= r.threshold_warning ? '同类偏离预警' : '同类正常');
+          }
+        }
         const priceStr = r.price < 1 ? r.price.toFixed(6) : r.price.toFixed(4);
         const refStr = r.reference < 1 ? r.reference.toFixed(6) : r.reference.toFixed(4);
-        const closedTag = r.market_closed ? ' <span class="badge badge-gray" title="标的市场休市，参考价为最近收盘价">休市</span>' : '';
-        const refTimeStr = r.reference_time ? new Date(r.reference_time * 1000).toLocaleString('zh-CN', { hour12: false }) : '实时';
+        const closedTag = isPeer
+          ? ' <span class="badge badge-blue" title="标的市场休市，改用其他发行商同标的版本的中位价作为参考">休市</span>'
+          : '';
+        const refTimeStr = isPeer ? '同类中位价'
+          : (isStale ? '收盘价（不可比）'
+          : (r.reference_time ? new Date(r.reference_time * 1000).toLocaleString('zh-CN', { hour12: false }) : '实时'));
         return `<tr>
           <td><b>${r.symbol}</b></td>
           <td><span class="badge badge-blue">${catLabel[r.category] || r.category}</span></td>
           <td>${exchangeBadge(r.exchange)}</td>
           <td class="mono">${priceStr}</td>
           <td class="mono text-muted">${refStr}</td>
-          <td class="${pnlClass(r.deviation)}" ${Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${(r.deviation * 100).toFixed(3)}%</td>
+          <td class="${isStale ? 'text-muted' : pnlClass(r.deviation)}" ${!isStale && Math.abs(r.deviation) >= r.threshold_warning ? 'style="font-weight:700"' : ''}>${isStale ? '—' : (r.deviation * 100).toFixed(3) + '%'}</td>
           <td><span class="badge ${cls}">${label}</span>${closedTag}</td>
           <td class="text-muted">${refTimeStr}</td>
         </tr>`;

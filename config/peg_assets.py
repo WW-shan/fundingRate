@@ -50,21 +50,14 @@ COMMODITIES = {
     'SLVON': 'SLV',      # Ondo 白银 ETF
     'IAUON': 'IAU',      # Ondo 黄金 ETF（iShares）
     'GLDX': 'GLD',       # xStocks 黄金 ETF
-    'RSGOL': 'GC=F',     # Reality 黄金
-    'RGOLD': 'GC=F',     # Reality 黄金
-    'RFOIL': 'CL=F',     # Reality 原油（WTI）
 }
 
 COMMODITY_ISSUERS = {
     'XAUT': 'tether', 'PAXG': 'paxos', 'SLVON': 'ondo', 'IAUON': 'ondo',
-    'GLDX': 'backed', 'RSGOL': 'reality', 'RGOLD': 'reality', 'RFOIL': 'reality',
+    'GLDX': 'backed',
 }
 
-# 代币对应的参考资产数量（份额比例）。RSGOL/RGOLD 约 0.01 盎司/枚（价格交叉验证）
-COMMODITY_RATIOS = {
-    'RSGOL': 0.01, 'RGOLD': 0.01,  # 约 0.01 盎司/枚
-    'RFOIL': 0.2,                   # 约 0.2 桶 WTI/枚（流动性低，通常会被门槛过滤）
-}
+COMMODITY_RATIOS = {}
 
 
 def get_reference_ratio(symbol: str) -> float:
@@ -240,6 +233,7 @@ STOCK_TOKENS = {
     'RFN': ('reality', 'FN'), 'RTTMI': ('reality', 'TTMI'), 'RMARA': ('reality', 'MARA'), 'RNTAP': ('reality', 'NTAP'),
     'RSTLA': ('reality', 'STLA'), 'RMELI': ('reality', 'MELI'), 'RLIN': ('reality', 'LIN'), 'RHCA': ('reality', 'HCA'),
     'RSHY': ('reality', 'SHY'), 'RFBTC': ('reality', 'FBTC'), 'RGILD': ('reality', 'GILD'), 'RTMUS': ('reality', 'TMUS'),
+    'RSGOL': ('reality', 'SGOL'), 'RGOLD': ('reality', 'GOLD'),  # SGOL ETF / Gold.com equity
     'XSNDK': ('okx', 'SNDK'), 'XSPCX': ('okx', 'SPCX'), 'XSOXL': ('okx', 'SOXL'), 'AAOIB': ('bstock', 'AAOI'),
     'XSOXS': ('okx', 'SOXS'), 'XMU': ('okx', 'MU'), 'XSKHY': ('okx', 'SKHY'), 'BNCB': ('bstock', 'BNC'),
     'XLITE': ('okx', 'LITE'), 'XMRVL': ('okx', 'MRVL'), 'AXTIB': ('bstock', 'AXTI'),
@@ -253,6 +247,7 @@ EXCLUDED = {
     'SUSD',    # 流动性枯竭，价格失真
     'USDEB',   # 非稳定币（价格 ~10.7）
     'CUSD',    # 流动性极差（$19/日）
+    'RFOIL',   # private company, no reliable public reference
     'CRVUSD',  # 流动性枯竭（$0/日）
     'GHO',     # 流动性差
     'FRAX',    # 已脱锚且流动性差（真实价格 ~0.26 说明已非稳定币）

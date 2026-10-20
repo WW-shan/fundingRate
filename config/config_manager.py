@@ -65,14 +65,19 @@ class ConfigManager:
         self.set_default('global', 'reference_refresh_interval', 300, True, "参考价刷新间隔（秒，黄金/欧元/股票）")
         self.set_default('global', 'monitor_scan_interval', 60, True, "异常扫描间隔（秒）")
         self.set_default('global', 'price_stale_threshold', 600, True, "行情陈旧阈值（秒），超过则丢弃")
+        self.set_default('global', 'funding_min_volume_usd', 500000, True,
+                         "资金费率/基差机会的最小 24h 永续成交额（USDT），低于此值不进入排行/告警")
         self.set_default('global', 'enabled_exchanges', ['binance', 'okx', 'bybit', 'gate', 'bitget'], True, "启用的交易所")
 
         # 告警阈值配置（脱锚阈值按资产类别在 peg_assets.THRESHOLDS 中定义）
         self.set_default('alerts', 'funding_apr_threshold', 10.0, True, "年化资金费率告警阈值（1000%）")
         self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
         self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
-        self.set_default('alerts', 'max_pushes_per_scan', 5, True, "每轮扫描最多推送告警数（防刷屏）")
+        self.set_default('alerts', 'max_pushes_per_scan', 20, True, "每轮扫描最多推送条数（合并为一条消息）")
         self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
+        self.set_default('alerts', 'push_basis_threshold', 0.03, True, "基差推送阈值（3%）：低于此值只上面板不推送")
+        self.set_default('alerts', 'push_reset_gap', 3600, True, "同一异常消失多久后视为恢复、再次出现时重新推送（秒）")
+        self.set_default('alerts', 'push_reminder_cooldown', 86400, True, "同一档位持续存在时的最长提醒间隔（秒，默认24h）")
         self.set_default('alerts', 'push_depeg', True, True, "??????????")
         self.set_default('alerts', 'push_cross_spread', False, True, "???????????")
         self.set_default('alerts', 'push_basis', True, True, "??????????")

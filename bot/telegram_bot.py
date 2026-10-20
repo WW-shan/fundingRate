@@ -5,7 +5,7 @@ Telegram Bot（监控版）
 import os
 import asyncio
 import threading
-from typing import Any, Dict
+from typing import Any, Dict, List
 from loguru import logger
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -108,20 +108,115 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error stopping bot: {e}")
 
-    def push_alert(self, alert: Dict[str, Any]):
-        """告警推送（由 AlertManager 回调）"""
-        emoji = {'warning': '⚠️', 'critical': '🔴', 'emergency': '🚨'}.get(alert.get('level'), '⚠️')
-        alert_type = alert.get('alert_type')
+    def push_alert(self, payload: Dict[str, Any]):
+        """告警推送（由 AlertManager 回调）
 
-        if alert_type == 'funding_extreme':
-            d = alert.get('details') or {}
-            apr = d.get('apr')
-            rate = d.get('funding_rate')
-            interval_h = d.get('funding_interval_hours')
+        兼容两种入参：
+          - digest 字典: {'alerts': [...], 'count': N}，合并为一条汇总消息
+          - 单条告警字典（旧接口）
+        """
+        if isinstance(payload, dict) and "alerts" in payload:
+            alerts = payload.get("alerts") or []
+        else:
+            alerts = [payload] if payload else []
+
+        if not alerts:
+            return
+
+        if len(alerts) == 1:
+            message = self._format_single_alert(alerts[0])
+        else:
+            message = self._format_digest(alerts)
+
+        self._send_async(message)
+
+    def _format_digest(self, alerts: List[Dict[str, Any]]) -> str:
+        """多条告警合并为一条汇总消息"""
+        crit = sum(1 for a in alerts if a.get("level") in ("critical", "emergency"))
+        header = f"📊 <b>监控告警 · {len(alerts)} 条</b>"
+        if crit:
+            header += f"（🔴 严重 {crit}）"
+        lines = [header, "━━━━━━━━━━━━━━━"]
+        # Telegram 单条消息上限 4096 字符；预留余量，超长时截断并引导到面板
+        for i, a in enumerate(alerts):
+            line = self._format_alert_line(a)
+            if len("\n".join(lines + [line])) > 3800:
+                lines.append(f"\n…另有 {len(alerts) - i} 条告警，请在 Web 面板查看")
+                break
+            lines.append(line)
+        lines.append(f"\n时间: {self._fmt_time()}")
+        return "\n".join(lines)
+
+    def _format_alert_line(self, alert: Dict[str, Any]) -> str:
+        """单条告警压缩为 1-2 行（汇总消息内使用）"""
+        emoji = {"warning": "⚠️", "critical": "🔴", "emergency": "🚨"}.get(alert.get("level"), "⚠️")
+        t = alert.get("alert_type")
+        d = alert.get("details") or {}
+
+        if t == "funding_extreme":
+            apr = d.get("apr")
+            rate = d.get("funding_rate")
+            interval_h = d.get("funding_interval_hours")
+            interval_str = f"每{interval_h:g}h" if interval_h else "周期未知"
+            return (
+                f"\n{emoji} <b>资金费率</b> {d.get('symbol', 'N/A')} @ {str(d.get('exchange', '')).upper()}\n"
+                f"   APR <b>{apr*100:+.1f}%</b> | 费率 {rate*100:+.4f}% | {interval_str}"
+            )
+        if t == "stablecoin_depeg":
+            cat_label = {
+                "usd_stable": "稳定币", "eur_stable": "欧元稳定币",
+                "commodity": "大宗商品", "stock": "股票代币",
+            }.get(d.get("category"), "锚定资产")
+            reference_source = d.get("reference_source")
+            if reference_source == "peer":
+                reference_note = "（休市，参考同类中位价）"
+            elif d.get("market_closed"):
+                reference_note = "（休市参考收盘价）"
+            else:
+                reference_note = ""
+            return (
+                f"\n{emoji} <b>{cat_label}脱锚</b> {d.get('symbol', 'N/A')} @ {str(d.get('exchange', '')).upper()}\n"
+                f"   {d.get('price', 0):.6g} vs {d.get('reference', 0):.6g} "
+                f"(<b>{d.get('deviation', 0)*100:+.2f}%</b>){reference_note}"
+            )
+        if t == "issuer_spread":
+            quotes = d.get("quotes", [])
+            labels = []
+            for q in quotes[:4]:
+                issuer = q.get("issuer") or q.get("exchange")
+                normalized = q.get("normalized_price", q.get("price", 0))
+                labels.append(f"{q.get('symbol')}({issuer}) ${normalized:.4g}")
+            detail = " | ".join(labels)
+            return (
+                f"\n{emoji} <b>跨发行商价差</b> {d.get('underlying', 'N/A')}\n"
+                f"   价差 <b>{d.get('abs_spread', 0)*100:.2f}%</b> | {detail}"
+            )
+        if t == "basis_extreme":
+            return (
+                f"\n{emoji} <b>基差异常</b> {d.get('symbol', 'N/A')} @ {str(d.get('exchange', '')).upper()}\n"
+                f"   <b>{d.get('basis', 0)*100:+.2f}%</b> "
+                f"(现货 {d.get('spot_price', 0):.6g} / 期货 {d.get('futures_price', 0):.6g})"
+            )
+        if t == "cross_spread":
+            return (
+                f"\n{emoji} <b>跨所费率差</b> {d.get('symbol', 'N/A')}\n"
+                f"   <b>{d.get('abs_spread', 0)*100:.1f}%</b> "
+                f"({d.get('exchange_a')} vs {d.get('exchange_b')})"
+            )
+        return f"\n{emoji} {alert.get('message', '')}"
+
+    def _format_single_alert(self, alert: Dict[str, Any]) -> str:
+        """单条告警的详细版消息"""
+        emoji = {"warning": "⚠️", "critical": "🔴", "emergency": "🚨"}.get(alert.get("level"), "⚠️")
+        alert_type = alert.get("alert_type")
+
+        if alert_type == "funding_extreme":
+            d = alert.get("details") or {}
+            apr = d.get("apr")
+            rate = d.get("funding_rate")
+            interval_h = d.get("funding_interval_hours")
             per_day = (24 / interval_h) if interval_h else None
-            semantics = '下期将收取'
-            next_ts = d.get('next_funding_time')
-
+            next_ts = d.get("next_funding_time")
             message = (
                 f"{emoji} <b>极端资金费率</b>\n\n"
                 f"币种: <b>{d.get('symbol', 'N/A')}</b>\n"
@@ -129,19 +224,22 @@ class TelegramBot:
                 f"当前费率: <b>{rate*100:+.4f}%</b>\n"
                 f"收费频率: <b>{('每 %gh（每日 %.0f 次）' % (interval_h, per_day)) if interval_h else '未知'}</b>\n"
                 f"年化 APR: <b>{apr*100:+.1f}%</b>\n"
-                f"费率类型: {semantics}\n"
+                f"费率类型: 下期将收取\n"
                 f"下次结算: {self._fmt_ts(next_ts)}\n\n"
                 f"时间: {self._fmt_time()}"
             )
-        elif alert_type == 'stablecoin_depeg':
-            d = alert.get('details') or {}
+        elif alert_type == "stablecoin_depeg":
+            d = alert.get("details") or {}
             cat_label = {
-                'usd_stable': '稳定币',
-                'eur_stable': '欧元稳定币',
-                'commodity': '大宗商品',
-                'stock': '股票代币',
-            }.get(d.get('category'), '锚定资产')
-            closed_note = '\n⚠️ 标的市场休市中（参考价为最近收盘价）' if d.get('market_closed') else ''
+                "usd_stable": "稳定币", "eur_stable": "欧元稳定币",
+                "commodity": "大宗商品", "stock": "股票代币",
+            }.get(d.get("category"), "锚定资产")
+            if d.get("reference_source") == "peer":
+                closed_note = "\n⚠️ 标的市场休市中（参考价为其他发行商同类产品中位价）"
+            elif d.get("market_closed"):
+                closed_note = "\n⚠️ 标的市场休市中（参考价为最近收盘价）"
+            else:
+                closed_note = ""
             threshold_note = (
                 f"\n阈值: 预警 {d.get('threshold_warning', 0)*100:.2f}% / "
                 f"严重 {d.get('threshold_critical', 0)*100:.2f}%"
@@ -155,27 +253,26 @@ class TelegramBot:
                 f"偏离: <b>{d.get('deviation', 0)*100:+.3f}%</b>{threshold_note}{closed_note}\n\n"
                 f"时间: {self._fmt_time()}"
             )
-        elif alert_type == 'issuer_spread':
-            d = alert.get('details') or {}
+        elif alert_type == "issuer_spread":
+            d = alert.get("details") or {}
             lines = [f"{emoji} <b>跨发行商价差</b>\n",
                      f"标的: <b>{d.get('underlying', 'N/A')}</b>",
                      f"价差: <b>{d.get('abs_spread', 0)*100:.2f}%</b>",
                      f"发行商数: {d.get('issuer_count', 0)} | 交易所数: {d.get('exchange_count', 0)}\n"]
-            for q in d.get('quotes', [])[:8]:
-                issuer = q.get('issuer') or q.get('exchange')
-                normalized = q.get('normalized_price', q['price'])
-                raw_note = f" [raw ${q['price']:.4f}]" if abs(normalized - q['price']) > 1e-9 else ''
+            for q in d.get("quotes", [])[:8]:
+                issuer = q.get("issuer") or q.get("exchange")
+                normalized = q.get("normalized_price", q["price"])
+                raw_note = f" [raw ${q['price']:.4f}]" if abs(normalized - q["price"]) > 1e-9 else ""
                 lines.append(f"  {q['symbol']} ({issuer}): <b>${normalized:.4f}</b>{raw_note}")
             lines.append(f"\n时间: {self._fmt_time()}")
             message = "\n".join(lines)
         else:
             type_label = {
-                'cross_spread': '跨所费率差',
-                'basis_extreme': '基差异常',
+                "cross_spread": "跨所费率差",
+                "basis_extreme": "基差异常",
             }.get(alert_type, alert_type)
             message = f"{emoji} <b>{type_label}</b>\n\n{alert.get('message', '')}\n\n时间: {self._fmt_time()}"
-
-        self._send_async(message)
+        return message
 
     @staticmethod
     def _fmt_ts(ms):
@@ -302,8 +399,10 @@ class TelegramBot:
         if not depeg:
             await update.message.reply_text("暂无锚定资产数据")
             return
+        comparable = [r for r in depeg if r.get('deviation') is not None]
+        skipped = len(depeg) - len(comparable)
         lines = ["🪙 <b>锚定资产状态</b>\n"]
-        for row in depeg[:15]:
+        for row in comparable[:15]:
             # 使用各资产类别自己的阈值（稳定币/黄金/股票不同）
             crit = row.get('threshold_critical', 0.01)
             warn = row.get('threshold_warning', 0.003)
@@ -312,6 +411,8 @@ class TelegramBot:
                 f"{flag} {row['symbol']} @ {row['exchange']}: {row['price']:.6g} "
                 f"({row['deviation']*100:+.3f}%)"
             )
+        if skipped:
+            lines.append(f"\n另有 {skipped} 个休市且无同类产品，未做价格比较")
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
 
     async def cmd_alerts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
