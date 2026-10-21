@@ -126,12 +126,11 @@ class TelegramBot:
         if not alerts:
             return
 
-        if len(alerts) == 1:
-            message = self._format_single_alert(alerts[0])
-        else:
-            message = self._format_digest(alerts)
-
-        self._send_async(message)
+        # One Telegram message per alert event. Funding alerts already merge all
+        # anomalous exchanges for the same symbol; unrelated events such as
+        # different depeg assets must not be mixed into one digest message.
+        for alert in alerts:
+            self._send_async(self._format_single_alert(alert))
 
     def _format_digest(self, alerts: List[Dict[str, Any]]) -> str:
         """多条告警合并为一条汇总消息"""

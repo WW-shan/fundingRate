@@ -708,3 +708,28 @@ class FundingMultiExchangeAlertTests(unittest.TestCase):
         adapter.exchange.load_markets()
         self.assertEqual(len(adapter.exchange.loaded), 1)
         self.assertEqual(adapter.exchange.loaded[0]["id"], "BTC-USDT")
+
+    def test_push_alert_sends_one_message_per_event(self):
+        from bot.telegram_bot import TelegramBot
+
+        bot = TelegramBot.__new__(TelegramBot)
+        sent = []
+        bot._send_async = lambda message: sent.append(message)
+        alerts = [
+            {
+                "alert_type": "basis_extreme", "level": "warning",
+                "symbol": "A/USDT", "exchange": "gate", "message": "A/USDT @ gate basis",
+                "details": {"symbol": "A/USDT", "exchange": "gate", "basis": 0.03,
+                            "spot_price": 1.0, "futures_price": 1.03},
+            },
+            {
+                "alert_type": "basis_extreme", "level": "warning",
+                "symbol": "B/USDT", "exchange": "okx", "message": "B/USDT @ okx basis",
+                "details": {"symbol": "B/USDT", "exchange": "okx", "basis": -0.04,
+                            "spot_price": 2.0, "futures_price": 1.92},
+            },
+        ]
+        bot.push_alert({"alerts": alerts})
+        self.assertEqual(len(sent), 2)
+        self.assertIn("A/USDT", sent[0])
+        self.assertIn("B/USDT", sent[1])

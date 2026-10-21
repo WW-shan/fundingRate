@@ -105,7 +105,7 @@ class ConfigManager:
         self.set_default('alerts', 'funding_min_exchanges', 2, True, "资金费率异常至少多少家交易所同时触发才告警（默认 2）")
         self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
         self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
-        self.set_default('alerts', 'max_pushes_per_scan', 20, True, "每轮扫描最多推送条数（合并为一条消息）")
+        self.set_default('alerts', 'max_pushes_per_scan', 20, True, "每轮扫描最多推送条数（每条告警单独发送）")
         self.set_default('alerts', 'push_funding_apr_threshold', 10.0, True, "推送所需的年化费率阈值（1000%）")
         self.set_default('alerts', 'push_basis_threshold', 0.03, True, "基差推送阈值（3%）：低于此值只上面板不推送")
         self.set_default('alerts', 'push_reset_gap', 3600, True, "同一异常消失多久后视为恢复、再次出现时重新推送（秒）")

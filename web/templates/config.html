@@ -96,7 +96,7 @@
         <button class="btn btn-primary" onclick="save('alerts','push_basis_threshold','cfg-push_basis_threshold')">保存</button>
       </div>
       <div class="config-row">
-        <div><div class="config-label">每轮最多推送条数</div><div class="config-desc">每轮所有告警合并为 1 条汇总消息，此值限制单条消息内的条目数</div></div>
+        <div><div class="config-label">每轮最多推送条数</div><div class="config-desc">每轮最多推送多少条告警；每条告警单独发送</div></div>
         <input id="cfg-max_pushes_per_scan" type="number" step="1" />
         <button class="btn btn-primary" onclick="save('alerts','max_pushes_per_scan','cfg-max_pushes_per_scan')">保存</button>
       </div>
