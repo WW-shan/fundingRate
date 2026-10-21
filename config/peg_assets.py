@@ -269,10 +269,10 @@ YAHOO_SYMBOLS = {
 
 # ==================== 脱锚阈值 ====================
 THRESHOLDS = {
-    'usd_stable': {'warning': 0.003, 'critical': 0.01},   # 0.3% / 1%
-    'eur_stable': {'warning': 0.005, 'critical': 0.02},   # 0.5% / 2%
-    'commodity':  {'warning': 0.02,  'critical': 0.05},   # 2% / 5%（黄金期货 vs 现货存在基差）
-    'stock':      {'warning': 0.02,  'critical': 0.05},   # 2% / 5%
+    'usd_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
+    'eur_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
+    'commodity':  {'warning': 0.08, 'critical': 0.10},   # 8% / 10% (futures/spot basis)
+    'stock':      {'warning': 0.05, 'critical': 0.10},   # 5% / 10% (panel only)
 }
 
 # 发行商显示名
