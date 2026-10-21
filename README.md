@@ -32,7 +32,7 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 注意：
 
 - Binance 的 `lastFundingRate` 字段名有误导性：它是当前预测/下期将收取费率，并非上一期已结算值；上一期结算值需查 `/fapi/v1/fundingRate`。五家统一按下期费率比较。
-- 黄金代币以 Yahoo `GC=F` 黄金期货为参考，存在期现基差，因此大宗商品阈值放宽为 8% / 10%。
+- XAUT/PAXG 以 XAU/USD 现货黄金为参考（gold-api 主源、Swissquote 备用、Yahoo GC=F 兜底）；SLVON/IAUON/GLDX 仍使用对应 ETF 价格。
 - 股票代币不使用 Yahoo 价格判定；改为与其他发行商同标的产品中位价比较，无同类产品时仅展示价格、不计算偏离。
 - 股票/商品代币映射偏离超过 50% 视为符号或份额比例异常，不参与脱锚判定；稳定币不受此过滤，极端脱锚仍会告警。
 
@@ -40,7 +40,7 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 
 - 稳定币：USDC、FDUSD、PYUSD、RLUSD、USD1、USDE、USDS、USDG、USDD、XUSD、BUSD、DAI、BFUSD、RWUSD、USDGO、USDTB。
 - 欧元稳定币：EUR、EURI。
-- 大宗商品：XAUT、PAXG、SLVON、IAUON、GLDX、RSGOL、RGOLD、RFOIL。
+- 大宗商品：XAUT、PAXG、SLVON、IAUON、GLDX（当前实际有报价的通常只有 XAUT/PAXG）。
 - 股票代币：Binance bStock、Ondo、Backed xStocks、OKX Unified、Gate gStocks、Bitget Reality 的高流动性标的。
 - 流动性过滤：按 24h 全市场成交额聚合，默认门槛 500,000 USD；低流动性、映射错误、已崩盘资产在 `config/peg_assets.py` 的 `EXCLUDED` 中排除。
 
@@ -67,7 +67,7 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 - **分档推送**：同一 `(类型, 标的, 交易所)` 仅在首次出现、严重度跨档上升时推送；同档位持续存在时最长 24h 提醒一次（`push_reminder_cooldown`）。
 - **恢复重置**：异常连续 1h 未出现视为恢复，再次出现会重新推送（`push_reset_gap`）。
 - **基差推送阈值**：默认 3%，2-3% 的轻微基差只落库/上面板（`push_basis_threshold`）。
-- **单轮上限**：`max_pushes_per_scan` 默认 20，限制汇总消息内的条目数。
+- **单轮上限**：`max_pushes_per_scan` 默认 20，限制每轮发送的告警条数。
 
 **股票代币比价（跨产品）**
 
@@ -75,7 +75,7 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 - 有多个发行商版本时，参考价为**其他发行商同标的产品中位价**，面板显示「跨产品」。
 - 无同类产品可比时，面板标记「无同类可比」，偏离显示为 `—`，不计算偏离、不参与排序和告警。
 - 跨产品价差告警由「跨产品 / 跨发行商价差」检测承担（默认阈值 1%）。
-- 大宗商品/欧元稳定币仍使用 Yahoo 参考价；其标的休市时同样改用同类中位价，无同类则仅展示。
+- 欧元稳定币仍使用 Yahoo 参考价；XAUT/PAXG 使用现货黄金 API；ETF 类商品仍使用 Yahoo ETF 价格。其标的休市时同样改用同类中位价，无同类则仅展示。
 
 ## 快速开始
 

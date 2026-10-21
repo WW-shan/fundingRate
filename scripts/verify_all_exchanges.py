@@ -32,7 +32,7 @@ os.chdir(ROOT)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(ROOT, '.env'), override=True)
 
-from config import ConfigManager
+from config import ConfigManager, peg_assets
 from core import DataCollector, MarketMonitor
 from database import DatabaseManager
 
@@ -655,10 +655,23 @@ def verify_references(report: dict, dc: DataCollector):
     def fetch(item):
         sym, data = item
         try:
-            r = get_json(f'https://query1.finance.yahoo.com/v8/finance/chart/{sym}',
-                         params={'interval': '1m', 'range': '1d'}, retries=2)
-            price = r['chart']['result'][0]['meta'].get('regularMarketPrice')
-            return sym, data, num(price)
+            if sym == peg_assets.GOLD_SPOT_SYMBOL:
+                quotes = get_json(
+                    'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD',
+                    retries=2)
+                entry = next((x for x in quotes
+                              if isinstance(x, dict) and x.get('spreadProfilePrices')), None)
+                profiles = (entry or {}).get('spreadProfilePrices') or []
+                quote = next((q for q in profiles if q.get('spreadProfile') == 'premium'),
+                             profiles[0] if profiles else None)
+                if not quote:
+                    return sym, data, None
+                official = (num(quote.get('bid')) + num(quote.get('ask'))) / 2
+            else:
+                r = get_json(f'https://query1.finance.yahoo.com/v8/finance/chart/{sym}',
+                             params={'interval': '1m', 'range': '1d'}, retries=2)
+                official = num(r['chart']['result'][0]['meta'].get('regularMarketPrice'))
+            return sym, data, official
         except Exception:
             return sym, data, None
 

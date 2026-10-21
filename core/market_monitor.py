@@ -264,7 +264,7 @@ class MarketMonitor:
         参考价来源：
           - usd_stable: 固定 1.0
           - eur_stable: Yahoo EURUSD=X
-          - commodity:  Yahoo GC=F / 商品 ETF
+          - commodity:  XAU/USD 现货黄金（gold-api/Swissquote）或商品 ETF 参考价
           - stock:      不使用 Yahoo；始终用【其他发行商同标的产品】的中位价
                         （思路类似跨所价差，但比较的是不同产品/发行商）
 
@@ -341,6 +341,7 @@ class MarketMonitor:
             ratio = float(entry.get('reference_ratio', 1.0)) if entry else 1.0
             reference = None
             peer_count = 0
+            ref_data = {}
 
             if category == 'usd_stable':
                 reference = 1.0
@@ -424,6 +425,8 @@ class MarketMonitor:
                     'reference_ratio': ratio,
                     'reference_time': reference_time,
                     'reference_source': reference_source,
+                    'reference_provider': ref_data.get('source') if reference_source == 'reference' else None,
+                    'reference_instrument': ref_data.get('instrument') if reference_source == 'reference' else None,
                     'comparable': reference_source not in ('stale_close', 'no_peer'),
                     'depeg_signal': depeg_signal,
                     'market_closed': market_closed,

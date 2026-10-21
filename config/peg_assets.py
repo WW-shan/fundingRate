@@ -14,7 +14,7 @@
 设计原则：
   - 按"资产"聚合（同一标的多个发行商版本归为一组），支持跨发行商价差比较
   - 流动性按"全市场总量"判定（避免单所量小被误杀）
-  - 参考价来自 Yahoo Finance（黄金/原油/股票/指数）
+  - 参考价来自 gold-api/Swissquote 现货黄金 + Yahoo Finance（欧元/商品 ETF 等）
 """
 
 import time
@@ -44,9 +44,11 @@ EUR_STABLES = ['EUR', 'EURI']
 EUR_ISSUERS = {'EUR': 'eur', 'EURI': 'circle'}
 
 # ==================== 贵金属 / 大宗商品 ====================
+GOLD_SPOT_SYMBOL = 'XAUUSD'
+
 COMMODITIES = {
-    'XAUT': 'GC=F',      # Tether Gold（黄金期货参考，含期现基差）
-    'PAXG': 'GC=F',      # Paxos Gold
+    'XAUT': GOLD_SPOT_SYMBOL,   # Tether Gold (spot XAU/USD reference)
+    'PAXG': GOLD_SPOT_SYMBOL,   # Paxos Gold (spot XAU/USD reference)
     'SLVON': 'SLV',      # Ondo 白银 ETF
     'IAUON': 'IAU',      # Ondo 黄金 ETF（iShares）
     'GLDX': 'GLD',       # xStocks 黄金 ETF

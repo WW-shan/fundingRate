@@ -519,24 +519,147 @@ class DataCollector:
                 logger.error(f"Reference price collection error: {e}")
             time.sleep(interval)
 
+    @staticmethod
+    def _parse_iso_epoch(value):
+        from datetime import datetime, timezone
+        if not value:
+            return None
+        try:
+            text = str(value).strip()
+            if text.endswith('Z'):
+                text = text[:-1] + '+00:00'
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_gold_api_payload(payload, ts):
+        try:
+            price = float(payload.get('price'))
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if price <= 0:
+            return None
+        return {
+            'price': price,
+            'timestamp': ts,
+            'market_time': DataCollector._parse_iso_epoch(payload.get('updatedAt')),
+            'previous_close': None,
+            'source': 'gold_api',
+            'instrument': 'XAU/USD spot',
+        }
+
+    @staticmethod
+    def _parse_swissquote_payload(payload, ts):
+        if not isinstance(payload, list):
+            return None
+        entry = next((x for x in payload
+                      if isinstance(x, dict) and x.get('spreadProfilePrices')), None)
+        if not entry:
+            return None
+        quotes = [q for q in entry.get('spreadProfilePrices') or [] if isinstance(q, dict)]
+        if not quotes:
+            return None
+        quote = next((q for q in quotes if q.get('spreadProfile') == 'premium'), quotes[0])
+        try:
+            bid = float(quote.get('bid'))
+            ask = float(quote.get('ask'))
+        except (TypeError, ValueError):
+            return None
+        if bid <= 0 or ask <= 0 or ask < bid:
+            return None
+        raw_ts = entry.get('ts')
+        try:
+            market_time = int(float(raw_ts) / 1000) if raw_ts else None
+        except (TypeError, ValueError):
+            market_time = None
+        return {
+            'price': (bid + ask) / 2,
+            'timestamp': ts,
+            'market_time': market_time,
+            'previous_close': None,
+            'source': 'swissquote',
+            'instrument': 'XAU/USD spot',
+        }
+
+    @staticmethod
+    def _fetch_yahoo_reference(ref_symbol, category, proxies, ts,
+                               source='yahoo', instrument=None):
+        import requests
+        try:
+            r = requests.get(
+                f'https://query1.finance.yahoo.com/v8/finance/chart/{ref_symbol}?interval=1m&range=1d',
+                proxies=proxies, timeout=15,
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            result = r.json()['chart']['result'][0]
+            price = result['meta'].get('regularMarketPrice')
+            if not price:
+                return None
+            return {
+                'price': float(price),
+                'category': category,
+                'timestamp': ts,
+                'market_time': result['meta'].get('regularMarketTime'),
+                'previous_close': result['meta'].get('previousClose'),
+                'source': source,
+                'instrument': instrument or ref_symbol,
+            }
+        except Exception as e:
+            logger.debug(f"Yahoo {ref_symbol} failed: {e}")
+            return None
+
+    def _fetch_spot_gold(self, proxies, ts):
+        import requests
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        try:
+            r = requests.get(
+                'https://api.gold-api.com/price/XAU',
+                proxies=proxies, timeout=15, headers=headers
+            )
+            r.raise_for_status()
+            data = self._parse_gold_api_payload(r.json(), ts)
+            if data:
+                return data
+        except Exception as e:
+            logger.debug(f"gold-api XAU failed: {e}")
+
+        try:
+            r = requests.get(
+                'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD',
+                proxies=proxies, timeout=15, headers=headers
+            )
+            r.raise_for_status()
+            data = self._parse_swissquote_payload(r.json(), ts)
+            if data:
+                return data
+        except Exception as e:
+            logger.debug(f"Swissquote XAU failed: {e}")
+
+        logger.warning("Spot gold sources failed; falling back to Yahoo GC=F futures")
+        return self._fetch_yahoo_reference(
+            'GC=F', 'commodity', proxies, ts,
+            source='yahoo_futures', instrument='GC=F futures fallback'
+        )
+
     def _collect_reference_prices(self):
-        """从 Yahoo Finance 并发采集参考价（黄金 / EUR-USD / 股票/大宗商品代币）"""
+        """Collect spot gold, EUR/USD and commodity ETF references."""
         from config import peg_assets
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        import requests
 
         proxy = os.getenv('PROXY_URL', '') or self.config.get('global', 'reference_proxy', '')
         proxies = {'http': proxy, 'https': proxy} if proxy else None
 
-        # 确保 registry 已初始化（首次运行时为空，需先发现）
         if not self.peg_discovery.registry:
             self.peg_discovery.refresh(self.exchanges, force=True)
 
         targets = {
-            peg_assets.YAHOO_SYMBOLS['gold']: 'gold',
-            peg_assets.YAHOO_SYMBOLS['eurusd']: 'eurusd',
+            peg_assets.GOLD_SPOT_SYMBOL: 'commodity',
+            peg_assets.YAHOO_SYMBOLS['eurusd']: 'eur_stable',
         }
-        # 只抓当前有报价的资产，并按 Yahoo 代码去重（多个发行商常共用同一参考价）
         active_symbols = set(self.stablecoin_data)
         for sym, entry in self.peg_discovery.registry.items():
             ref = entry.get('reference_symbol')
@@ -547,43 +670,30 @@ class DataCollector:
         db_rows = []
 
         def fetch(item):
-            yahoo_sym, category = item
-            try:
-                r = requests.get(
-                    f'https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?interval=1m&range=1d',
-                    proxies=proxies, timeout=15,
-                    headers={'User-Agent': 'Mozilla/5.0'}
-                )
-                result = r.json()['chart']['result'][0]
-                price = result['meta'].get('regularMarketPrice')
-                if not price:
-                    return None
-                return yahoo_sym, category, {
-                    'price': float(price),
-                    'category': category,
-                    'timestamp': ts,
-                    'market_time': result['meta'].get('regularMarketTime'),
-                    'previous_close': result['meta'].get('previousClose'),
-                }
-            except Exception as e:
-                logger.debug(f"Yahoo {yahoo_sym} failed: {e}")
+            ref_symbol, category = item
+            if ref_symbol == peg_assets.GOLD_SPOT_SYMBOL:
+                data = self._fetch_spot_gold(proxies, ts)
+            else:
+                data = self._fetch_yahoo_reference(ref_symbol, category, proxies, ts)
+            if not data:
                 return None
+            return ref_symbol, category, data
 
-        # 并发抓取；10 个并发足够，避免触发 Yahoo 限流
         with ThreadPoolExecutor(max_workers=10) as pool:
             futures = [pool.submit(fetch, item) for item in targets.items()]
             for future in as_completed(futures):
                 result = future.result()
                 if not result:
                     continue
-                yahoo_sym, category, data = result
-                self.reference_prices[yahoo_sym] = data
-                db_rows.append((yahoo_sym, ts, data['price'], category))
+                ref_symbol, category, data = result
+                self.reference_prices[ref_symbol] = data
+                db_rows.append((data.get('source', 'yahoo'), ref_symbol, ts,
+                                data['price'], category))
 
         self.db.execute_many(
             """
             INSERT INTO reference_prices (source, symbol, timestamp, price, category)
-            VALUES ('yahoo', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(source, symbol, timestamp) DO UPDATE SET
                 price = excluded.price
             """,

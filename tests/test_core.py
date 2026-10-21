@@ -188,7 +188,7 @@ class PegAssetTests(unittest.TestCase):
         self.assertEqual(peg_assets.classify('USDT'), ('usd_stable', 'USD', 'tether'))
 
     def test_gold_token_issuer_and_reference(self):
-        self.assertEqual(peg_assets.classify('XAUT'), ('commodity', 'GC=F', 'tether'))
+        self.assertEqual(peg_assets.classify('XAUT'), ('commodity', 'XAUUSD', 'tether'))
 
     def test_reality_gold_tokens_use_public_references(self):
         # rSGOL is a tokenized SGOL ETF share; rGOLD is Gold.com equity.
@@ -374,13 +374,14 @@ class MarketMonitorStockComparisonTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["symbol"], "SOXL")
 
-    def test_commodity_still_uses_yahoo_reference(self):
+    def test_commodity_uses_spot_gold_reference(self):
         import time
 
         now_s = int(time.time())
-        refs = {"GC=F": {"price": 2000.0, "timestamp": now_s * 1000, "market_time": now_s - 60}}
+        refs = {"XAUUSD": {"price": 2000.0, "timestamp": now_s * 1000, "market_time": now_s - 60,
+                                 "source": "gold_api", "instrument": "XAU/USD spot"}}
         registry = {
-            "XAUT": {"category": "commodity", "reference_symbol": "GC=F", "issuer": "tether", "reference_ratio": 1.0},
+            "XAUT": {"category": "commodity", "reference_symbol": "XAUUSD", "issuer": "tether", "reference_ratio": 1.0},
         }
         data = {"XAUT": {"gate": {"price": 2010.0, "timestamp": now_s * 1000}}}
         mm = self._build_monitor(data, refs, registry)
@@ -733,3 +734,35 @@ class FundingMultiExchangeAlertTests(unittest.TestCase):
         self.assertEqual(len(sent), 2)
         self.assertIn("A/USDT", sent[0])
         self.assertIn("B/USDT", sent[1])
+
+class ReferencePriceParserTests(unittest.TestCase):
+    def test_gold_api_payload(self):
+        from core.data_collector import DataCollector
+
+        data = DataCollector._parse_gold_api_payload(
+            {"price": 4119.3, "updatedAt": "2026-10-21T03:58:10Z"}, 123456
+        )
+        self.assertEqual(data["price"], 4119.3)
+        self.assertEqual(data["source"], "gold_api")
+        self.assertEqual(data["instrument"], "XAU/USD spot")
+        self.assertIsNotNone(data["market_time"])
+
+    def test_swissquote_payload_uses_bid_ask_mid(self):
+        from core.data_collector import DataCollector
+
+        payload = [{
+            "ts": 1792555249393,
+            "spreadProfilePrices": [
+                {"spreadProfile": "premium", "bid": 4118.0, "ask": 4119.0},
+            ],
+        }]
+        data = DataCollector._parse_swissquote_payload(payload, 123456)
+        self.assertEqual(data["price"], 4118.5)
+        self.assertEqual(data["source"], "swissquote")
+        self.assertEqual(data["market_time"], 1792555249)
+
+    def test_gold_api_invalid_price_is_rejected(self):
+        from core.data_collector import DataCollector
+
+        self.assertIsNone(DataCollector._parse_gold_api_payload({"price": None}, 1))
+        self.assertIsNone(DataCollector._parse_gold_api_payload({"price": 0}, 1))
