@@ -273,7 +273,7 @@ YAHOO_SYMBOLS = {
 THRESHOLDS = {
     'usd_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
     'eur_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
-    'commodity':  {'warning': 0.08, 'critical': 0.10},   # 8% / 10% (futures/spot basis)
+    'commodity':  {'warning': 0.02, 'critical': 0.05},   # 2% / 5% (spot gold)
     'stock':      {'warning': 0.05, 'critical': 0.10},   # 5% / 10% (panel only)
 }
 
