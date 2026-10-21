@@ -33,10 +33,3 @@ def stablecoin():
 def alerts():
     """告警历史"""
     return render_template('alerts.html')
-
-
-@pages_bp.route('/config')
-@login_required
-def config():
-    """系统配置"""
-    return render_template('config.html')

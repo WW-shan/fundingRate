@@ -49,19 +49,14 @@ print("PART 1: 未认证访问（应被拦截）")
 print("=" * 70)
 for path in ["/api/summary", "/api/funding/apr", "/api/funding/spreads", "/api/basis",
              "/api/stablecoins", "/api/stablecoins/history", "/api/issuer-spreads",
-             "/api/alerts", "/api/alerts/stats", "/api/config"]:
+             "/api/alerts", "/api/alerts/stats"]:
     r = s.get(BASE + path, allow_redirects=False)
     check(f"GET {path} (未认证)", r, expect_status=401, expect_success=False)
 
-for path in ["/", "/funding", "/stablecoin", "/alerts", "/config"]:
+for path in ["/", "/funding", "/stablecoin", "/alerts"]:
     r = s.get(BASE + path, allow_redirects=False)
     ok = r.status_code == 302 and "/login" in r.headers.get("Location", "")
     record(f"GET {path} (未认证跳登录)", ok, f"HTTP {r.status_code} -> {r.headers.get('Location')}")
-
-r = s.post(BASE + "/api/config/update", json={"category": "alerts", "key": "x", "value": 1})
-check("POST /api/config/update (未认证)", r, expect_status=401, expect_success=False)
-r = s.post(BASE + "/api/exchanges/reload")
-check("POST /api/exchanges/reload (未认证)", r, expect_status=401, expect_success=False)
 
 print()
 print("=" * 70)
@@ -244,39 +239,23 @@ if body:
 
 print()
 print("=" * 70)
-print("PART 5: 配置 API")
+print("PART 5: CONFIG ENDPOINTS REMOVED")
 print("=" * 70)
+r = s.get(BASE + "/config")
+record("GET /config removed", r.status_code == 404, f"HTTP {r.status_code}")
 r = s.get(BASE + "/api/config")
-body = check("GET /api/config", r, expect_success=True)
-if body:
-    d = body.get("data", {})
-    record("  config 分类完整", "global" in d and "alerts" in d,
-           f"global_keys={len(d.get('global', {}))} alerts_keys={len(d.get('alerts', {}))}")
-
-orig = s.get(BASE + "/api/config").json()["data"]["alerts"]["max_pushes_per_scan"]
-newval = 7 if orig != 7 else 6
-r = s.post(BASE + "/api/config/update", json={"category": "alerts", "key": "max_pushes_per_scan", "value": newval})
-body = check("POST /api/config/update", r, expect_success=True)
-r = s.get(BASE + "/api/config")
-now = r.json()["data"]["alerts"]["max_pushes_per_scan"]
-record("  配置热更新生效", now == newval, f"{orig} -> {now}")
-r = s.post(BASE + "/api/config/update", json={"category": "alerts", "key": "max_pushes_per_scan", "value": orig})
-record("  配置已还原", r.json().get("success") is True, f"restored={orig}")
-
-r = s.post(BASE + "/api/config/update", json={"category": "alerts"})
-body = check("POST /api/config/update 缺字段", r, expect_success=False)
-
+record("GET /api/config removed", r.status_code == 404, f"HTTP {r.status_code}")
+r = s.post(BASE + "/api/config/update", json={"category": "alerts", "key": "x", "value": 1})
+record("POST /api/config/update removed", r.status_code == 404, f"HTTP {r.status_code}")
 r = s.post(BASE + "/api/exchanges/reload")
-body = check("POST /api/exchanges/reload", r, expect_success=True)
-if body:
-    record("  reload 后5家在线", len(body.get("active", [])) == 5, f"active={body.get('active')}")
+record("POST /api/exchanges/reload removed", r.status_code == 404, f"HTTP {r.status_code}")
 
 print()
 print("=" * 70)
 print("PART 6: 页面渲染（已认证）")
 print("=" * 70)
 for path, marker in [("/", "dashboard"), ("/funding", "funding"), ("/stablecoin", "stablecoin"),
-                     ("/alerts", "alerts"), ("/config", "config")]:
+                     ("/alerts", "alerts")]:
     r = s.get(BASE + path)
     ok = r.status_code == 200 and len(r.text) > 1000
     record(f"GET {path} 页面渲染", ok, f"HTTP {r.status_code} bytes={len(r.text)}")

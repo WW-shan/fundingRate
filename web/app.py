@@ -17,11 +17,10 @@ def create_app(config_manager, db_manager, data_collector, market_monitor, alert
     app.config['MARKET_MONITOR'] = market_monitor
     app.config['ALERT_MANAGER'] = alert_manager
 
-    from web.routes import auth_bp, pages_bp, api_bp, config_api_bp
+    from web.routes import auth_bp, pages_bp, api_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(api_bp)
-    app.register_blueprint(config_api_bp)
 
     logger.info("Flask app created (monitor mode)")
     return app
