@@ -156,6 +156,18 @@ class TelegramBot:
         t = alert.get("alert_type")
         d = alert.get("details") or {}
 
+        if t == "funding_extreme" and d.get("exchanges"):
+            legs = d.get("exchanges") or []
+            count = d.get("exchange_count") or len(legs)
+            detail = " | ".join(
+                f"{str(x.get('exchange', '')).upper()} {((x.get('apr') or 0) * 100):+.1f}%"
+                for x in legs[:6]
+            )
+            suffix = f" 等 {count} 所" if count > 6 else ""
+            return (
+                f"\n{emoji} <b>资金费率·多所</b> {d.get('symbol', 'N/A')}（{count}所）\n"
+                f"   {detail}{suffix}"
+            )
         if t == "funding_extreme":
             apr = d.get("apr")
             rate = d.get("funding_rate")
@@ -214,7 +226,31 @@ class TelegramBot:
         emoji = {"warning": "⚠️", "critical": "🔴", "emergency": "🚨"}.get(alert.get("level"), "⚠️")
         alert_type = alert.get("alert_type")
 
-        if alert_type == "funding_extreme":
+        if alert_type == "funding_extreme" and (alert.get("details") or {}).get("exchanges"):
+            d = alert.get("details") or {}
+            legs = d.get("exchanges") or []
+            lines = [
+                f"{emoji} <b>多所资金费率异常</b>\n",
+                f"标的: <b>{d.get('symbol', 'N/A')}</b>",
+                f"异常交易所: <b>{d.get('exchange_count') or len(legs)}</b>\n",
+            ]
+            for x in legs[:8]:
+                rate = x.get('funding_rate')
+                apr = x.get('apr')
+                interval_h = x.get('funding_interval_hours')
+                rate_str = f"{rate * 100:+.4f}%" if rate is not None else "N/A"
+                apr_str = f"{apr * 100:+.1f}%" if apr is not None else "N/A"
+                interval_str = f"每{interval_h:g}h" if interval_h else "周期未知"
+                lines.append(
+                    f"  {str(x.get('exchange', '')).upper()}: APR <b>{apr_str}</b> | "
+                    f"费率 {rate_str} | {interval_str}"
+                )
+            top_apr = d.get('apr')
+            if top_apr is not None:
+                lines.append(f"\n最高年化: <b>{top_apr * 100:+.1f}%</b>")
+            lines.append(f"\n时间: {self._fmt_time()}")
+            message = "\n".join(lines)
+        elif alert_type == "funding_extreme":
             d = alert.get("details") or {}
             apr = d.get("apr")
             rate = d.get("funding_rate")

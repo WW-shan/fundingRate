@@ -522,31 +522,79 @@ class MarketMonitor:
     # ---------- 异常检测 ----------
 
     def _check_funding_anomalies(self, apr_ranking: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """极端资金费率告警（APR 口径）"""
-        alerts = []
-        min_abs_apr = self.config.get_float('alerts', 'funding_apr_threshold', 10.0)  # 年化 1000%
+        """异常资金费率告警：同一标的至少 N 家交易所同时异常才推送"""
+        min_abs_apr = self.config.get_float('alerts', 'funding_apr_threshold', 10.0)  # 1000% APR
+        min_exchanges = max(2, self.config.get_int('alerts', 'funding_min_exchanges', 2))
+
+        grouped: Dict[str, Dict[str, Dict[str, Any]]] = {}
         for row in apr_ranking:
-            rate = row['funding_rate']
-            apr = row['apr']
+            apr = row.get('apr')
             if apr is None or abs(apr) < min_abs_apr:
                 continue
+            symbol = row.get('symbol')
+            exchange = row.get('exchange')
+            if not symbol or not exchange:
+                continue
+            grouped.setdefault(symbol, {})[exchange] = row
 
-            interval_h = row.get('funding_interval_hours')
-            per_day = (24 / interval_h) if interval_h else None
-            freq = f"每 {interval_h:g}h（每日 {per_day:.0f} 次）" if interval_h else "结算周期未知"
-            semantics = '下期将收取值'
+        alerts = []
+        for symbol, by_exchange in grouped.items():
+            rows = sorted(by_exchange.values(), key=lambda r: abs(r.get('apr') or 0), reverse=True)
+            if len(rows) < min_exchanges:
+                continue
 
+            top = rows[0]
+            top_apr = top.get('apr') or 0
+            interval_h = top.get('funding_interval_hours')
+            leg_parts = []
+            leg_details = []
+            for row in rows:
+                rate = row.get('funding_rate')
+                apr = row.get('apr')
+                if rate is None or apr is None:
+                    continue
+                leg_parts.append(f"{row.get('exchange')} {apr * 100:+.1f}%")
+                leg_details.append({
+                    'exchange': row.get('exchange'),
+                    'funding_rate': rate,
+                    'apr': apr,
+                    'funding_interval_hours': row.get('funding_interval_hours'),
+                    'next_funding_time': row.get('next_funding_time'),
+                    'rate_semantics': row.get('rate_semantics', 'upcoming'),
+                })
+            if len(leg_details) < min_exchanges:
+                continue
+
+            level = 'critical' if abs(top_apr) >= min_abs_apr * 2 else 'warning'
+            message = (
+                f"{symbol} 多所资金费率异常（{len(leg_details)}所）: "
+                + " | ".join(leg_parts)
+                + f" | 最高年化 APR {top_apr * 100:+.1f}%"
+            )
+            details = {
+                'symbol': symbol,
+                'exchange': 'multi',
+                'exchange_count': len(leg_details),
+                'exchanges': leg_details,
+                'apr': top_apr,
+                'funding_rate': top.get('funding_rate'),
+                'funding_interval_hours': interval_h,
+                'next_funding_time': top.get('next_funding_time'),
+                'rate_semantics': top.get('rate_semantics', 'upcoming'),
+                'threshold': min_abs_apr,
+                'min_exchanges': min_exchanges,
+            }
             alerts.append({
                 'alert_type': 'funding_extreme',
-                'level': 'critical' if abs(apr) >= min_abs_apr * 2 else 'warning',
-                'symbol': row['symbol'],
-                'exchange': row['exchange'],
-                'message': (
-                    f"{row['symbol']} @ {row['exchange']} | 当前费率 {rate*100:+.4f}% | "
-                    f"频率 {freq} | 年化 APR {apr*100:+.1f}% | {semantics}"
-                ),
-                'details': row,
+                'level': level,
+                'symbol': symbol,
+                'exchange': 'multi',
+                'message': message,
+                'details': details,
             })
+
+        alerts.sort(key=lambda a: (0 if a.get('level') == 'critical' else 1,
+                                   -abs((a.get('details') or {}).get('apr') or 0)))
         return alerts
 
     def _check_cross_spread_anomalies(self, spreads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

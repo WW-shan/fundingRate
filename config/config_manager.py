@@ -102,6 +102,7 @@ class ConfigManager:
 
         # 告警阈值配置（脱锚阈值按资产类别在 peg_assets.THRESHOLDS 中定义）
         self.set_default('alerts', 'funding_apr_threshold', 10.0, True, "年化资金费率告警阈值（1000%）")
+        self.set_default('alerts', 'funding_min_exchanges', 2, True, "资金费率异常至少多少家交易所同时触发才告警（默认 2）")
         self.set_default('alerts', 'cross_spread_threshold', 1.0, True, "跨所年化费率差告警阈值（100%）")
         self.set_default('alerts', 'basis_threshold', 0.02, True, "基差告警阈值（2%）")
         self.set_default('alerts', 'max_pushes_per_scan', 20, True, "每轮扫描最多推送条数（合并为一条消息）")

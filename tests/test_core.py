@@ -590,3 +590,121 @@ class RegressionAuditTests(unittest.TestCase):
         cm._config_cache = {"alerts.push_depeg": "False", "alerts.push_basis": "True"}
         self.assertFalse(cm.get("alerts", "push_depeg", True))
         self.assertTrue(cm.get("alerts", "push_basis", False))
+
+class FundingMultiExchangeAlertTests(unittest.TestCase):
+    """Funding alerts require the same symbol to be extreme on multiple exchanges."""
+
+    @staticmethod
+    def _row(exchange, apr, rate=0.01):
+        return {
+            "symbol": "BTC/USDT",
+            "exchange": exchange,
+            "funding_rate": rate,
+            "apr": apr,
+            "funding_interval_hours": 8,
+            "next_funding_time": 123,
+            "rate_semantics": "upcoming",
+        }
+
+    @staticmethod
+    def _monitor(min_exchanges=2):
+        config = FakeConfig({
+            "alerts.funding_apr_threshold": 10.0,
+            "alerts.funding_min_exchanges": min_exchanges,
+        })
+        return MarketMonitor(config, None, None)
+
+    def test_single_exchange_is_not_alerted(self):
+        alerts = self._monitor()._check_funding_anomalies([self._row("binance", 12.0)])
+        self.assertEqual(alerts, [])
+
+    def test_two_exchanges_produce_one_combined_alert(self):
+        alerts = self._monitor()._check_funding_anomalies([
+            self._row("binance", 12.0),
+            self._row("gate", -25.0, -0.02),
+        ])
+        self.assertEqual(len(alerts), 1)
+        alert = alerts[0]
+        self.assertEqual(alert["symbol"], "BTC/USDT")
+        self.assertEqual(alert["exchange"], "multi")
+        self.assertEqual(alert["level"], "critical")
+        self.assertEqual(alert["details"]["exchange_count"], 2)
+        self.assertEqual(
+            {x["exchange"] for x in alert["details"]["exchanges"]},
+            {"binance", "gate"},
+        )
+        self.assertIn("binance", alert["message"])
+        self.assertIn("gate", alert["message"])
+
+    def test_below_threshold_leg_does_not_count(self):
+        alerts = self._monitor()._check_funding_anomalies([
+            self._row("binance", 12.0),
+            self._row("gate", 5.0),
+        ])
+        self.assertEqual(alerts, [])
+
+    def test_min_exchanges_is_configurable(self):
+        rows = [
+            self._row("binance", 12.0),
+            self._row("gate", 13.0),
+            self._row("okx", 14.0),
+        ]
+        self.assertEqual(self._monitor(3)._check_funding_anomalies(rows[:2]), [])
+        self.assertEqual(len(self._monitor(3)._check_funding_anomalies(rows)), 1)
+
+    def test_telegram_formats_combined_funding_alert(self):
+        from bot.telegram_bot import TelegramBot
+
+        bot = TelegramBot.__new__(TelegramBot)
+        alert = {
+            "alert_type": "funding_extreme",
+            "level": "warning",
+            "symbol": "BTC/USDT",
+            "exchange": "multi",
+            "message": "x",
+            "details": {
+                "symbol": "BTC/USDT",
+                "exchange": "multi",
+                "exchange_count": 2,
+                "apr": 12.0,
+                "funding_rate": 0.01,
+                "funding_interval_hours": 8,
+                "exchanges": [
+                    {"exchange": "binance", "apr": 12.0, "funding_rate": 0.01, "funding_interval_hours": 8},
+                    {"exchange": "gate", "apr": -11.0, "funding_rate": -0.01, "funding_interval_hours": 8},
+                ],
+            },
+        }
+        line = bot._format_alert_line(alert)
+        single = bot._format_single_alert(alert)
+        for text in (line, single):
+            self.assertIn("BINANCE", text.upper())
+            self.assertIn("GATE", text.upper())
+            self.assertIn("2", text)
+
+    def test_okx_safe_loader_drops_malformed_markets(self):
+        import threading
+        from exchanges.okx_adapter import OKXAdapter
+
+        class FakeExchange:
+            def __init__(self):
+                self.markets = {}
+                self.loaded = []
+
+            def fetch_markets(self, params=None):
+                return [
+                    {"id": "BTC-USDT", "symbol": "BTC/USDT"},
+                    {"id": None, "symbol": None},
+                ]
+
+            def set_markets(self, markets):
+                self.loaded = markets
+                self.markets = {m["symbol"]: m for m in markets}
+
+        adapter = OKXAdapter.__new__(OKXAdapter)
+        adapter.exchange = FakeExchange()
+        adapter._markets_lock = threading.Lock()
+        adapter._install_safe_load_markets()
+        adapter.exchange.load_markets()
+        self.assertEqual(len(adapter.exchange.loaded), 1)
+        self.assertEqual(adapter.exchange.loaded[0]["id"], "BTC-USDT")

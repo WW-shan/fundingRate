@@ -71,6 +71,11 @@
         <button class="btn btn-primary" onclick="save('alerts','funding_apr_threshold','cfg-funding_apr_threshold')">保存</button>
       </div>
       <div class="config-row">
+        <div><div class="config-label">资金费率最少异常交易所数</div><div class="config-desc">同一标的至少多少家交易所同时超过 APR 阈值才推送；默认 2</div></div>
+        <input id="cfg-funding_min_exchanges" type="number" min="2" step="1" />
+        <button class="btn btn-primary" onclick="save('alerts','funding_min_exchanges','cfg-funding_min_exchanges')">保存</button>
+      </div>
+      <div class="config-row">
         <div><div class="config-label">跨所年化差阈值</div><div class="config-desc">1.0 = 100%（仅落库，不推送）</div></div>
         <input id="cfg-cross_spread_threshold" type="number" step="0.05" />
         <button class="btn btn-primary" onclick="save('alerts','cross_spread_threshold','cfg-cross_spread_threshold')">保存</button>
@@ -160,6 +165,7 @@ async function load() {
   document.getElementById('cfg-funding_min_volume_usd').value = g.funding_min_volume_usd;
 
   document.getElementById('cfg-funding_apr_threshold').value = a.funding_apr_threshold;
+  document.getElementById('cfg-funding_min_exchanges').value = a.funding_min_exchanges;
   document.getElementById('cfg-cross_spread_threshold').value = a.cross_spread_threshold;
   document.getElementById('cfg-basis_threshold').value = a.basis_threshold;
   document.getElementById('cfg-push_funding_apr_threshold').value = a.push_funding_apr_threshold;

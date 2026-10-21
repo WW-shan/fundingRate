@@ -33,6 +33,7 @@ def get_config():
             },
             'alerts': {
                 'funding_apr_threshold': cm.get('alerts', 'funding_apr_threshold', 10.0),
+                'funding_min_exchanges': cm.get('alerts', 'funding_min_exchanges', 2),
                 'cross_spread_threshold': cm.get('alerts', 'cross_spread_threshold', 1.0),
                 'basis_threshold': cm.get('alerts', 'basis_threshold', 0.02),
                 'issuer_spread_threshold': cm.get('alerts', 'issuer_spread_threshold', 0.01),
