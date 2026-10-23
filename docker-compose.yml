@@ -5,8 +5,11 @@ services:
     build: .
     container_name: funding-rate-monitor
     restart: unless-stopped
+    cpu_shares: 128
+    oom_score_adj: 500
+    pids_limit: 128
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
