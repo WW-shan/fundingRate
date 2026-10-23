@@ -271,9 +271,9 @@ YAHOO_SYMBOLS = {
 
 # ==================== 脱锚阈值 ====================
 THRESHOLDS = {
-    'usd_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
-    'eur_stable': {'warning': 0.01, 'critical': 0.03},   # 1% / 3%
-    'commodity':  {'warning': 0.02, 'critical': 0.05},   # 2% / 5% (spot gold)
+    'usd_stable': {'warning': 0.05, 'critical': 0.10},   # 5% / 10%
+    'eur_stable': {'warning': 0.05, 'critical': 0.10},   # 5% / 10%
+    'commodity':  {'warning': 0.05, 'critical': 0.10},   # 5% / 10%
     'stock':      {'warning': 0.05, 'critical': 0.10},   # 5% / 10% (panel only)
 }
 
@@ -310,7 +310,7 @@ def classify(symbol: str):
 
 
 def get_thresholds(category: str):
-    return THRESHOLDS.get(category, {'warning': 0.01, 'critical': 0.03})
+    return THRESHOLDS.get(category, {'warning': 0.05, 'critical': 0.10})
 
 
 class PegAssetDiscovery:

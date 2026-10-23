@@ -253,7 +253,13 @@ class PegAssetTests(unittest.TestCase):
         self.assertEqual(peg_assets.classify("RFOIL"), (None, None, None))
 
     def test_commodity_thresholds_allow_futures_basis(self):
-        self.assertEqual(peg_assets.get_thresholds('commodity'), {'warning': 0.02, 'critical': 0.05})
+        self.assertEqual(peg_assets.get_thresholds('commodity'), {'warning': 0.05, 'critical': 0.10})
+
+    def test_depeg_thresholds_are_five_and_ten_percent_by_default(self):
+        expected = {'warning': 0.05, 'critical': 0.10}
+        for category in ('usd_stable', 'eur_stable', 'commodity', 'stock', 'unknown'):
+            with self.subTest(category=category):
+                self.assertEqual(peg_assets.get_thresholds(category), expected)
 
 
 class MarketMonitorStockComparisonTests(unittest.TestCase):
