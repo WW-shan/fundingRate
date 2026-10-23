@@ -92,6 +92,37 @@ class FakeDB:
         self.rows.append((sql, params))
         return []
 
+    def set_config(self, category, key, value, is_hot_reload=True, description=""):
+        self.rows.append(("SET_CONFIG", category, key, value, is_hot_reload, description))
+
+
+class BasisAlertThresholdTests(unittest.TestCase):
+    def setUp(self):
+        self.monitor = MarketMonitor(FakeConfig(), None, None)
+
+    def test_default_five_percent_threshold_applies_to_all_symbols(self):
+        rows = [
+            {"symbol": "AAPL/USDT", "exchange": "binance", "basis": 0.049,
+             "spot_price": 105.0, "futures_price": 100.0},
+            {"symbol": "TSLA/USDT", "exchange": "okx", "basis": 0.05,
+             "spot_price": 105.0, "futures_price": 100.0},
+            {"symbol": "BTC/USDT", "exchange": "bybit", "basis": -0.05,
+             "spot_price": 95.0, "futures_price": 100.0},
+        ]
+
+        alerts = self.monitor._check_basis_anomalies(rows)
+
+        self.assertEqual([alert["symbol"] for alert in alerts], ["TSLA/USDT", "BTC/USDT"])
+
+    def test_default_config_uses_five_percent_for_detection_and_push(self):
+        from config.config_manager import ConfigManager
+
+        config = ConfigManager(FakeDB())
+        config.init_default_configs()
+
+        self.assertEqual(config.get_float("alerts", "basis_threshold"), 0.05)
+        self.assertEqual(config.get_float("alerts", "push_basis_threshold"), 0.05)
+
 
 class AlertPushTests(unittest.TestCase):
     def setUp(self):
@@ -99,7 +130,7 @@ class AlertPushTests(unittest.TestCase):
             "alerts.push_basis": True,
             "alerts.push_cross_spread": True,
             "alerts.push_funding_apr_threshold": 10.0,
-            "alerts.push_basis_threshold": 0.03,
+            "alerts.push_basis_threshold": 0.05,
             "alerts.push_reset_gap": 1800,
             "alerts.push_reminder_cooldown": 43200,
             "alerts.persist_cooldown": 1800,
@@ -115,7 +146,16 @@ class AlertPushTests(unittest.TestCase):
 
     def test_basis_below_push_threshold_is_panel_only(self):
         self.assertFalse(self.manager._should_push({
-            "alert_type": "basis_extreme", "details": {"basis": 0.025}
+            "alert_type": "basis_extreme", "details": {"basis": 0.049}
+        }))
+
+    def test_basis_default_push_threshold_is_five_percent(self):
+        manager = AlertManager(FakeConfig(), FakeDB())
+        self.assertFalse(manager._should_push({
+            "alert_type": "basis_extreme", "details": {"basis": 0.049}
+        }))
+        self.assertTrue(manager._should_push({
+            "alert_type": "basis_extreme", "details": {"basis": -0.05}
         }))
 
     def test_cross_spread_is_panel_only_by_default(self):

@@ -624,7 +624,7 @@ class MarketMonitor:
     def _check_basis_anomalies(self, basis_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """基差异常告警"""
         alerts = []
-        threshold = self.config.get_float('alerts', 'basis_threshold', 0.02)  # 2%
+        threshold = self.config.get_float('alerts', 'basis_threshold', 0.05)  # 5% for all spot/perpetual pairs
         for row in basis_list[:50]:
             if abs(row['basis']) >= threshold:
                 alerts.append({

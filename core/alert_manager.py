@@ -155,11 +155,11 @@ class AlertManager:
         if alert_type == "cross_spread":
             return self.config.get_bool("alerts", "push_cross_spread", False)
 
-        # 期现基差：仅推送达到推送阈值的（默认 3%，2-3% 只上面板）
+        # 期现基差：所有现货/永续配对共用 5% 默认推送阈值。
         if alert_type == "basis_extreme":
             if not self.config.get_bool("alerts", "push_basis", True):
                 return False
-            threshold = self.config.get_float("alerts", "push_basis_threshold", 0.03)
+            threshold = self.config.get_float("alerts", "push_basis_threshold", 0.05)
             basis = (alert.get("details") or {}).get("basis")
             return basis is not None and abs(basis) >= threshold
 
@@ -181,7 +181,7 @@ class AlertManager:
             steps = [base, base * 2, base * 5, base * 10]
             metric = abs(d.get("apr") or 0)
         elif alert_type == "basis_extreme":
-            base = self.config.get_float("alerts", "push_basis_threshold", 0.03) or 0.01
+            base = self.config.get_float("alerts", "push_basis_threshold", 0.05) or 0.01
             steps = [base, max(0.05, base * 1.5), 0.10, 0.20]
             metric = abs(d.get("basis") or 0)
         elif alert_type == "stablecoin_depeg":
