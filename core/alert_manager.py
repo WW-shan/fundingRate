@@ -190,7 +190,7 @@ class AlertManager:
             steps = [warn, crit, crit * 2, crit * 4]
             metric = abs(d.get("deviation") or 0)
         elif alert_type == "issuer_spread":
-            base = self.config.get_float("alerts", "issuer_spread_threshold", 0.01) or 0.01
+            base = self.config.get_float("alerts", "issuer_spread_threshold", 0.05) or 0.05
             steps = [base, base * 3, base * 5, base * 10]
             metric = abs(d.get("abs_spread") or 0)
         elif alert_type == "cross_spread":

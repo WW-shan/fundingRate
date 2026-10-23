@@ -122,6 +122,17 @@ class BasisAlertThresholdTests(unittest.TestCase):
 
         self.assertEqual(config.get_float("alerts", "basis_threshold"), 0.05)
         self.assertEqual(config.get_float("alerts", "push_basis_threshold"), 0.05)
+        self.assertEqual(config.get_float("alerts", "issuer_spread_threshold"), 0.05)
+
+    def test_stock_cross_issuer_alert_uses_five_percent_default(self):
+        rows = [
+            {"category": "stock", "underlying": "AAPL", "abs_spread": 0.049, "quotes": []},
+            {"category": "stock", "underlying": "TSLA", "abs_spread": 0.05, "quotes": []},
+        ]
+
+        alerts = self.monitor._check_issuer_spread_anomalies(rows)
+
+        self.assertEqual([alert["symbol"] for alert in alerts], ["TSLA"])
 
 
 class AlertPushTests(unittest.TestCase):
@@ -401,14 +412,14 @@ class MarketMonitorStockComparisonTests(unittest.TestCase):
         data = {
             "RSOXL": {"bitget": {"price": 92.07, "timestamp": now_s * 1000}},
             "SOXLG": {"gate": {"price": 92.11, "timestamp": now_s * 1000}},
-            "XSOXL": {"okx": {"price": 94.07, "timestamp": now_s * 1000}},
+            "XSOXL": {"okx": {"price": 98.0, "timestamp": now_s * 1000}},
         }
         mm = self._build_monitor(data, {}, registry)
         spreads = mm.build_cross_issuer_spreads(data)
         soxl = [s for s in spreads if s["underlying"] == "SOXL"][0]
 
         self.assertEqual(soxl["category"], "stock")
-        self.assertAlmostEqual(soxl["spread"], (94.07 - 92.07) / 92.07, places=6)
+        self.assertAlmostEqual(soxl["spread"], (98.0 - 92.07) / 92.07, places=6)
         self.assertEqual(soxl["issuer_count"], 3)
         alerts = mm._check_issuer_spread_anomalies(spreads)
         self.assertEqual(len(alerts), 1)
@@ -584,7 +595,7 @@ class RegressionAuditTests(unittest.TestCase):
         mm = MarketMonitor(FakeConfig(), None, None)
         rows = [
             {"category": "usd_stable", "underlying": "USD", "abs_spread": 0.02, "quotes": []},
-            {"category": "stock", "underlying": "AAPL", "abs_spread": 0.02, "quotes": []},
+            {"category": "stock", "underlying": "AAPL", "abs_spread": 0.06, "quotes": []},
         ]
         alerts = mm._check_issuer_spread_anomalies(rows)
         self.assertEqual(len(alerts), 1)

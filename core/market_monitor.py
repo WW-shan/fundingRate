@@ -320,7 +320,7 @@ class MarketMonitor:
                       else (issuer_medians[mid - 1] + issuer_medians[mid]) / 2)
             return median, len(issuer_medians)
 
-        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)
+        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.05)
 
         rows = []
         for symbol, exchanges in stablecoin_data.items():
@@ -455,7 +455,7 @@ class MarketMonitor:
         registry = self.data_collector.peg_discovery.registry
         now_ms = int(time.time() * 1000)
         max_age_ms = max(120, self.config.get_int('global', 'stablecoin_refresh_interval', 60)) * 2 * 1000
-        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)
+        issuer_spread_threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.05)
         rows = []
 
         for underlying, symbols in groups.items():
@@ -643,7 +643,7 @@ class MarketMonitor:
     def _check_issuer_spread_anomalies(self, spreads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """跨发行商价差告警（同一标的的不同 RWA 版本偏离）"""
         alerts = []
-        threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.01)  # 1%
+        threshold = self.config.get_float('alerts', 'issuer_spread_threshold', 0.05)  # 5%
 
         for row in spreads:
             # 稳定币/欧元稳定币已有 stablecoin_depeg 告警，避免同一事件重复推送
