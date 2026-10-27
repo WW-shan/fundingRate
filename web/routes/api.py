@@ -318,12 +318,18 @@ def liquidation_windows():
         return jsonify({'success': False, 'error': 'liquidation monitor disabled'}), 404
     limit = _int_arg('limit', 500, 1000)
     query = request.args.get('q', '').strip()[:40].upper()
-    rows = liquidation_monitor.get_symbol_window_totals(limit=limit, search=query)
+    sort_window = request.args.get('sort', '1h').strip().lower()
+    if sort_window not in ('1h', '4h', '24h'):
+        sort_window = '1h'
+    rows = liquidation_monitor.get_symbol_window_totals(
+        limit=limit, search=query, sort_window=sort_window
+    )
     return jsonify({
         'success': True,
         'data': rows,
         'total': len(rows),
         'query': query,
+        'sort': sort_window,
         'windows': ['1h', '4h', '24h'],
         'resolution_seconds': 60,
     })

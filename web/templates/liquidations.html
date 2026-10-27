@@ -65,8 +65,8 @@
   </div>
 
   <div class="card">
-    <h3>当前窗口爆仓额排行</h3>
-    <div class="window-note">按当前滚动窗口（60 秒）已观测爆仓金额从高到低排序，空单、多单分别排行；放大倍数只用于判断异常强度，不参与排序。</div>
+    <h3>60 秒爆仓异动监控</h3>
+    <div class="window-note">这里是最近 60 秒的异动明细，按当前窗口金额展示，空单、多单分别一行；放大倍数只用于判断异常强度。累计排行榜在下方。</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -78,10 +78,15 @@
   </div>
 
   <div class="card">
-    <h3>各币种累计爆仓量（按 24 小时金额排行）</h3>
-    <div class="window-note">按近 24 小时已观测爆仓金额从高到低排列；每个窗口均为滚动累计并拆分空单、多单，数据来自本地分钟聚合。</div>
+    <h3 id="symbol-window-title">各币种累计爆仓量（按近 1 小时排行）</h3>
+    <div class="window-note">默认按近 1 小时已观测爆仓总额从高到低排列，金额包含空单和多单；每个窗口均可拆分查看方向。</div>
     <div class="filter-bar">
       <input id="filter-symbol-windows" type="search" placeholder="搜索币种（如 BTC、ETH）" autocomplete="off" oninput="scheduleWindowRefresh()" />
+      <select id="sort-symbol-windows" onchange="scheduleWindowRefresh()">
+        <option value="1h" selected>按近 1 小时排序</option>
+        <option value="4h">按近 4 小时排序</option>
+        <option value="24h">按近 24 小时排序</option>
+      </select>
       <span class="text-muted" id="window-search-meta">共 0 个币种</span>
     </div>
     <div class="table-wrap">
@@ -113,10 +118,11 @@ function scheduleWindowRefresh() {
 async function refresh() {
   try {
     const symbolSearch = document.getElementById('filter-symbol-windows').value.trim();
+    const symbolSort = document.getElementById('sort-symbol-windows').value;
     const [currentRes, historyRes, symbolWindowRes] = await Promise.all([
       fetchJSON('/api/liquidations?limit=200'),
       fetchJSON('/api/liquidations/history?hours=6&limit=80'),
-      fetchJSON(`/api/liquidations/windows?limit=500&q=${encodeURIComponent(symbolSearch)}`),
+      fetchJSON(`/api/liquidations/windows?limit=500&q=${encodeURIComponent(symbolSearch)}&sort=${encodeURIComponent(symbolSort)}`),
     ]);
     const rows = (currentRes && currentRes.data) || [];
     const summary = currentRes.summary || {};
@@ -172,6 +178,9 @@ async function refresh() {
 
     const symbolWindows = (symbolWindowRes && symbolWindowRes.data) || [];
     const symbolWindowBody = document.getElementById('tbody-symbol-windows');
+    const sortLabels = {'1h': '近 1 小时', '4h': '近 4 小时', '24h': '近 24 小时'};
+    document.getElementById('symbol-window-title').textContent =
+      `各币种累计爆仓量（按${sortLabels[symbolSort] || '近 1 小时'}排行）`;
     const windowCell = (window) => {
       window = window || {};
       return `<b>${fmtUsd(window.total_usd)}</b>

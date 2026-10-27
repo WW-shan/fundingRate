@@ -1454,6 +1454,7 @@ class LiquidationMonitor:
         now_ms: Optional[int] = None,
         limit: int = 500,
         search: str = "",
+        sort_window: str = "1h",
     ) -> List[Dict[str, Any]]:
         """Return persisted 1/4/24-hour liquidation totals for each symbol."""
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
@@ -1501,6 +1502,9 @@ class LiquidationMonitor:
             limit = max(1, min(int(limit), 1000))
         except (TypeError, ValueError):
             limit = 500
+        sort_window = str(sort_window or "1h").strip().lower()
+        if sort_window not in {"1h", "4h", "24h"}:
+            sort_window = "1h"
 
         raw_search = str(search or "").strip().upper()[:40]
         exact_search = "/" in raw_search or raw_search.endswith("USDT")
@@ -1527,7 +1531,7 @@ class LiquidationMonitor:
             FROM liquidation_minutes
             WHERE {where}
             GROUP BY symbol
-            ORDER BY total_usd_24h DESC, symbol ASC
+            ORDER BY total_usd_{sort_window} DESC, symbol ASC
             LIMIT ?
             """,
             tuple(query_params),

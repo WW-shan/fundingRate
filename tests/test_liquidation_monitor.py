@@ -867,6 +867,32 @@ class LiquidationPersistenceTests(unittest.TestCase):
             self.assertEqual([row["symbol"] for row in pair], ["ETH"])
             self.assertEqual([row["symbol"] for row in compact_pair], ["ETH"])
 
+    def test_symbol_window_totals_sort_by_requested_window(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+            now_ms = int(time.time() * 1000)
+            bucket = now_ms // 60_000 * 60_000
+            db.execute_many(
+                """
+                INSERT INTO liquidation_minutes
+                    (bucket, exchange, symbol, side, usd_value, event_count, max_order_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (bucket, "binance", "ETH", "short", 100, 1, 100),
+                    (bucket, "binance", "BTC", "short", 50, 1, 50),
+                    (bucket - 120 * 60_000, "binance", "OLD", "short", 1_000, 1, 1_000),
+                ],
+            )
+            monitor = LiquidationMonitor(FakeConfig(), db)
+
+            hourly = monitor.get_symbol_window_totals(now_ms)
+            daily = monitor.get_symbol_window_totals(now_ms, sort_window="24h")
+
+            self.assertEqual([row["symbol"] for row in hourly], ["ETH", "BTC", "OLD"])
+            self.assertEqual([row["symbol"] for row in daily], ["OLD", "ETH", "BTC"])
+
 
 class LiquidationWebTests(unittest.TestCase):
     def test_page_and_apis_expose_monitor_data(self):
@@ -874,6 +900,7 @@ class LiquidationWebTests(unittest.TestCase):
             def __init__(self):
                 self.history_args = None
                 self.window_search = None
+                self.window_sort = None
 
             def get_status(self):
                 return {
@@ -910,8 +937,9 @@ class LiquidationWebTests(unittest.TestCase):
             def get_window_totals(self):
                 return self.get_status()["last_scan"]["window_totals"]
 
-            def get_symbol_window_totals(self, limit=500, search=""):
+            def get_symbol_window_totals(self, limit=500, search="", sort_window="1h"):
                 self.window_search = search
+                self.window_sort = sort_window
                 return [
                     {
                         "symbol": "BTC",
@@ -930,7 +958,7 @@ class LiquidationWebTests(unittest.TestCase):
         page = client.get("/liquidations")
         current = client.get("/api/liquidations")
         history = client.get("/api/liquidations/history?symbol=btc&side=short")
-        windows = client.get("/api/liquidations/windows?limit=10&q=btc")
+        windows = client.get("/api/liquidations/windows?limit=10&q=btc&sort=1h")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("爆仓量监控", page.get_data(as_text=True))
@@ -941,6 +969,7 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertIn("近 24 小时", page.get_data(as_text=True))
         self.assertIn("各币种累计爆仓量", page.get_data(as_text=True))
         self.assertIn("搜索币种", page.get_data(as_text=True))
+        self.assertIn("按近 1 小时排行", page.get_data(as_text=True))
         self.assertEqual(history.status_code, 200)
         self.assertEqual(monitor.history_args["symbol"], "BTC")
         self.assertEqual(monitor.history_args["side"], "short")
@@ -948,7 +977,9 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertEqual(windows.get_json()["data"][0]["24h"]["total_usd"], 370_000)
         self.assertEqual(windows.get_json()["windows"], ["1h", "4h", "24h"])
         self.assertEqual(windows.get_json()["query"], "BTC")
+        self.assertEqual(windows.get_json()["sort"], "1h")
         self.assertEqual(monitor.window_search, "BTC")
+        self.assertEqual(monitor.window_sort, "1h")
 
 
 class LiquidationAlertTests(unittest.TestCase):
