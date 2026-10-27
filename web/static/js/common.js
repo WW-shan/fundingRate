@@ -2,7 +2,21 @@
 async function fetchJSON(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) { window.location.href = '/login'; throw new Error('Unauthorized'); }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const payload = await res.json();
+      detail = payload.error || payload.message || '';
+    } catch (e) {}
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
   return res.json();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[ch]);
 }
 
 function fmtPct(v, digits) {
@@ -29,7 +43,7 @@ function levelBadge(level) {
     emergency: ['badge-red', '🚨 紧急'],
   };
   const [cls, label] = map[level] || ['badge-gray', level];
-  return `<span class="badge ${cls}">${label}</span>`;
+  return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
 }
 
 function typeLabel(t) {
@@ -41,12 +55,13 @@ function typeLabel(t) {
     issuer_spread: '跨产品 / 跨发行商价差',
     liquidation_surge: '爆仓量激增',
   };
-  return map[t] || t;
+  return escapeHtml(map[t] || t);
 }
 
 function exchangeBadge(ex) {
   const colors = { binance: 'badge-yellow', okx: 'badge-gray', bybit: 'badge-blue', gate: 'badge-green', bitget: 'badge-blue' };
-  return `<span class="badge ${colors[ex] || 'badge-gray'}">${ex}</span>`;
+  const name = String(ex ?? '');
+  return `<span class="badge ${colors[name] || 'badge-gray'}">${escapeHtml(name)}</span>`;
 }
 
 

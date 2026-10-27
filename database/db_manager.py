@@ -32,6 +32,7 @@ class DatabaseManager:
                 conn = sqlite3.connect(self.db_path, timeout=10.0)
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA busy_timeout=10000")
+                conn.execute("PRAGMA synchronous=NORMAL")
                 break
             except sqlite3.OperationalError as e:
                 if "locked" in str(e) and attempt < 2:

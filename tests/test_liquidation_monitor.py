@@ -1,9 +1,11 @@
 import json
 import os
+import asyncio
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bot.telegram_bot import TelegramBot
@@ -200,6 +202,25 @@ class LiquidationParserTests(unittest.TestCase):
             event for values in monitor._events.values() for event in values
         ]
         self.assertEqual(len(events), 1)
+
+    def test_future_exchange_timestamps_are_clamped_to_now(self):
+        monitor = LiquidationMonitor(FakeConfig(), FakeDB())
+        before_ms = int(time.time() * 1000)
+
+        monitor._record_event(
+            "binance", "BTC", "short", 100, 80_000, before_ms + 3_600_000
+        )
+
+        after_ms = int(time.time() * 1000)
+        event = next(iter(monitor._events["BTC"]))
+        self.assertLessEqual(event["timestamp"], after_ms)
+        self.assertGreaterEqual(event["timestamp"], before_ms)
+        self.assertTrue(
+            all(
+                bucket <= after_ms // 60_000 * 60_000
+                for bucket, *_ in monitor._minute_buckets
+            )
+        )
 
     def test_contract_multiplier_prefixes_are_normalized(self):
         self.assertEqual(LiquidationMonitor._base_symbol("1000SHIBUSDT"), "SHIB")
@@ -573,6 +594,15 @@ class LiquidationDetectionTests(unittest.TestCase):
 
 
 class LiquidationPersistenceTests(unittest.TestCase):
+    def test_each_connection_uses_wal_and_normal_synchronous_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+
+            with db.get_connection() as conn:
+                self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+                self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 1)
+
     def test_legacy_100k_threshold_migrates_once_to_500k(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db = DatabaseManager(str(Path(temp_dir) / "test.db"))
@@ -819,6 +849,32 @@ class LiquidationPersistenceTests(unittest.TestCase):
             self.assertEqual([row["symbol"] for row in filtered], ["ETH"])
             self.assertEqual(filtered[0]["1h"]["total_usd"], 50_000)
 
+    def test_global_and_symbol_window_totals_preserve_the_same_precision(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+            now_ms = int(time.time() * 1000)
+            bucket = now_ms // 60_000 * 60_000
+            db.execute_many(
+                """
+                INSERT INTO liquidation_minutes
+                    (bucket, exchange, symbol, side, usd_value, event_count, max_order_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (bucket, "binance", "BTC", "short", 0.004, 1, 0.004),
+                    (bucket, "bybit", "BTC", "long", 12_345.67890123, 1, 12_345.67890123),
+                ],
+            )
+            monitor = LiquidationMonitor(FakeConfig(), db)
+
+            totals = monitor.get_window_totals(now_ms)["1h"]
+            symbol = monitor.get_symbol_window_totals(now_ms)[0]["1h"]
+
+            self.assertEqual(totals["short_usd"], 0.004)
+            self.assertEqual(totals["total_usd"], symbol["total_usd"])
+            self.assertEqual(totals["short_usd"] + totals["long_usd"], totals["total_usd"])
+
     def test_window_totals_survive_monitor_restart(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db = DatabaseManager(str(Path(temp_dir) / "test.db"))
@@ -970,6 +1026,9 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertIn("各币种累计爆仓量", page.get_data(as_text=True))
         self.assertIn("搜索币种", page.get_data(as_text=True))
         self.assertIn("按近 1 小时排行", page.get_data(as_text=True))
+        self.assertIn("limit=2000", page.get_data(as_text=True))
+        self.assertIn("escapeHtml", page.get_data(as_text=True))
+        self.assertIn("refreshSequence", page.get_data(as_text=True))
         self.assertEqual(history.status_code, 200)
         self.assertEqual(monitor.history_args["symbol"], "BTC")
         self.assertEqual(monitor.history_args["side"], "short")
@@ -983,6 +1042,46 @@ class LiquidationWebTests(unittest.TestCase):
 
 
 class LiquidationAlertTests(unittest.TestCase):
+    def test_telegram_liquidations_uses_one_hour_ranking(self):
+        class Monitor:
+            def __init__(self):
+                self.kwargs = None
+
+            @staticmethod
+            def get_status():
+                return {"active_exchanges": ["binance", "bybit"]}
+
+            def get_symbol_window_totals(self, **kwargs):
+                self.kwargs = kwargs
+                return [
+                    {
+                        "symbol": "<BTC>",
+                        "1h": {
+                            "total_usd": 300_000,
+                            "short_usd": 200_000,
+                            "long_usd": 100_000,
+                        },
+                    }
+                ]
+
+        class Message:
+            text = ""
+
+            async def reply_text(self, text, parse_mode=None):
+                self.text = text
+
+        monitor = Monitor()
+        bot = object.__new__(TelegramBot)
+        bot.liquidation_monitor = monitor
+        update = SimpleNamespace(message=Message())
+
+        asyncio.run(bot.cmd_liquidations(update, None))
+
+        self.assertEqual(monitor.kwargs, {"limit": 10, "sort_window": "1h"})
+        self.assertIn("近 1 小时", update.message.text)
+        self.assertIn("&lt;BTC&gt;", update.message.text)
+        self.assertIn("$300.0K", update.message.text)
+
     def test_telegram_shows_missing_baseline(self):
         bot = object.__new__(TelegramBot)
         alert = {

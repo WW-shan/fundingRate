@@ -316,7 +316,7 @@ def liquidation_windows():
     liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
     if not liquidation_monitor:
         return jsonify({'success': False, 'error': 'liquidation monitor disabled'}), 404
-    limit = _int_arg('limit', 500, 1000)
+    limit = _int_arg('limit', 2000, 5000)
     query = request.args.get('q', '').strip()[:40].upper()
     sort_window = request.args.get('sort', '1h').strip().lower()
     if sort_window not in ('1h', '4h', '24h'):

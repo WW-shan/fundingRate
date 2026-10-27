@@ -103,6 +103,8 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 
 所有阈值都可在数据库 `config` 表的 `alerts.liquidation_*` 项中调整。Web 面板入口为 `/liquidations`，分钟聚合保留 8 天。
 
+爆仓面板按币种展示近 1 小时、4 小时、24 小时累计金额和空/多拆分；累计排行榜默认按近 1 小时总额降序，可切换 4 小时或 24 小时排序，并支持按币种搜索。
+
 ## 快速开始
 
 ```bash
@@ -133,7 +135,7 @@ TG_BOT_TOKEN=...
 TG_CHAT_ID=...
 ```
 
-命令：`/apr`（极端 APR，正负均列）、`/spread`、`/basis`、`/stable`、`/liquidations`、`/alerts`、`/status`、`/help`。
+命令：`/apr`（极端 APR，正负均列）、`/spread`、`/basis`、`/stable`、`/liquidations`（近 1 小时爆仓排行）、`/alerts`、`/status`、`/help`。
 
 ## 项目结构
 

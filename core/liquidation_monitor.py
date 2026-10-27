@@ -886,7 +886,9 @@ class LiquidationMonitor:
         now_ms = int(time.time() * 1000)
         if timestamp_ms <= 0:
             timestamp_ms = now_ms
-        timestamp_ms = min(timestamp_ms, now_ms + 60_000)
+        # Exchange clocks can run slightly ahead of this host. Clamp future
+        # timestamps to now so events never land in a hidden next-minute bucket.
+        timestamp_ms = min(timestamp_ms, now_ms)
         event = {
             "timestamp": timestamp_ms,
             "exchange": exchange,
@@ -1445,14 +1447,14 @@ class LiquidationMonitor:
             ):
                 value = row.get(f"{field}_{label}") or 0
                 result[label][field] = (
-                    int(value) if field == "event_count" else round(float(value), 2)
+                    int(value) if field == "event_count" else round(float(value), 8)
                 )
         return result
 
     def get_symbol_window_totals(
         self,
         now_ms: Optional[int] = None,
-        limit: int = 500,
+        limit: int = 2000,
         search: str = "",
         sort_window: str = "1h",
     ) -> List[Dict[str, Any]]:
@@ -1499,9 +1501,9 @@ class LiquidationMonitor:
                 params.append(cutoff)
 
         try:
-            limit = max(1, min(int(limit), 1000))
+            limit = max(1, min(int(limit), 5000))
         except (TypeError, ValueError):
-            limit = 500
+            limit = 2000
         sort_window = str(sort_window or "1h").strip().lower()
         if sort_window not in {"1h", "4h", "24h"}:
             sort_window = "1h"

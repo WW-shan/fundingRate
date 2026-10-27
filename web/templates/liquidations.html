@@ -110,20 +110,23 @@
 <script src="/static/js/common.js"></script>
 <script>
 let windowRefreshTimer = null;
+let refreshSequence = 0;
 function scheduleWindowRefresh() {
   clearTimeout(windowRefreshTimer);
   windowRefreshTimer = setTimeout(refresh, 250);
 }
 
 async function refresh() {
+  const requestId = ++refreshSequence;
   try {
     const symbolSearch = document.getElementById('filter-symbol-windows').value.trim();
     const symbolSort = document.getElementById('sort-symbol-windows').value;
     const [currentRes, historyRes, symbolWindowRes] = await Promise.all([
       fetchJSON('/api/liquidations?limit=200'),
       fetchJSON('/api/liquidations/history?hours=6&limit=80'),
-      fetchJSON(`/api/liquidations/windows?limit=500&q=${encodeURIComponent(symbolSearch)}&sort=${encodeURIComponent(symbolSort)}`),
+      fetchJSON(`/api/liquidations/windows?limit=2000&q=${encodeURIComponent(symbolSearch)}&sort=${encodeURIComponent(symbolSort)}`),
     ]);
+    if (requestId !== refreshSequence) return;
     const rows = (currentRes && currentRes.data) || [];
     const summary = currentRes.summary || {};
     const windowTotals = currentRes.window_totals || {};
@@ -164,8 +167,8 @@ async function refresh() {
         const move = r.price_change_pct === null || r.price_change_pct === undefined
           ? '' : `<div class="${pnlClass(r.price_change_pct)}">${Number(r.price_change_pct).toFixed(2)}%</div>`;
         return `<tr>
-          <td><b>${r.symbol}</b></td>
-          <td class="${sideClass}"><b>${r.side_label || r.side}</b></td>
+          <td><b>${escapeHtml(r.symbol)}</b></td>
+          <td class="${sideClass}"><b>${escapeHtml(r.side_label || r.side)}</b></td>
           <td><b>${fmtUsd(r.current_usd)}</b></td>
           <td>${fmtUsd(r.baseline_usd)}</td>
           <td><b>${r.ratio === null || r.ratio === undefined ? '基准不足' : Number(r.ratio).toFixed(1) + 'x'}</b></td>
@@ -192,11 +195,11 @@ async function refresh() {
       : `共 ${symbolWindows.length} 个币种`;
     if (!symbolWindows.length) {
       symbolWindowBody.innerHTML = symbolSearch
-        ? `<tr><td colspan="4" class="empty-state">没有找到匹配 “${symbolSearch.toUpperCase()}” 的币种</td></tr>`
+        ? `<tr><td colspan="4" class="empty-state">没有找到匹配 “${escapeHtml(symbolSearch.toUpperCase())}” 的币种</td></tr>`
         : '<tr><td colspan="4" class="empty-state">尚无已保存的爆仓分钟聚合</td></tr>';
     } else {
       symbolWindowBody.innerHTML = symbolWindows.map(r => `<tr>
-        <td><b>${r.symbol}</b></td>
+        <td><b>${escapeHtml(r.symbol)}</b></td>
         <td>${windowCell(r['1h'])}</td>
         <td>${windowCell(r['4h'])}</td>
         <td>${windowCell(r['24h'])}</td>
@@ -210,7 +213,7 @@ async function refresh() {
     } else {
       historyBody.innerHTML = history.map(r => `<tr>
         <td class="text-muted">${fmtTime(r.bucket)}</td>
-        <td><b>${r.symbol}</b></td>
+        <td><b>${escapeHtml(r.symbol)}</b></td>
         <td class="${r.side === 'short' ? 'text-red' : 'text-green'}">${r.side === 'short' ? '空单' : '多单'}</td>
         <td><b>${fmtUsd(r.usd_value)}</b></td>
         <td>${r.event_count}</td>
@@ -220,6 +223,10 @@ async function refresh() {
     document.getElementById('last-update').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
   } catch (e) {
     console.error('liquidation refresh failed', e);
+    if (requestId === refreshSequence) {
+      document.getElementById('last-update').textContent =
+        '刷新失败 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    }
   }
 }
 refresh();

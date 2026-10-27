@@ -4,6 +4,7 @@ Telegram Bot（监控版）
 """
 import os
 import asyncio
+import html
 import threading
 from typing import Any, Dict, List
 from loguru import logger
@@ -443,7 +444,7 @@ class TelegramBot:
             "/spread - 跨所费率差 Top10\n"
             "/basis - 基差异常 Top10\n"
             "/stable - 锚定资产状态\n"
-            "/liquidations - 爆仓量排行\n"
+            "/liquidations - 近 1 小时爆仓量排行\n"
             "/alerts - 最近告警\n"
             "/status - 系统状态\n\n"
             "🔔 系统会自动推送异常告警"
@@ -541,20 +542,27 @@ class TelegramBot:
             await update.message.reply_text("爆仓监控未启用")
             return
         status = self.liquidation_monitor.get_status()
-        ranking = ((status.get("last_scan") or {}).get("ranking") or [])[:10]
+        try:
+            ranking = self.liquidation_monitor.get_symbol_window_totals(
+                limit=10, sort_window="1h"
+            )
+        except Exception as e:
+            logger.error(f"Telegram liquidation ranking failed: {e}")
+            await update.message.reply_text("爆仓排行榜暂时不可用")
+            return
         lines = [
-            "💥 <b>爆仓量监控</b>\n",
+            "💥 <b>爆仓量排行（近 1 小时）</b>\n",
             f"数据源: {', '.join(status.get('active_exchanges') or []) or '连接中'}",
         ]
         if not ranking:
-            lines.append("暂无已捕获的爆仓数据")
+            lines.append("暂无已保存的爆仓数据")
         for row in ranking:
-            side = row.get("side_label") or row.get("side")
-            ratio = row.get("ratio")
-            ratio_text = f"{float(ratio):.1f}x" if ratio is not None else "基准不足"
+            hourly = row.get("1h") or {}
+            symbol = html.escape(str(row.get("symbol") or "N/A"))
             lines.append(
-                f"{row.get('symbol')} {side}: <b>{self._fmt_usd(row.get('current_usd'))}</b>"
-                f" / {ratio_text}"
+                f"{symbol}: <b>{self._fmt_usd(hourly.get('total_usd'))}</b>"
+                f"（空 {self._fmt_usd(hourly.get('short_usd'))} / "
+                f"多 {self._fmt_usd(hourly.get('long_usd'))}）"
             )
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
