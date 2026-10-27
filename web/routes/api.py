@@ -287,6 +287,7 @@ def liquidations():
         'required_active_sources': status.get('required_active_sources', 2),
         'connections': status.get('connections', {}),
         'summary': scan.get('summary', {}),
+        'window_totals': liquidation_monitor.get_window_totals(),
         'timestamp': scan.get('timestamp'),
     })
 

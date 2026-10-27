@@ -11,7 +11,7 @@
   <div class="header">
     <div>
       <h1>💥 爆仓量监控</h1>
-      <div class="subtitle">五家交易所公开数据聚合 · 滚动窗口相对常态识别</div>
+      <div class="subtitle">五家交易所 USDT 永续公开强平数据 · 分钟落库 · 滚动异动识别</div>
     </div>
     <div class="header-actions">
       <span class="last-update" id="last-update">--</span>
@@ -37,6 +37,31 @@
     <div class="stat-card"><div class="stat-label">60s 多单爆仓</div><div class="stat-value warn" id="stat-long">--</div></div>
     <div class="stat-card"><div class="stat-label">最大单笔强平</div><div class="stat-value" id="stat-max">--</div></div>
     <div class="stat-card"><div class="stat-label">当前数据源</div><div class="stat-value" id="stat-sources">--</div></div>
+  </div>
+
+  <div class="card">
+    <h3>历史累计爆仓金额（USD）</h3>
+    <div class="window-note">按本地已保存的各交易所分钟聚合累计；采集尚未覆盖完整窗口时显示已有数据。范围为 USDT 永续公开流，金额按 USD 名义估算。注意各所接口并非统一的全量逐笔：Binance 每交易对每秒最多推一笔（现为最大单）；Bitget 每交易对、每方向每秒最多推一笔；OKX 明确说明其频道不代表全所总强平量；Gate 每 2 秒轮询、每次请求 1000 条。Bybit 为 500ms 更新。高峰、接口抽样或断线可能导致低估，因此这是已观测数据，不是全市场绝对总量。</div>
+    <div class="stats-grid liquidation-window-grid">
+      <div class="stat-card">
+        <div class="stat-label">近 1 小时</div>
+        <div class="stat-value" id="window-1h-total">--</div>
+        <div class="window-split"><span>空单 <b id="window-1h-short">--</b></span><span>多单 <b id="window-1h-long">--</b></span></div>
+        <div class="window-count" id="window-1h-count">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">近 4 小时</div>
+        <div class="stat-value" id="window-4h-total">--</div>
+        <div class="window-split"><span>空单 <b id="window-4h-short">--</b></span><span>多单 <b id="window-4h-long">--</b></span></div>
+        <div class="window-count" id="window-4h-count">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">近 24 小时</div>
+        <div class="stat-value" id="window-24h-total">--</div>
+        <div class="window-split"><span>空单 <b id="window-24h-short">--</b></span><span>多单 <b id="window-24h-long">--</b></span></div>
+        <div class="window-count" id="window-24h-count">--</div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -71,6 +96,7 @@ async function refresh() {
     ]);
     const rows = (currentRes && currentRes.data) || [];
     const summary = currentRes.summary || {};
+    const windowTotals = currentRes.window_totals || {};
     const shortTotal = Number(summary.short_usd || 0);
     const longTotal = Number(summary.long_usd || 0);
     const maxOrder = Number(summary.max_order_usd || 0);
@@ -79,6 +105,14 @@ async function refresh() {
     document.getElementById('stat-max').textContent = fmtUsd(maxOrder);
     const enabledCount = Number(currentRes.enabled_exchange_count || 5);
     document.getElementById('stat-sources').textContent = (currentRes.active_exchanges || []).length + ' / ' + enabledCount;
+    for (const period of ['1h', '4h', '24h']) {
+      const total = windowTotals[period] || {};
+      document.getElementById(`window-${period}-total`).textContent = fmtUsd(total.total_usd);
+      document.getElementById(`window-${period}-short`).textContent = fmtUsd(total.short_usd);
+      document.getElementById(`window-${period}-long`).textContent = fmtUsd(total.long_usd);
+      document.getElementById(`window-${period}-count`).textContent =
+        `${Number(total.event_count || 0).toLocaleString('zh-CN')} 笔事件 · 最大单笔 ${fmtUsd(total.max_order_usd)}`;
+    }
 
     const connections = currentRes.connections || {};
     document.getElementById('connections').innerHTML = Object.entries(connections).map(([name, state]) => {

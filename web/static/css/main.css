@@ -85,6 +85,22 @@ body {
 .stat-value.positive { color: #10b981; }
 .stat-value.negative { color: #ef4444; }
 .stat-value.warn { color: #f59e0b; }
+.window-note {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -8px 0 14px;
+}
+.window-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+.window-split b { color: #374151; font-weight: 600; }
+.window-count { color: #6b7280; font-size: 11px; margin-top: 8px; }
 
 .card {
   background: white;

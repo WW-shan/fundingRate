@@ -773,15 +773,16 @@ class LiquidationMonitor:
         if not isinstance(row, dict):
             return False
         contract = str(row.get("contract") or "").upper()
-        size = self._float(row.get("size"))
+        order_size = self._float(row.get("order_size"))
         price = self._float(row.get("fill_price") or row.get("order_price"))
         multiplier = self._gate_multipliers.get(contract)
         event_second = self._int(row.get("time"))
-        if not contract or not multiplier or size == 0 or price <= 0:
+        if not contract or not multiplier or order_size == 0 or price <= 0:
             return False
-        usd = abs(size) * price * multiplier
-        # Gate position size sign: positive = long, negative = short.
-        side = "long" if size > 0 else "short"
+        usd = abs(order_size) * price * multiplier
+        # Gate order_size is signed like a futures order: sells close longs;
+        # buys close shorts. `size` is the position size, not executed qty.
+        side = "long" if order_size < 0 else "short"
         self._record_event(
             "gate",
             self._base_symbol(contract),
@@ -1182,21 +1183,23 @@ class LiquidationMonitor:
         return sum(e["price"] * e["usd"] for e in priced) / total_usd
 
     def _capture_market_prices(self, symbols: Iterable[str]):
+        now_ms = int(time.time() * 1000)
+        window_seconds = max(
+            10,
+            self.config.get_int("alerts", "liquidation_window_seconds", 60),
+        )
+        horizon_ms = max(180_000, window_seconds * 2_000)
+        cutoff_ms = now_ms - horizon_ms
+        with self._lock:
+            for symbol, samples in list(self._price_samples.items()):
+                while samples and samples[0][0] < cutoff_ms:
+                    samples.popleft()
+                if not samples:
+                    del self._price_samples[symbol]
+
         if not self.data_collector:
             return
         market = getattr(self.data_collector, "market_data", {}) or {}
-        now_ms = int(time.time() * 1000)
-        horizon_ms = (
-            max(
-                600,
-                self.config.get_int(
-                    "alerts",
-                    "liquidation_baseline_minutes",
-                    30,
-                ),
-            )
-            * 60_000
-        )
         for symbol in symbols:
             entries = market.get(f"{symbol}/USDT") or market.get(symbol) or {}
             prices = []
@@ -1209,13 +1212,15 @@ class LiquidationMonitor:
                     prices.append(price)
             if not prices:
                 continue
-            samples = self._price_samples[symbol]
-            samples.append((now_ms, statistics.median(prices)))
-            while samples and samples[0][0] < now_ms - horizon_ms:
-                samples.popleft()
+            with self._lock:
+                samples = self._price_samples[symbol]
+                samples.append((now_ms, statistics.median(prices)))
+                while samples and samples[0][0] < cutoff_ms:
+                    samples.popleft()
 
     def _market_price_change(self, symbol: str, window_seconds: int) -> Optional[float]:
-        samples = self._price_samples.get(symbol)
+        with self._lock:
+            samples = list(self._price_samples.get(symbol) or ())
         if not samples or len(samples) < 2:
             return None
         now_ms = int(time.time() * 1000)
@@ -1286,16 +1291,21 @@ class LiquidationMonitor:
         symbol: str = "",
         side: str = "",
     ) -> List[Dict[str, Any]]:
-        since = int((time.time() - hours * 3600) * 1000)
+        now_ms = int(time.time() * 1000)
+        minute_ms = 60_000
+        since = (
+            (now_ms - hours * 3_600_000 + minute_ms - 1) // minute_ms
+        ) * minute_ms
+        until = now_ms // minute_ms * minute_ms
         sql = """
             SELECT bucket, symbol, side,
                    SUM(usd_value) AS usd_value,
                    SUM(event_count) AS event_count,
                    MAX(max_order_usd) AS max_order_usd
             FROM liquidation_minutes
-            WHERE bucket >= ?
+            WHERE bucket >= ? AND bucket <= ?
         """
-        params: List[Any] = [since]
+        params: List[Any] = [since, until]
         if symbol:
             sql += " AND symbol = ?"
             params.append(symbol.upper())
@@ -1305,6 +1315,88 @@ class LiquidationMonitor:
         sql += " GROUP BY bucket, symbol, side ORDER BY bucket DESC, usd_value DESC LIMIT ?"
         params.append(limit)
         return self.db.execute_query(sql, tuple(params))
+
+    def get_window_totals(self, now_ms: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
+        """Sum persisted minute buckets across all venues for the last 1/4/24h."""
+        now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+        minute_ms = 60_000
+        end_bucket = now_ms // minute_ms * minute_ms
+        windows = ((1, "1h"), (4, "4h"), (24, "24h"))
+        starts = {
+            label: ((now_ms - hours * 3_600_000 + minute_ms - 1) // minute_ms)
+            * minute_ms
+            for hours, label in windows
+        }
+
+        result = {
+            label: {
+                "short_usd": 0.0,
+                "long_usd": 0.0,
+                "total_usd": 0.0,
+                "event_count": 0,
+                "max_order_usd": 0.0,
+                "from_bucket": starts[label],
+                "to_bucket": end_bucket,
+                "resolution_seconds": 60,
+            }
+            for _, label in windows
+        }
+        if not self.db or starts["24h"] > end_bucket:
+            return result
+
+        fields = []
+        params: List[Any] = []
+        for _, label in windows:
+            cutoff = starts[label]
+            expressions = (
+                (
+                    "short_usd",
+                    "SUM(CASE WHEN bucket >= ? AND side = 'short' "
+                    "THEN usd_value ELSE 0 END)",
+                ),
+                (
+                    "long_usd",
+                    "SUM(CASE WHEN bucket >= ? AND side = 'long' "
+                    "THEN usd_value ELSE 0 END)",
+                ),
+                ("total_usd", "SUM(CASE WHEN bucket >= ? THEN usd_value ELSE 0 END)"),
+                (
+                    "event_count",
+                    "SUM(CASE WHEN bucket >= ? THEN event_count ELSE 0 END)",
+                ),
+                (
+                    "max_order_usd",
+                    "MAX(CASE WHEN bucket >= ? THEN max_order_usd END)",
+                ),
+            )
+            for field, expression in expressions:
+                fields.append(f"COALESCE({expression}, 0) AS {field}_{label}")
+                params.append(cutoff)
+
+        rows = self.db.execute_query(
+            f"""
+            SELECT {', '.join(fields)}
+            FROM liquidation_minutes
+            WHERE bucket >= ? AND bucket <= ?
+            """,
+            tuple(params + [starts["24h"], end_bucket]),
+        )
+        if not rows:
+            return result
+        row = rows[0]
+        for _, label in windows:
+            for field in (
+                "short_usd",
+                "long_usd",
+                "total_usd",
+                "event_count",
+                "max_order_usd",
+            ):
+                value = row.get(f"{field}_{label}") or 0
+                result[label][field] = (
+                    int(value) if field == "event_count" else round(float(value), 2)
+                )
+        return result
 
     # ---------- helpers ----------
 

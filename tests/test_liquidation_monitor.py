@@ -124,6 +124,7 @@ class LiquidationParserTests(unittest.TestCase):
                 {
                     "contract": "BTC_USDT",
                     "size": "-2",
+                    "order_size": "2",
                     "fill_price": "100000",
                     "time": 2,
                 }
@@ -137,6 +138,59 @@ class LiquidationParserTests(unittest.TestCase):
         self.assertEqual(rows[("bitget", "long")], 250.0)
         self.assertEqual(rows[("gate", "short")], 20.0)
         self.assertNotIn(("binance", "short"), rows)
+
+    def test_gate_uses_executed_order_size_for_usd_and_side(self):
+        self.monitor._gate_multipliers = {"BTC_USDT": 0.01}
+        self.assertTrue(
+            self.monitor._parse_gate_row(
+                {
+                    "contract": "BTC_USDT",
+                    "size": "-100",
+                    "order_size": "25",
+                    "fill_price": "100",
+                    "time": 2,
+                }
+            )
+        )
+        self.assertTrue(
+            self.monitor._parse_gate_row(
+                {
+                    "contract": "BTC_USDT",
+                    "size": "100",
+                    "order_size": "-10",
+                    "fill_price": "100",
+                    "time": 3,
+                }
+            )
+        )
+        self.assertFalse(
+            self.monitor._parse_gate_row(
+                {
+                    "contract": "BTC_USDT",
+                    "size": "100",
+                    "fill_price": "100",
+                    "time": 4,
+                }
+            )
+        )
+
+        rows = {(event["side"], event["usd"]) for event in self.events()}
+        self.assertEqual(rows, {("short", 25.0), ("long", 10.0)})
+
+    def test_expired_liquidation_price_samples_are_removed_for_idle_symbols(self):
+        class Collector:
+            market_data = {"BTC/USDT": {"binance": {"futures_price": 100}}}
+
+        self.monitor.data_collector = Collector()
+        old_timestamp = int(time.time() * 1000) - 10 * 60_000
+        self.monitor._price_samples["OLD"].append((old_timestamp, 1.0))
+        self.monitor._price_samples["BTC"].append((old_timestamp, 50_000.0))
+
+        self.monitor._capture_market_prices(["BTC"])
+
+        self.assertNotIn("OLD", self.monitor._price_samples)
+        self.assertEqual(len(self.monitor._price_samples["BTC"]), 1)
+        self.assertEqual(self.monitor._price_samples["BTC"][0][1], 100.0)
 
     def test_duplicate_event_fingerprint_is_ignored(self):
         monitor = LiquidationMonitor(FakeConfig(), FakeDB())
@@ -354,7 +408,13 @@ class LiquidationParserTests(unittest.TestCase):
             }
         )
         self.assertFalse(self.monitor._parse_gate_row(
-            {"contract": "NEW_USDT", "size": "1", "fill_price": "1", "time": 1}
+            {
+                "contract": "NEW_USDT",
+                "size": "1",
+                "order_size": "1",
+                "fill_price": "1",
+                "time": 1,
+            }
         ))
         self.assertEqual(self.events(), [])
 
@@ -477,6 +537,7 @@ class LiquidationPersistenceTests(unittest.TestCase):
                 [
                     (bucket, "binance", "BTC", "short", 100.0, 1, 100.0),
                     (bucket, "bybit", "ETH", "long", 200.0, 2, 150.0),
+                    (bucket + 60_000, "binance", "BTC", "short", 500.0, 1, 500.0),
                 ],
             )
             monitor = LiquidationMonitor(FakeConfig(), db)
@@ -532,6 +593,145 @@ class LiquidationPersistenceTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["bucket"], now_ms)
 
+    def test_window_totals_use_persisted_minute_buckets_and_exact_boundaries(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+            monitor = LiquidationMonitor(FakeConfig(), db)
+
+            minute_ms = 60_000
+            now_ms = (1_700_000_000_000 // minute_ms) * minute_ms + 30_000
+            end_bucket = now_ms // minute_ms * minute_ms
+            start_1h = end_bucket - 59 * minute_ms
+            start_4h = end_bucket - 239 * minute_ms
+            start_24h = end_bucket - 1439 * minute_ms
+            db.execute_many(
+                """
+                INSERT INTO liquidation_minutes
+                    (bucket, exchange, symbol, side, usd_value, event_count, max_order_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        end_bucket - 5 * minute_ms,
+                        "binance",
+                        "BTC",
+                        "short",
+                        100_000,
+                        2,
+                        80_000,
+                    ),
+                    (
+                        end_bucket - 5 * minute_ms,
+                        "bybit",
+                        "ETH",
+                        "long",
+                        50_000,
+                        1,
+                        50_000,
+                    ),
+                    (start_1h, "okx", "BTC", "long", 25_000, 3, 20_000),
+                    (
+                        start_1h - minute_ms,
+                        "bybit",
+                        "BTC",
+                        "short",
+                        9_000,
+                        1,
+                        9_000,
+                    ),
+                    (start_4h, "gate", "BTC", "short", 20_000, 2, 18_000),
+                    (
+                        start_4h - minute_ms,
+                        "bitget",
+                        "BTC",
+                        "long",
+                        10_000,
+                        1,
+                        10_000,
+                    ),
+                    (start_24h, "bybit", "ADA", "short", 40_000, 4, 15_000),
+                    (
+                        start_24h - minute_ms,
+                        "bitget",
+                        "ADA",
+                        "long",
+                        999_000,
+                        99,
+                        999_000,
+                    ),
+                    (
+                        end_bucket + minute_ms,
+                        "binance",
+                        "BTC",
+                        "long",
+                        2_000_000,
+                        1,
+                        2_000_000,
+                    ),
+                ],
+            )
+
+            totals = monitor.get_window_totals(now_ms)
+            fields = (
+                "short_usd",
+                "long_usd",
+                "total_usd",
+                "event_count",
+                "max_order_usd",
+            )
+            expected = {
+                "1h": {
+                    "short_usd": 100_000,
+                    "long_usd": 75_000,
+                    "total_usd": 175_000,
+                    "event_count": 6,
+                    "max_order_usd": 80_000,
+                },
+                "4h": {
+                    "short_usd": 129_000,
+                    "long_usd": 75_000,
+                    "total_usd": 204_000,
+                    "event_count": 9,
+                    "max_order_usd": 80_000,
+                },
+                "24h": {
+                    "short_usd": 169_000,
+                    "long_usd": 85_000,
+                    "total_usd": 254_000,
+                    "event_count": 14,
+                    "max_order_usd": 80_000,
+                },
+            }
+            for label, values in expected.items():
+                with self.subTest(window=label):
+                    self.assertEqual(
+                        {key: totals[label][key] for key in fields},
+                        values,
+                    )
+
+            self.assertEqual(totals["1h"]["from_bucket"], start_1h)
+            self.assertEqual(totals["24h"]["to_bucket"], end_bucket)
+            self.assertEqual(totals["24h"]["resolution_seconds"], 60)
+
+    def test_window_totals_survive_monitor_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+            now_ms = int(time.time() * 1000)
+            first_monitor = LiquidationMonitor(FakeConfig(), db)
+            first_monitor._record_event(
+                "binance", "BTC", "short", 12_345.67, 50_000, now_ms - 60_000
+            )
+            first_monitor._flush_buckets()
+
+            restarted_monitor = LiquidationMonitor(FakeConfig(), db)
+            totals = restarted_monitor.get_window_totals(now_ms)
+
+            self.assertEqual(totals["1h"]["short_usd"], 12_345.67)
+            self.assertEqual(totals["1h"]["total_usd"], 12_345.67)
+            self.assertEqual(totals["1h"]["event_count"], 1)
+
 
 class LiquidationWebTests(unittest.TestCase):
     def test_page_and_apis_expose_monitor_data(self):
@@ -552,6 +752,11 @@ class LiquidationWebTests(unittest.TestCase):
                             "long_usd": 20_000,
                             "max_order_usd": 60_000,
                         },
+                        "window_totals": {
+                            "1h": {"short_usd": 100_000, "long_usd": 20_000, "total_usd": 120_000},
+                            "4h": {"short_usd": 200_000, "long_usd": 50_000, "total_usd": 250_000},
+                            "24h": {"short_usd": 300_000, "long_usd": 70_000, "total_usd": 370_000},
+                        },
                         "ranking": [
                             {
                                 "symbol": "BTC",
@@ -565,6 +770,9 @@ class LiquidationWebTests(unittest.TestCase):
             def get_recent_aggregates(self, **kwargs):
                 self.history_args = kwargs
                 return []
+
+            def get_window_totals(self):
+                return self.get_status()["last_scan"]["window_totals"]
 
         monitor = Monitor()
         app = create_app(FakeConfig(), FakeDB(), None, None, None, monitor)
@@ -580,6 +788,9 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertIn("爆仓量监控", page.get_data(as_text=True))
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.get_json()["summary"]["short_usd"], 100_000)
+        self.assertEqual(current.get_json()["window_totals"]["24h"]["total_usd"], 370_000)
+        self.assertIn("历史累计爆仓金额", page.get_data(as_text=True))
+        self.assertIn("近 24 小时", page.get_data(as_text=True))
         self.assertEqual(history.status_code, 200)
         self.assertEqual(monitor.history_args["symbol"], "BTC")
         self.assertEqual(monitor.history_args["side"], "short")
