@@ -14,11 +14,13 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 class TelegramBot:
     """Telegram 监控推送 Bot"""
 
-    def __init__(self, config_manager, db_manager, market_monitor, alert_manager):
+    def __init__(self, config_manager, db_manager, market_monitor, alert_manager,
+                 liquidation_monitor=None):
         self.config = config_manager
         self.db = db_manager
         self.monitor = market_monitor
         self.alert_manager = alert_manager
+        self.liquidation_monitor = liquidation_monitor
         self.bot_token = os.getenv('TG_BOT_TOKEN')
         self.chat_id = os.getenv('TG_CHAT_ID')
         self.app = None
@@ -51,6 +53,7 @@ class TelegramBot:
             self.app.add_handler(CommandHandler("spread", self.cmd_spread))
             self.app.add_handler(CommandHandler("basis", self.cmd_basis))
             self.app.add_handler(CommandHandler("stable", self.cmd_stable))
+            self.app.add_handler(CommandHandler("liquidations", self.cmd_liquidations))
             self.app.add_handler(CommandHandler("alerts", self.cmd_alerts))
             logger.info("Telegram Bot initialized (monitor mode)")
         except Exception as e:
@@ -154,6 +157,16 @@ class TelegramBot:
         emoji = {"warning": "⚠️", "critical": "🔴", "emergency": "🚨"}.get(alert.get("level"), "⚠️")
         t = alert.get("alert_type")
         d = alert.get("details") or {}
+        if t == "liquidation_surge":
+            usd = self._fmt_usd(d.get("current_usd"))
+            baseline = self._fmt_usd(d.get("baseline_usd"))
+            ratio = d.get("ratio")
+            ratio_text = f"{float(ratio):.1f}x" if ratio is not None else "基准不足"
+            side = d.get("side_label") or ("空单" if d.get("side") == "short" else "多单")
+            return (
+                f"\n{emoji} <b>{d.get('symbol', 'N/A')} {side}爆仓激增</b>\n"
+                f"   {d.get('window_seconds', 60)}s <b>{usd}</b> | 常态 {baseline} | <b>{ratio_text}</b>"
+            )
 
         if t == "funding_extreme" and d.get("exchanges"):
             legs = d.get("exchanges") or []
@@ -224,6 +237,36 @@ class TelegramBot:
         """单条告警的详细版消息"""
         emoji = {"warning": "⚠️", "critical": "🔴", "emergency": "🚨"}.get(alert.get("level"), "⚠️")
         alert_type = alert.get("alert_type")
+        if alert_type == "liquidation_surge":
+            d = alert.get("details") or {}
+            side = d.get("side_label") or ("空单" if d.get("side") == "short" else "多单")
+            ratio = d.get("ratio")
+            ratio_text = f"{float(ratio):.1f}x" if ratio is not None else "基准不足"
+            direction_note = (
+                "空头正在被迫买入平仓，可能处于挤空阶段"
+                if d.get("side") == "short"
+                else "多头正在被迫卖出平仓，注意下跌加速"
+            )
+            lines = [
+                f"{emoji} <b>{d.get('symbol', 'N/A')} {side}爆仓量激增</b>\n",
+                f"最近 {d.get('window_seconds', 60)} 秒: <b>{self._fmt_usd(d.get('current_usd'))}</b>",
+                f"常态均值: {self._fmt_usd(d.get('baseline_usd'))}",
+                f"放大倍数: <b>{ratio_text}</b>",
+                f"最大单笔: {self._fmt_usd(d.get('max_order_usd'))}",
+            ]
+            breakdown = d.get("exchange_breakdown") or {}
+            if breakdown:
+                lines.append("交易所: " + " | ".join(
+                    f"{str(name).upper()} {self._fmt_usd(value)}"
+                    for name, value in list(breakdown.items())[:5]
+                ))
+            if d.get("price"):
+                price_line = f"爆仓均价: <b>{float(d['price']):.6g}</b>"
+                if d.get("price_change_pct") is not None:
+                    price_line += f" | 窗口价格 {float(d['price_change_pct']):+.2f}%"
+                lines.append(price_line)
+            lines.extend([f"\n{direction_note}", f"时间: {self._fmt_time()}"])
+            return "\n".join(lines)
 
         if alert_type == "funding_extreme" and (alert.get("details") or {}).get("exchanges"):
             d = alert.get("details") or {}
@@ -371,6 +414,17 @@ class TelegramBot:
             logger.error(f"Failed to send TG message: {e}")
 
     @staticmethod
+    def _fmt_usd(value):
+        value = float(value or 0)
+        if value >= 1_000_000_000:
+            return f"${value / 1_000_000_000:.2f}B"
+        if value >= 1_000_000:
+            return f"${value / 1_000_000:.2f}M"
+        if value >= 1_000:
+            return f"${value / 1_000:.1f}K"
+        return f"${value:.0f}"
+
+    @staticmethod
     def _fmt_time():
         from datetime import datetime
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -389,6 +443,7 @@ class TelegramBot:
             "/spread - 跨所费率差 Top10\n"
             "/basis - 基差异常 Top10\n"
             "/stable - 锚定资产状态\n"
+            "/liquidations - 爆仓量排行\n"
             "/alerts - 最近告警\n"
             "/status - 系统状态\n\n"
             "🔔 系统会自动推送异常告警"
@@ -406,6 +461,12 @@ class TelegramBot:
             f"锚定资产: {status.get('peg_assets', 0)} 个（{status['stablecoins_tracked']} 个标的）\n"
             f"24h 异常记录: {stats['total']} 条（推送 {stats.get('pushed_total', 0)} 条）"
         )
+        if self.liquidation_monitor:
+            liq = self.liquidation_monitor.get_status()
+            text += (
+                f"\n爆仓监控: {'✅' if liq.get('running') else '❌'}"
+                f"（{liq.get('active_exchange_count', 0)}/{liq.get('enabled_exchange_count', len(liq.get('connections', {})))} 所）"
+            )
         await update.message.reply_text(text, parse_mode='HTML')
 
     async def cmd_apr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -474,6 +535,28 @@ class TelegramBot:
         if skipped:
             lines.append(f"\n另有 {skipped} 个无同类产品可比，未做价格比较")
         await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+
+    async def cmd_liquidations(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self.liquidation_monitor:
+            await update.message.reply_text("爆仓监控未启用")
+            return
+        status = self.liquidation_monitor.get_status()
+        ranking = ((status.get("last_scan") or {}).get("ranking") or [])[:10]
+        lines = [
+            "💥 <b>爆仓量监控</b>\n",
+            f"数据源: {', '.join(status.get('active_exchanges') or []) or '连接中'}",
+        ]
+        if not ranking:
+            lines.append("暂无已捕获的爆仓数据")
+        for row in ranking:
+            side = row.get("side_label") or row.get("side")
+            ratio = row.get("ratio")
+            ratio_text = f"{float(ratio):.1f}x" if ratio is not None else "基准不足"
+            lines.append(
+                f"{row.get('symbol')} {side}: <b>{self._fmt_usd(row.get('current_usd'))}</b>"
+                f" / {ratio_text}"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def cmd_alerts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         alerts = self.alert_manager.get_recent_alerts(limit=10, hours=24)

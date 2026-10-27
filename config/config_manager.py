@@ -123,6 +123,25 @@ class ConfigManager:
         self.set_default('alerts', 'daily_summary_enabled', True, True, "每日汇总推送开关")
         self.set_default('alerts', 'daily_summary_hour', 9, True, "每日汇总推送时间（小时，本地时间）")
 
+        # 爆仓量监控（五家交易所公开数据聚合）
+        self.set_default('alerts', 'liquidation_enabled', True, True, "启用跨交易所爆仓量监控")
+        self.set_default('alerts', 'liquidation_window_seconds', 60, True, "爆仓量当前窗口（秒）")
+        self.set_default('alerts', 'liquidation_baseline_minutes', 30, True, "用于计算常态爆仓量的历史分钟数")
+        self.set_default('alerts', 'liquidation_warmup_minutes', 5, True, "启动后等待多少分钟再开始爆仓告警")
+        self.set_default('alerts', 'liquidation_scan_interval', 10, True, "爆仓异动扫描间隔（秒）")
+        self.set_default('alerts', 'liquidation_gate_poll_seconds', 2, True, 'Gate liquidation REST poll interval (seconds)')
+        self.set_default('alerts', 'liquidation_min_alert_usd', 500000, True, "触发爆仓告警的最低当前窗口金额（USD）")
+        self.set_default('alerts', 'liquidation_ratio_threshold', 3.0, True, "当前爆仓量相对常态的倍数阈值")
+        self.set_default('alerts', 'liquidation_critical_ratio', 6.0, True, "爆仓量达到常态多少倍时升级为严重告警")
+        self.set_default('alerts', 'liquidation_critical_usd', 2000000, True, "当前窗口爆仓金额达到多少 USD 时升级为严重告警")
+        self.set_default('alerts', 'liquidation_large_order_usd', 1000000, True, "单次强平达到多少 USD 视为大户强平")
+        self.set_default('alerts', 'liquidation_min_sources', 2, True, "至少多少家交易所有有效数据时才触发爆仓告警")
+        self.set_default('alerts', 'liquidation_source_stale_seconds', 120, True, 'Exchange data is considered stale after this many seconds without a message')
+        self.set_default('alerts', 'liquidation_alert_sides', ['short', 'long'], True, "爆仓告警方向：short / long")
+        self.set_default('alerts', 'liquidation_reset_gap', 180, True, "爆仓激增消失多久后视为新一轮行情（秒）")
+        self.set_default('alerts', 'liquidation_reminder_cooldown', 600, True, "同一波爆仓持续时的最长提醒间隔（秒）")
+        self.set_default('alerts', 'liquidation_persist_cooldown', 300, True, "同一币种同方向爆仓告警的落库冷却（秒）")
+
         # 清理已废弃配置，避免面板/数据库出现误导项
         for category, key in (
             ('alerts', 'funding_rate_threshold'),
@@ -132,5 +151,22 @@ class ConfigManager:
         ):
             self.db.execute_query("DELETE FROM config WHERE category = ? AND key = ?", (category, key))
             self._config_cache.pop(f"{category}.{key}", None)
+
+        migration_key = "liquidation_min_alert_usd_500k_migrated"
+        if not self.get_bool("global", migration_key, False):
+            self.set(
+                "alerts",
+                "liquidation_min_alert_usd",
+                500000,
+                True,
+                "Liquidation alert minimum USD (migrated to 500000)",
+            )
+            self.set(
+                "global",
+                migration_key,
+                True,
+                False,
+                "Internal migration marker",
+            )
 
         logger.info("Default monitor configs initialized")

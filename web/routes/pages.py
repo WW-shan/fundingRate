@@ -28,6 +28,13 @@ def stablecoin():
     return render_template('stablecoin.html')
 
 
+@pages_bp.route('/liquidations')
+@login_required
+def liquidations():
+    """跨交易所爆仓量监控"""
+    return render_template('liquidations.html')
+
+
 @pages_bp.route('/alerts')
 @login_required
 def alerts():

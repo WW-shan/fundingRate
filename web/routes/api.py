@@ -24,10 +24,26 @@ def status():
     data_collector = current_app.config['DATA_COLLECTOR']
     market_monitor = current_app.config['MARKET_MONITOR']
     alert_manager = current_app.config['ALERT_MANAGER']
+    liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
 
     dc_status = data_collector.get_status() if data_collector else {}
     stats = alert_manager.get_alert_stats(24) if alert_manager else {}
     scan = market_monitor.last_scan if market_monitor else {}
+    liq_status = liquidation_monitor.get_status() if liquidation_monitor else {}
+    liq_scan = liq_status.get("last_scan") or {}
+    liq_compact = {
+        "running": liq_status.get("running", False),
+        "connections": liq_status.get("connections", {}),
+        "active_exchanges": liq_status.get("active_exchanges", []),
+        "active_exchange_count": liq_status.get("active_exchange_count", 0),
+        "enabled_exchanges": liq_status.get("enabled_exchanges", []),
+        "enabled_exchange_count": liq_status.get("enabled_exchange_count", 0),
+        "required_active_sources": liq_status.get("required_active_sources", 2),
+        "symbols_tracked": liq_status.get("symbols_tracked", 0),
+        "events_in_memory": liq_status.get("events_in_memory", 0),
+        "last_scan_ts": liq_scan.get("timestamp"),
+        "summary": liq_scan.get("summary", {}),
+    }
 
     return jsonify({
         'status': 'running' if dc_status.get('running') else 'stopped',
@@ -40,6 +56,8 @@ def status():
         'alerts_24h': stats.get('total', 0),
         'pushed_24h': stats.get('pushed_total', 0),
         'last_scan_ts': scan.get('timestamp'),
+        'liquidation': liq_compact,
+        'liquidation_active_exchanges': liq_status.get('active_exchanges', []),
     })
 
 
@@ -50,6 +68,7 @@ def health():
     config_manager = current_app.config['CONFIG_MANAGER']
     data_collector = current_app.config['DATA_COLLECTOR']
     market_monitor = current_app.config['MARKET_MONITOR']
+    liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
     try:
         with db_manager.get_connection() as conn:
             conn.execute("SELECT 1").fetchone()
@@ -66,11 +85,30 @@ def health():
         scan_age = (time.time() * 1000 - scan_ts) / 1000 if scan_ts else None
         scan_interval = config_manager.get_int('global', 'monitor_scan_interval', 60)
         scan_fresh = scan_age is not None and scan_age <= max(300, scan_interval * 3)
+        liquidation_status = (
+            liquidation_monitor.get_status() if liquidation_monitor else {}
+        )
+        liquidation_enabled = config_manager.get_bool(
+            'alerts', 'liquidation_enabled', True
+        )
+        required_liquidation_sources = int(
+            liquidation_status.get('required_active_sources', 2)
+        )
+        active_liquidation_sources = int(
+            liquidation_status.get('active_exchange_count', 0)
+        )
         components = {
             'database': True,
             'data_collector': data_collector is not None and bool(active),
             'all_enabled_exchanges': not missing,
             'market_monitor': market_monitor is not None and scan_fresh,
+            'liquidation_monitor': (
+                not liquidation_enabled
+                or (
+                    liquidation_monitor is not None
+                    and active_liquidation_sources >= required_liquidation_sources
+                )
+            ),
         }
         all_healthy = all(components.values())
         return jsonify({
@@ -218,6 +256,55 @@ def issuer_spreads():
     """跨发行商价差（同一标的的不同 RWA 版本）"""
     market_monitor = current_app.config['MARKET_MONITOR']
     rows = market_monitor.last_scan.get('issuer_spreads', [])
+    return jsonify({'success': True, 'data': rows, 'total': len(rows)})
+
+
+@api_bp.route('/liquidations')
+@api_auth_required
+def liquidations():
+    """跨交易所爆仓量当前窗口排行。"""
+    liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
+    if not liquidation_monitor:
+        return jsonify({'success': False, 'error': 'liquidation monitor disabled'}), 404
+    limit = _int_arg('limit', 100, 500)
+    status = liquidation_monitor.get_status()
+    scan = status.get('last_scan') or {}
+    rows = list(scan.get('ranking') or [])
+    side = request.args.get('side', '').lower()
+    symbol = request.args.get('symbol', '').upper()
+    if side in ('long', 'short'):
+        rows = [row for row in rows if row.get('side') == side]
+    if symbol:
+        rows = [row for row in rows if row.get('symbol') == symbol]
+    return jsonify({
+        'success': True,
+        'data': rows[:limit],
+        'total': len(rows),
+        'window_seconds': scan.get('window_seconds', 60),
+        'active_exchanges': status.get('active_exchanges', []),
+        'enabled_exchanges': status.get('enabled_exchanges', []),
+        'enabled_exchange_count': status.get('enabled_exchange_count', 0),
+        'required_active_sources': status.get('required_active_sources', 2),
+        'connections': status.get('connections', {}),
+        'summary': scan.get('summary', {}),
+        'timestamp': scan.get('timestamp'),
+    })
+
+
+@api_bp.route('/liquidations/history')
+@api_auth_required
+def liquidation_history():
+    """按分钟聚合的爆仓历史（默认最近 24 小时）。"""
+    liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
+    if not liquidation_monitor:
+        return jsonify({'success': False, 'error': 'liquidation monitor disabled'}), 404
+    hours = _int_arg('hours', 24, 24 * 7)
+    limit = _int_arg('limit', 500, 5000)
+    symbol = request.args.get('symbol', '').upper()
+    side = request.args.get('side', '').lower()
+    rows = liquidation_monitor.get_recent_aggregates(
+        hours=hours, limit=limit, symbol=symbol, side=side
+    )
     return jsonify({'success': True, 'data': rows, 'total': len(rows)})
 
 

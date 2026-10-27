@@ -9,7 +9,8 @@
 - **锚定资产偏离**：稳定币、欧元稳定币、黄金/白银/原油等大宗商品；股票代币使用跨产品比价。
 - **跨产品 / 跨发行商价差**：同一标的的 bStock / Ondo / xStocks / OKX / gStocks / Bitget Reality 版本比价。
 - **Telegram 推送**：极端资金费率（默认 |APR| ≥ 1000%，且同一标的至少 2 家交易所同时异常）、期现基差、脱锚、跨产品/跨发行商价差；每轮最多 20 条，每条告警单独发送；同一标的的多所资金费率异常合并为一条。
-- **Web 面板**：仪表盘、资金费率、锚定资产、告警历史（不提供 Web 配置入口）。
+- **跨交易所爆仓量监控**：聚合 Binance / OKX / Bybit / Gate / Bitget 公开强平数据，按币种和多空方向统计 USD 金额，识别 60 秒滚动窗口内的突然放大。
+- **Web 面板**：仪表盘、资金费率、锚定资产、爆仓量、告警历史（不提供 Web 配置入口）。
 
 ## 数据来源与口径
 
@@ -77,6 +78,31 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 - 跨产品价差告警由「跨产品 / 跨发行商价差」检测承担（默认阈值 5%，股票代币同样适用）。
 - 欧元稳定币仍使用 Yahoo 参考价；XAUT/PAXG 使用现货黄金 API；ETF 类商品仍使用 Yahoo ETF 价格。其标的休市时同样改用同类中位价，无同类则仅展示。
 
+## 爆仓量监控
+
+五家交易所统一折算为 USD 名义金额，并按 `币种 + long/short` 汇总：
+
+| 交易所 | 公开数据源 | 说明 |
+|---|---|---|
+| Binance | `!forceOrder@arr` WebSocket | 每个交易对每秒最多推送最新一笔强平；用 `markPrice@1s` 校验线路，默认直连优先，可用 `BINANCE_PROXY` 单独指定代理 |
+| OKX | `liquidation-orders` WebSocket | 只覆盖近期强平，官方说明不代表全部强平量 |
+| Bybit | `allLiquidation.{symbol}` WebSocket | 订阅全部 USDT 线性永续合约 |
+| Gate | `/futures/usdt/liq_orders` REST | 每 2 秒轮询；持久连接、自动重试和失败退避；Gate 强平 WebSocket 需要账户鉴权 |
+| Bitget | UTA `liquidation` WebSocket | 每秒按交易对推送多空最大强平记录 |
+
+默认检测规则：
+
+- 当前窗口：最近 60 秒。
+- 常态基准：过去最多 30 个完整分钟的平均爆仓量，只统计启动后实际观察到的分钟。
+- 当前金额至少 500,000 USD，且达到常态的 3 倍才推送。
+- 达到常态 6 倍或当前窗口 2,000,000 USD 升级为严重告警。
+- 启动后预热 5 分钟，并至少 2 家交易所在线才触发告警。
+- 连接成功但 120 秒没有任何消息时会标为“无数据”，不计入在线数据源。
+- 默认同时监控空单和多单；空单强平通常对应挤空，多单强平通常对应下跌加速。
+- 落库冷却 5 分钟；同一档位最多每 10 分钟提醒一次。若 3 分钟未再次触发，会视为新一轮行情。
+
+所有阈值都可在数据库 `config` 表的 `alerts.liquidation_*` 项中调整。Web 面板入口为 `/liquidations`，分钟聚合保留 8 天。
+
 ## 快速开始
 
 ```bash
@@ -107,7 +133,7 @@ TG_BOT_TOKEN=...
 TG_CHAT_ID=...
 ```
 
-命令：`/apr`（极端 APR，正负均列）、`/spread`、`/basis`、`/stable`、`/alerts`、`/status`、`/help`。
+命令：`/apr`（极端 APR，正负均列）、`/spread`、`/basis`、`/stable`、`/liquidations`、`/alerts`、`/status`、`/help`。
 
 ## 项目结构
 
@@ -117,6 +143,7 @@ fundingRate/
 ├── core/
 │   ├── data_collector.py   # 资金费率 / 价格 / 锚定资产 / 参考价采集
 │   ├── market_monitor.py   # APR、跨所差、基差、脱锚、跨发行商检测
+│   ├── liquidation_monitor.py # 五家交易所爆仓量聚合与异动检测
 │   └── alert_manager.py    # 去重、冷却、限流、落库、推送
 ├── bot/                # Telegram 推送与查询
 ├── web/                # Flask 面板与 REST API
@@ -131,6 +158,7 @@ fundingRate/
 - `market_prices_latest`：每所每币仅保留最新一行，避免基差数据无限膨胀。
 - `funding_rates`：1 天。
 - `stablecoin_prices`：8 天（面板最长 7 天）。
+- `liquidation_minutes`：8 天（按分钟、交易所、币种和多空方向聚合）。
 - `reference_prices`：1 天。
 - `alerts`：30 天。
 

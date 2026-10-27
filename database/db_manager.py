@@ -190,6 +190,28 @@ class DatabaseManager:
                 )
             """)
 
+            # 爆仓量按分钟、交易所、币种和方向聚合，避免保存海量逐笔记录。
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS liquidation_minutes (
+                    bucket BIGINT NOT NULL,
+                    exchange VARCHAR(20) NOT NULL,
+                    symbol VARCHAR(30) NOT NULL,
+                    side VARCHAR(10) NOT NULL,
+                    usd_value DECIMAL(24,8) DEFAULT 0,
+                    event_count INTEGER DEFAULT 0,
+                    max_order_usd DECIMAL(24,8) DEFAULT 0,
+                    PRIMARY KEY (bucket, exchange, symbol, side)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_liquidation_minutes_bucket
+                ON liquidation_minutes(bucket)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_liquidation_minutes_symbol
+                ON liquidation_minutes(symbol, bucket)
+            """)
+
             logger.info("Database initialized successfully")
 
     # 数据保留策略（天）：只保留面板需要的时间窗口，防止数据库无限膨胀
@@ -198,6 +220,7 @@ class DatabaseManager:
         'funding_rates': 1,         # 费率历史仅保留 1 天
         'reference_prices': 1,      # 仅用于最新参考价
         'stablecoin_prices': 8,     # 面板历史曲线最长 7 天
+        'liquidation_minutes': 8,   # 爆仓分钟聚合保留 7 天面板窗口
         'alerts': 30,               # 告警历史面板最长 7 天
         'alert_push_state': 2,      # 推送状态（跨重启去重）
     }
@@ -209,8 +232,11 @@ class DatabaseManager:
         for table, days in self.RETENTION_DAYS.items():
             cutoff = now_ms - days * 86400 * 1000
             try:
+                timestamp_column = 'bucket' if table == 'liquidation_minutes' else 'timestamp'
                 with self.get_connection() as conn:
-                    cur = conn.execute(f"DELETE FROM {table} WHERE timestamp < ?", (cutoff,))
+                    cur = conn.execute(
+                        f"DELETE FROM {table} WHERE {timestamp_column} < ?", (cutoff,)
+                    )
                     deleted = cur.rowcount
                 total += max(deleted, 0)
                 if deleted:

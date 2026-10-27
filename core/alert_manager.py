@@ -86,23 +86,28 @@ class AlertManager:
         return pushed
 
     def _handle_alert(self, alert: Dict[str, Any], allow_push: bool) -> bool:
-        """
-        单条告警内部处理：落库冷却 + 分档推送判定。
-        返回是否实际推送。
-        """
+        """Persist one alert and apply per-type cooldown / reminder rules."""
         key = self._dedup_key(alert)
         level = alert.get("level", "warning")
         now = time.time()
+        is_liquidation = alert.get("alert_type") == "liquidation_surge"
 
-        # 落库判定
         persist_cooldown = self.config.get_int("alerts", "persist_cooldown", 1800)
+        if is_liquidation:
+            persist_cooldown = self.config.get_int(
+                "alerts", "liquidation_persist_cooldown", 300
+            )
         persist_ok = (now - self._persist_cache.get(key, 0)) >= persist_cooldown
 
-        # 推送判定（分档 + 提醒 + 恢复重置）
         state = self._push_state.get(key) or {}
         band = self._alert_band(alert)
         reset_gap = self.config.get_int("alerts", "push_reset_gap", 3600)
         reminder = self.config.get_int("alerts", "push_reminder_cooldown", 86400)
+        if is_liquidation:
+            reset_gap = self.config.get_int("alerts", "liquidation_reset_gap", 180)
+            reminder = self.config.get_int(
+                "alerts", "liquidation_reminder_cooldown", 600
+            )
         is_new = (not state) or (now - state.get("last_seen", 0)) > reset_gap
 
         push_ok = False
@@ -110,9 +115,9 @@ class AlertManager:
             if is_new:
                 push_ok = True
             elif band > int(state.get("band", -1)):
-                push_ok = True  # 严重度跨档，立即重推
+                push_ok = True
             elif now - state.get("ts", 0) >= reminder:
-                push_ok = True  # 同档位持续存在，按提醒间隔重推
+                push_ok = True
 
         state["last_seen"] = now
         if push_ok:
@@ -120,23 +125,23 @@ class AlertManager:
             state["band"] = band
             state["level"] = level
         self._push_state[key] = state
-        # 推送时立即保存；持续存在的异常每 5 分钟保存一次心跳（供重启恢复 last_seen）
         if push_ok or (now - float(state.get("saved") or 0)) >= 300:
             self._save_push_state(key, state, now)
 
-        # 推送成功时必须落库（即使落库冷却期内），保证推送统计准确
         if persist_ok or push_ok:
             self._persist(alert, pushed=push_ok)
             self._persist_cache[key] = now
 
         if push_ok:
             logger.info(f"[ALERT][{level}] {alert.get('message')}")
-
         return push_ok
 
     def _should_push(self, alert: Dict[str, Any]) -> bool:
         """推送过滤：各类型独立阈值（低于阈值仅落库上面板）"""
         alert_type = alert.get("alert_type")
+
+        if alert_type == "liquidation_surge":
+            return self.config.get_bool("alerts", "liquidation_enabled", True)
 
         # 锚定资产脱锚：低频且重要；休市期间的 warning 不推送，仅 critical 推送
         if alert_type == "stablecoin_depeg":
@@ -176,7 +181,15 @@ class AlertManager:
         alert_type = alert.get("alert_type")
         d = alert.get("details") or {}
 
-        if alert_type == "funding_extreme":
+        if alert_type == "liquidation_surge":
+            base = self.config.get_float("alerts", "liquidation_ratio_threshold", 3.0) or 3.0
+            steps = [base, base * 2, base * 4, base * 8]
+            metric = float(
+                d.get("ratio")
+                if d.get("ratio") is not None
+                else d.get("trigger_ratio") or 0
+            )
+        elif alert_type == "funding_extreme":
             base = self.config.get_float("alerts", "push_funding_apr_threshold", 10.0) or 1.0
             steps = [base, base * 2, base * 5, base * 10]
             metric = abs(d.get("apr") or 0)
@@ -263,6 +276,9 @@ class AlertManager:
         if alert_type == 'cross_spread' and isinstance(exchange, str) and '/' in exchange:
             parts = [p.strip() for p in exchange.split('/', 1)]
             exchange = '/'.join(sorted(parts))
+        if alert_type == 'liquidation_surge':
+            details = alert.get('details') or {}
+            exchange = f"{exchange}:{details.get('side', '')}"
         return f"{alert_type}|{alert.get('symbol')}|{exchange}"
 
     def _dispatch_digest(self, alerts: List[Dict[str, Any]]):

@@ -6,7 +6,8 @@ from flask import Flask
 from loguru import logger
 
 
-def create_app(config_manager, db_manager, data_collector, market_monitor, alert_manager):
+def create_app(config_manager, db_manager, data_collector, market_monitor, alert_manager,
+               liquidation_monitor=None):
     """创建 Flask 应用"""
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -16,6 +17,7 @@ def create_app(config_manager, db_manager, data_collector, market_monitor, alert
     app.config['DATA_COLLECTOR'] = data_collector
     app.config['MARKET_MONITOR'] = market_monitor
     app.config['ALERT_MANAGER'] = alert_manager
+    app.config['LIQUIDATION_MONITOR'] = liquidation_monitor
 
     from web.routes import auth_bp, pages_bp, api_bp
     app.register_blueprint(auth_bp)

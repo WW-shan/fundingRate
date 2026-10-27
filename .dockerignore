@@ -8,9 +8,12 @@ venv/
 ENV/
 env/
 
-# 数据和日志 (通过volumes挂载)
-data/database.db
-logs/*.log
+# Local config, data, and logs (mounted as volumes)
+.env
+.env.*
+!.env.example
+data/
+logs/
 
 # Git
 .git/
@@ -24,7 +27,7 @@ logs/*.log
 
 # 测试
 .pytest_cache/
-*.coverage
+.coverage
 htmlcov/
 
 # 临时文件

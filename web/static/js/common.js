@@ -39,6 +39,7 @@ function typeLabel(t) {
     basis_extreme: '基差异常',
     stablecoin_depeg: '锚定资产偏离',
     issuer_spread: '跨产品 / 跨发行商价差',
+    liquidation_surge: '爆仓量激增',
   };
   return map[t] || t;
 }

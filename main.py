@@ -3,6 +3,7 @@
 纯监控模式：采集市场数据 -> 异常检测 -> 告警推送 -> Web 面板
 """
 import os
+import signal
 import sys
 import threading
 import time
@@ -38,17 +39,22 @@ class FundingRateMonitorSystem:
         self.config_manager.init_default_configs()
 
         # 核心模块
-        from core import DataCollector, MarketMonitor, AlertManager
+        from core import DataCollector, MarketMonitor, AlertManager, LiquidationMonitor
         from bot import TelegramBot
 
         self.data_collector = DataCollector(self.config_manager, self.db_manager)
         self.market_monitor = MarketMonitor(self.config_manager, self.db_manager, self.data_collector)
         self.alert_manager = AlertManager(self.config_manager, self.db_manager)
+        self.liquidation_monitor = LiquidationMonitor(
+            self.config_manager, self.db_manager, self.data_collector
+        )
         self.tg_bot = TelegramBot(self.config_manager, self.db_manager,
-                                  self.market_monitor, self.alert_manager)
+                                  self.market_monitor, self.alert_manager,
+                                  self.liquidation_monitor)
 
         # 告警链路：monitor -> alert_manager -> telegram
         self.market_monitor.register_alert_callback(self.alert_manager.handle_alerts)
+        self.liquidation_monitor.register_alert_callback(self.alert_manager.handle_alerts)
         self.alert_manager.register_push_callback(self.tg_bot.push_alert)
 
         logger.info("System initialization completed")
@@ -62,6 +68,7 @@ class FundingRateMonitorSystem:
             self.data_collector.start()
             self.market_monitor.start()
             self.alert_manager.start()
+            self.liquidation_monitor.start()
 
             # TG Bot（后台线程）
             if self.tg_bot.app:
@@ -78,7 +85,8 @@ class FundingRateMonitorSystem:
                 self.db_manager,
                 self.data_collector,
                 self.market_monitor,
-                self.alert_manager
+                self.alert_manager,
+                self.liquidation_monitor
             )
 
             web_host = os.getenv('WEB_HOST', '0.0.0.0')
@@ -98,6 +106,7 @@ class FundingRateMonitorSystem:
 
     def stop(self):
         logger.info("Stopping system...")
+        self.liquidation_monitor.stop()
         self.data_collector.stop()
         self.market_monitor.stop()
         self.alert_manager.stop()
@@ -152,6 +161,13 @@ def main():
 
     try:
         system = FundingRateMonitorSystem()
+
+        def handle_sigterm(signum, frame):
+            logger.info(f"Received signal {signum}, shutting down")
+            system.stop()
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, handle_sigterm)
         system.start()
     except Exception as e:
         logger.exception(f"Fatal error: {e}")

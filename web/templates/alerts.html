@@ -23,6 +23,7 @@
     <a href="/" class="">仪表盘</a>
     <a href="/funding" class="">资金费率</a>
     <a href="/stablecoin" class="">锚定资产</a>
+    <a href="/liquidations" class="">爆仓量</a>
     <a href="/alerts" class="active">告警历史</a>
   </div>
 
@@ -32,6 +33,7 @@
     <div class="stat-card"><div class="stat-label">跨所费率差</div><div class="stat-value" id="stat-spread">--</div></div>
     <div class="stat-card"><div class="stat-label">基差异常</div><div class="stat-value" id="stat-basis">--</div></div>
     <div class="stat-card"><div class="stat-label">锚定资产偏离</div><div class="stat-value negative" id="stat-depeg">--</div></div>
+    <div class="stat-card"><div class="stat-label">爆仓量激增</div><div class="stat-value warn" id="stat-liquidation">--</div></div>
     <div class="stat-card"><div class="stat-label">其中已推送</div><div class="stat-value" id="stat-pushed">--</div></div>
   </div>
 
@@ -56,6 +58,7 @@
         <option value="basis_extreme">基差异常</option>
         <option value="stablecoin_depeg">锚定资产偏离</option>
         <option value="issuer_spread">跨产品 / 跨发行商价差</option>
+        <option value="liquidation_surge">爆仓量激增</option>
       </select>
     </div>
     <div class="table-wrap">
@@ -87,6 +90,7 @@ async function refresh() {
     document.getElementById('stat-spread').textContent = byType.cross_spread || 0;
     document.getElementById('stat-basis').textContent = byType.basis_extreme || 0;
     document.getElementById('stat-depeg').textContent = byType.stablecoin_depeg || 0;
+    document.getElementById('stat-liquidation').textContent = byType.liquidation_surge || 0;
     document.getElementById('stat-pushed').textContent = stats.pushed_total || 0;
 
     const rows = (listRes && listRes.data) || [];
