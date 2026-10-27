@@ -681,8 +681,61 @@ class LiquidationMonitor:
 
     # ---------- Gate REST polling ----------
 
+    @staticmethod
+    def _gate_query_range(now_second: int, previous_query_second: Optional[int]):
+        start = (
+            now_second - 2
+            if previous_query_second is None
+            else previous_query_second - 2
+        )
+        return max(0, now_second - 3600, start), now_second
+
+    @staticmethod
+    def _fetch_gate_liquidation_rows(
+        session,
+        from_second: int,
+        to_second: int,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        url = "https://api.gateio.ws/api/v4/futures/usdt/liq_orders"
+
+        def fetch(start: int, end: int) -> List[Dict[str, Any]]:
+            response = session.get(
+                url,
+                params={"from": start, "to": end, "limit": limit},
+                timeout=(5, 10),
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise RuntimeError("Gate liquidation response is not a list")
+            return [row for row in rows if isinstance(row, dict)]
+
+        def collect(start: int, end: int, rows: List[Dict[str, Any]]):
+            if len(rows) < limit:
+                return rows
+            if start >= end:
+                logger.warning(
+                    f"Gate liquidation query reached the {limit}-row limit "
+                    f"at second {start}; that second may be incomplete"
+                )
+                return rows
+
+            midpoint = (start + end) // 2
+            return collect(start, midpoint, fetch(start, midpoint)) + collect(
+                midpoint + 1, end, fetch(midpoint + 1, end)
+            )
+
+        rows = fetch(from_second, to_second)
+        if len(rows) >= limit and from_second < to_second:
+            logger.warning(
+                f"Gate liquidation query reached the {limit}-row limit; "
+                "retrying with smaller time ranges"
+            )
+        return collect(from_second, to_second, rows)
+
     def _gate_loop(self):
-        last_seen_second = None
+        last_query_second = None
         seen = set()
         session = self._new_gate_session()
         gate_proxies = self._requests_proxies("gate")
@@ -705,13 +758,13 @@ class LiquidationMonitor:
                         not self._gate_multipliers and metadata_age > 60
                     ):
                         self._load_gate_contracts(session)
-                    response = session.get(
-                        "https://api.gateio.ws/api/v4/futures/usdt/liq_orders",
-                        params={"limit": 1000},
-                        timeout=(5, 10),
+                    query_to = int(time.time())
+                    query_from, query_to = self._gate_query_range(
+                        query_to, last_query_second
                     )
-                    response.raise_for_status()
-                    rows = response.json()
+                    rows = self._fetch_gate_liquidation_rows(
+                        session, query_from, query_to
+                    )
                     if self._stop_event.is_set():
                         break
                     consecutive_errors = 0
@@ -724,21 +777,17 @@ class LiquidationMonitor:
                         row
                         for row in rows
                         if isinstance(row, dict)
-                        and self._int(row.get("time")) > 0
+                        and query_from
+                        <= self._int(row.get("time"))
+                        <= query_to
                     ]
                     if not rows:
+                        last_query_second = query_to
                         self._stop_event.wait(wait_seconds)
                         continue
 
-                    newest = max(self._int(row.get("time")) for row in rows)
-                    if last_seen_second is None:
-                        # Keep the freshest two seconds from the initial REST snapshot.
-                        last_seen_second = max(0, newest - 2)
-
                     for row in rows:
                         event_second = self._int(row.get("time"))
-                        if event_second < last_seen_second:
-                            continue
                         key = (
                             row.get("contract"),
                             event_second,
@@ -752,9 +801,11 @@ class LiquidationMonitor:
                             continue
                         seen.add(key)
                         self._parse_gate_row(row)
-                    last_seen_second = max(last_seen_second, newest)
+                    last_query_second = query_to
                     if len(seen) > 10000:
-                        seen = {key for key in seen if key[1] >= newest - 600}
+                        seen = {
+                            key for key in seen if key[1] >= query_to - 600
+                        }
                 except Exception as e:
                     consecutive_errors += 1
                     self._mark_error("gate", e)

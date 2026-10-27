@@ -419,6 +419,80 @@ class LiquidationParserTests(unittest.TestCase):
         self.assertEqual(self.events(), [])
 
 
+class GateLiquidationPollingTests(unittest.TestCase):
+    def test_gate_query_range_overlaps_and_is_capped_to_one_hour(self):
+        self.assertEqual(LiquidationMonitor._gate_query_range(1_000, None), (998, 1_000))
+        self.assertEqual(LiquidationMonitor._gate_query_range(1_000, 990), (988, 1_000))
+        self.assertEqual(
+            LiquidationMonitor._gate_query_range(10_000, 1_000),
+            (6_400, 10_000),
+        )
+
+    def test_saturated_gate_query_is_retried_using_smaller_ranges(self):
+        class Response:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.rows
+
+        class Session:
+            def __init__(self):
+                self.calls = []
+                self.rows_by_range = {
+                    (100, 103): [{"time": 100}] * 4,
+                    (100, 101): [{"time": 100}] * 3,
+                    (102, 103): [{"time": 102}] * 4,
+                    (102, 102): [{"time": 102}],
+                    (103, 103): [{"time": 103}] * 2,
+                }
+
+            def get(self, url, params, timeout):
+                self.calls.append((url, params, timeout))
+                return Response(
+                    self.rows_by_range[(params["from"], params["to"])]
+                )
+
+        session = Session()
+        rows = LiquidationMonitor._fetch_gate_liquidation_rows(
+            session, 100, 103, limit=4
+        )
+
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(
+            [(call[1]["from"], call[1]["to"]) for call in session.calls],
+            [(100, 103), (100, 101), (102, 103), (102, 102), (103, 103)],
+        )
+        self.assertTrue(all(call[1]["limit"] == 4 for call in session.calls))
+        self.assertTrue(all(call[2] == (5, 10) for call in session.calls))
+
+    def test_single_second_at_limit_is_returned_with_no_requery(self):
+        class Response:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return [{"time": 100}] * 4
+
+        class Session:
+            calls = 0
+
+            def get(self, *args, **kwargs):
+                self.calls += 1
+                return Response()
+
+        session = Session()
+        rows = LiquidationMonitor._fetch_gate_liquidation_rows(
+            session, 100, 100, limit=4
+        )
+
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(session.calls, 1)
+
+
 class LiquidationDetectionTests(unittest.TestCase):
     def monitor(self):
         monitor = LiquidationMonitor(FakeConfig(DETECTION_CONFIG), FakeDB())
