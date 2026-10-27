@@ -1453,6 +1453,7 @@ class LiquidationMonitor:
         self,
         now_ms: Optional[int] = None,
         limit: int = 500,
+        search: str = "",
     ) -> List[Dict[str, Any]]:
         """Return persisted 1/4/24-hour liquidation totals for each symbol."""
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
@@ -1500,16 +1501,36 @@ class LiquidationMonitor:
             limit = max(1, min(int(limit), 1000))
         except (TypeError, ValueError):
             limit = 500
+
+        raw_search = str(search or "").strip().upper()[:40]
+        exact_search = "/" in raw_search or raw_search.endswith("USDT")
+        search = raw_search.split("/", 1)[0]
+        if search.endswith("USDT") and len(search) > 4:
+            search = search[:-4]
+        where = "bucket >= ? AND bucket <= ?"
+        query_params: List[Any] = params + [starts["24h"], end_bucket]
+        if search:
+            if exact_search:
+                where += " AND UPPER(symbol) = ?"
+                query_params.append(search)
+            else:
+                escaped = (
+                    search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+                )
+                where += " AND UPPER(symbol) LIKE ? ESCAPE '!'"
+                query_params.append(f"%{escaped}%")
+        query_params.append(limit)
+
         rows = self.db.execute_query(
             f"""
             SELECT {', '.join(fields)}
             FROM liquidation_minutes
-            WHERE bucket >= ? AND bucket <= ?
+            WHERE {where}
             GROUP BY symbol
             ORDER BY total_usd_24h DESC, symbol ASC
             LIMIT ?
             """,
-            tuple(params + [starts["24h"], end_bucket, limit]),
+            tuple(query_params),
         )
 
         result = []

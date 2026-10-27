@@ -65,7 +65,8 @@
   </div>
 
   <div class="card">
-    <h3>当前窗口排行</h3>
+    <h3>当前窗口爆仓额排行</h3>
+    <div class="window-note">按当前滚动窗口（60 秒）已观测爆仓金额从高到低排序，空单、多单分别排行；放大倍数只用于判断异常强度，不参与排序。</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -77,8 +78,12 @@
   </div>
 
   <div class="card">
-    <h3>各币种累计爆仓量（USD）</h3>
+    <h3>各币种累计爆仓量（按 24 小时金额排行）</h3>
     <div class="window-note">按近 24 小时已观测爆仓金额从高到低排列；每个窗口均为滚动累计并拆分空单、多单，数据来自本地分钟聚合。</div>
+    <div class="filter-bar">
+      <input id="filter-symbol-windows" type="search" placeholder="搜索币种（如 BTC、ETH）" autocomplete="off" oninput="scheduleWindowRefresh()" />
+      <span class="text-muted" id="window-search-meta">共 0 个币种</span>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>币种</th><th>近 1 小时</th><th>近 4 小时</th><th>近 24 小时</th></tr></thead>
@@ -99,12 +104,19 @@
 </div>
 <script src="/static/js/common.js"></script>
 <script>
+let windowRefreshTimer = null;
+function scheduleWindowRefresh() {
+  clearTimeout(windowRefreshTimer);
+  windowRefreshTimer = setTimeout(refresh, 250);
+}
+
 async function refresh() {
   try {
+    const symbolSearch = document.getElementById('filter-symbol-windows').value.trim();
     const [currentRes, historyRes, symbolWindowRes] = await Promise.all([
       fetchJSON('/api/liquidations?limit=200'),
       fetchJSON('/api/liquidations/history?hours=6&limit=80'),
-      fetchJSON('/api/liquidations/windows?limit=500'),
+      fetchJSON(`/api/liquidations/windows?limit=500&q=${encodeURIComponent(symbolSearch)}`),
     ]);
     const rows = (currentRes && currentRes.data) || [];
     const summary = currentRes.summary || {};
@@ -166,8 +178,13 @@ async function refresh() {
         <div class="window-split"><span>空 ${fmtUsd(window.short_usd)}</span><span>多 ${fmtUsd(window.long_usd)}</span></div>
         <div class="window-count">${Number(window.event_count || 0).toLocaleString('zh-CN')} 笔</div>`;
     };
+    document.getElementById('window-search-meta').textContent = symbolSearch
+      ? `搜索 “${symbolSearch.toUpperCase()}”：${symbolWindows.length} 个币种`
+      : `共 ${symbolWindows.length} 个币种`;
     if (!symbolWindows.length) {
-      symbolWindowBody.innerHTML = '<tr><td colspan="4" class="empty-state">尚无已保存的爆仓分钟聚合</td></tr>';
+      symbolWindowBody.innerHTML = symbolSearch
+        ? `<tr><td colspan="4" class="empty-state">没有找到匹配 “${symbolSearch.toUpperCase()}” 的币种</td></tr>`
+        : '<tr><td colspan="4" class="empty-state">尚无已保存的爆仓分钟聚合</td></tr>';
     } else {
       symbolWindowBody.innerHTML = symbolWindows.map(r => `<tr>
         <td><b>${r.symbol}</b></td>
