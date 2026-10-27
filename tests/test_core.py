@@ -589,6 +589,68 @@ if __name__ == '__main__':
 class RegressionAuditTests(unittest.TestCase):
     """本轮端到端审计发现的回归点"""
 
+    def test_gate_funding_skips_prelaunch_and_delisting_contracts(self):
+        from core.data_collector import DataCollector
+
+        class Exchange:
+            has = {}
+            markets = {
+                'PRELAUNCH/USDT:USDT': {
+                    'active': True,
+                    'info': {'status': 'prelaunch', 'in_delisting': False},
+                },
+                'DELISTING/USDT:USDT': {
+                    'active': True,
+                    'info': {'status': 'trading', 'in_delisting': True},
+                },
+                'TRADING/USDT:USDT': {
+                    'active': True,
+                    'info': {'status': 'Trading', 'in_delisting': False},
+                },
+            }
+
+            def fetch_funding_rates(self):
+                return {
+                    symbol: {'fundingRate': 0.001}
+                    for symbol in self.markets
+                }
+
+            def market(self, symbol):
+                return self.markets[symbol]
+
+        class Adapter:
+            exchange = Exchange()
+            funding_rate_semantics = 'upcoming'
+            default_funding_interval_ms = 28_800_000
+
+            @staticmethod
+            def canonical_symbol(symbol):
+                return symbol.split(':', 1)[0]
+
+            @staticmethod
+            def _parse_funding_interval(data):
+                return None
+
+        class DB:
+            rows = None
+
+            def execute_many(self, query, rows):
+                self.rows = list(rows)
+
+        collector = DataCollector.__new__(DataCollector)
+        collector.exchanges = {'gate': Adapter()}
+        collector.market_data = {
+            'PRELAUNCH/USDT': {'gate': {'funding_rate': 0.0}},
+            'DELISTING/USDT': {'gate': {'funding_rate': 0.0}},
+        }
+        collector.db = DB()
+
+        collector._collect_funding_rates()
+
+        self.assertEqual(set(collector.market_data), {'TRADING/USDT'})
+        self.assertEqual(len(collector.db.rows), 1)
+        self.assertEqual(collector.db.rows[0][1], 'TRADING/USDT')
+
     def test_cross_spread_dedup_key_is_order_independent(self):
         am = AlertManager(FakeConfig(), None)
         a = {"alert_type": "cross_spread", "symbol": "X/USDT", "exchange": "binance/gate"}

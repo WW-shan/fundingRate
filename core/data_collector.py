@@ -186,6 +186,18 @@ class DataCollector:
                         market = adapter.exchange.market(symbol)
                         if market.get('active') is False:
                             continue
+                        if name == 'gate':
+                            info = market.get('info')
+                            info = info if isinstance(info, dict) else {}
+                            status = info.get('status') or market.get('status')
+                            in_delisting = info.get('in_delisting')
+                            if str(in_delisting).strip().lower() in ('true', '1'):
+                                continue
+                            if (
+                                status is not None
+                                and str(status).strip().lower() != 'trading'
+                            ):
+                                continue
                     except Exception:
                         pass
                     base_symbol = adapter.canonical_symbol(symbol)
