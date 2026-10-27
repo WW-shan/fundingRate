@@ -1526,7 +1526,7 @@ class LiquidationMonitor:
                 ):
                     value = row.get(f"{field}_{label}") or 0
                     item[label][field] = (
-                        int(value) if field == "event_count" else round(float(value), 2)
+                        int(value) if field == "event_count" else round(float(value), 8)
                     )
             result.append(item)
         return result
