@@ -309,6 +309,24 @@ def liquidation_history():
     return jsonify({'success': True, 'data': rows, 'total': len(rows)})
 
 
+@api_bp.route('/liquidations/windows')
+@api_auth_required
+def liquidation_windows():
+    """按币种汇总最近 1/4/24 小时的已观测爆仓量。"""
+    liquidation_monitor = current_app.config.get('LIQUIDATION_MONITOR')
+    if not liquidation_monitor:
+        return jsonify({'success': False, 'error': 'liquidation monitor disabled'}), 404
+    limit = _int_arg('limit', 500, 1000)
+    rows = liquidation_monitor.get_symbol_window_totals(limit=limit)
+    return jsonify({
+        'success': True,
+        'data': rows,
+        'total': len(rows),
+        'windows': ['1h', '4h', '24h'],
+        'resolution_seconds': 60,
+    })
+
+
 @api_bp.route('/alerts')
 @api_auth_required
 def alerts():

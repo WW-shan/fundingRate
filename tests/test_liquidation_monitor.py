@@ -788,6 +788,33 @@ class LiquidationPersistenceTests(unittest.TestCase):
             self.assertEqual(totals["24h"]["to_bucket"], end_bucket)
             self.assertEqual(totals["24h"]["resolution_seconds"], 60)
 
+            symbol_totals = monitor.get_symbol_window_totals(now_ms)
+            self.assertEqual([row["symbol"] for row in symbol_totals], ["BTC", "ETH", "ADA"])
+            self.assertEqual(
+                symbol_totals[0]["1h"],
+                {
+                    "short_usd": 100_000,
+                    "long_usd": 25_000,
+                    "total_usd": 125_000,
+                    "event_count": 5,
+                    "max_order_usd": 80_000,
+                },
+            )
+            self.assertEqual(
+                symbol_totals[0]["4h"],
+                {
+                    "short_usd": 129_000,
+                    "long_usd": 25_000,
+                    "total_usd": 154_000,
+                    "event_count": 8,
+                    "max_order_usd": 80_000,
+                },
+            )
+            self.assertEqual(symbol_totals[0]["24h"]["total_usd"], 164_000)
+            self.assertEqual(symbol_totals[1]["1h"]["long_usd"], 50_000)
+            self.assertEqual(symbol_totals[2]["4h"]["total_usd"], 0)
+            self.assertEqual(symbol_totals[2]["24h"]["short_usd"], 40_000)
+
     def test_window_totals_survive_monitor_restart(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db = DatabaseManager(str(Path(temp_dir) / "test.db"))
@@ -848,6 +875,16 @@ class LiquidationWebTests(unittest.TestCase):
             def get_window_totals(self):
                 return self.get_status()["last_scan"]["window_totals"]
 
+            def get_symbol_window_totals(self, limit=500):
+                return [
+                    {
+                        "symbol": "BTC",
+                        "1h": {"total_usd": 120_000},
+                        "4h": {"total_usd": 250_000},
+                        "24h": {"total_usd": 370_000},
+                    }
+                ][:limit]
+
         monitor = Monitor()
         app = create_app(FakeConfig(), FakeDB(), None, None, None, monitor)
         client = app.test_client()
@@ -857,6 +894,7 @@ class LiquidationWebTests(unittest.TestCase):
         page = client.get("/liquidations")
         current = client.get("/api/liquidations")
         history = client.get("/api/liquidations/history?symbol=btc&side=short")
+        windows = client.get("/api/liquidations/windows?limit=10")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn("爆仓量监控", page.get_data(as_text=True))
@@ -865,9 +903,13 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertEqual(current.get_json()["window_totals"]["24h"]["total_usd"], 370_000)
         self.assertIn("历史累计爆仓金额", page.get_data(as_text=True))
         self.assertIn("近 24 小时", page.get_data(as_text=True))
+        self.assertIn("各币种累计爆仓量", page.get_data(as_text=True))
         self.assertEqual(history.status_code, 200)
         self.assertEqual(monitor.history_args["symbol"], "BTC")
         self.assertEqual(monitor.history_args["side"], "short")
+        self.assertEqual(windows.status_code, 200)
+        self.assertEqual(windows.get_json()["data"][0]["24h"]["total_usd"], 370_000)
+        self.assertEqual(windows.get_json()["windows"], ["1h", "4h", "24h"])
 
 
 class LiquidationAlertTests(unittest.TestCase):

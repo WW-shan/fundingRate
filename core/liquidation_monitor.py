@@ -1449,6 +1449,88 @@ class LiquidationMonitor:
                 )
         return result
 
+    def get_symbol_window_totals(
+        self,
+        now_ms: Optional[int] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return persisted 1/4/24-hour liquidation totals for each symbol."""
+        now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+        minute_ms = 60_000
+        end_bucket = now_ms // minute_ms * minute_ms
+        windows = ((1, "1h"), (4, "4h"), (24, "24h"))
+        starts = {
+            label: ((now_ms - hours * 3_600_000 + minute_ms - 1) // minute_ms)
+            * minute_ms
+            for hours, label in windows
+        }
+        if not self.db or starts["24h"] > end_bucket:
+            return []
+
+        fields = ["symbol"]
+        params: List[Any] = []
+        for _, label in windows:
+            cutoff = starts[label]
+            expressions = (
+                (
+                    "short_usd",
+                    "SUM(CASE WHEN bucket >= ? AND side = 'short' "
+                    "THEN usd_value ELSE 0 END)",
+                ),
+                (
+                    "long_usd",
+                    "SUM(CASE WHEN bucket >= ? AND side = 'long' "
+                    "THEN usd_value ELSE 0 END)",
+                ),
+                ("total_usd", "SUM(CASE WHEN bucket >= ? THEN usd_value ELSE 0 END)"),
+                (
+                    "event_count",
+                    "SUM(CASE WHEN bucket >= ? THEN event_count ELSE 0 END)",
+                ),
+                (
+                    "max_order_usd",
+                    "MAX(CASE WHEN bucket >= ? THEN max_order_usd END)",
+                ),
+            )
+            for field, expression in expressions:
+                fields.append(f"COALESCE({expression}, 0) AS {field}_{label}")
+                params.append(cutoff)
+
+        try:
+            limit = max(1, min(int(limit), 1000))
+        except (TypeError, ValueError):
+            limit = 500
+        rows = self.db.execute_query(
+            f"""
+            SELECT {', '.join(fields)}
+            FROM liquidation_minutes
+            WHERE bucket >= ? AND bucket <= ?
+            GROUP BY symbol
+            ORDER BY total_usd_24h DESC, symbol ASC
+            LIMIT ?
+            """,
+            tuple(params + [starts["24h"], end_bucket, limit]),
+        )
+
+        result = []
+        for row in rows:
+            item: Dict[str, Any] = {"symbol": row.get("symbol")}
+            for _, label in windows:
+                item[label] = {}
+                for field in (
+                    "short_usd",
+                    "long_usd",
+                    "total_usd",
+                    "event_count",
+                    "max_order_usd",
+                ):
+                    value = row.get(f"{field}_{label}") or 0
+                    item[label][field] = (
+                        int(value) if field == "event_count" else round(float(value), 2)
+                    )
+            result.append(item)
+        return result
+
     # ---------- helpers ----------
 
     @staticmethod

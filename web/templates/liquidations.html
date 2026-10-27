@@ -77,6 +77,17 @@
   </div>
 
   <div class="card">
+    <h3>各币种累计爆仓量（USD）</h3>
+    <div class="window-note">按近 24 小时已观测爆仓金额从高到低排列；每个窗口均为滚动累计并拆分空单、多单，数据来自本地分钟聚合。</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>币种</th><th>近 1 小时</th><th>近 4 小时</th><th>近 24 小时</th></tr></thead>
+        <tbody id="tbody-symbol-windows"><tr><td colspan="4" class="loading">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>最近分钟聚合</h3>
     <div class="table-wrap">
       <table>
@@ -90,9 +101,10 @@
 <script>
 async function refresh() {
   try {
-    const [currentRes, historyRes] = await Promise.all([
+    const [currentRes, historyRes, symbolWindowRes] = await Promise.all([
       fetchJSON('/api/liquidations?limit=200'),
       fetchJSON('/api/liquidations/history?hours=6&limit=80'),
+      fetchJSON('/api/liquidations/windows?limit=500'),
     ]);
     const rows = (currentRes && currentRes.data) || [];
     const summary = currentRes.summary || {};
@@ -144,6 +156,25 @@ async function refresh() {
           <td>${breakdown || '-'}</td>
         </tr>`;
       }).join('');
+    }
+
+    const symbolWindows = (symbolWindowRes && symbolWindowRes.data) || [];
+    const symbolWindowBody = document.getElementById('tbody-symbol-windows');
+    const windowCell = (window) => {
+      window = window || {};
+      return `<b>${fmtUsd(window.total_usd)}</b>
+        <div class="window-split"><span>空 ${fmtUsd(window.short_usd)}</span><span>多 ${fmtUsd(window.long_usd)}</span></div>
+        <div class="window-count">${Number(window.event_count || 0).toLocaleString('zh-CN')} 笔</div>`;
+    };
+    if (!symbolWindows.length) {
+      symbolWindowBody.innerHTML = '<tr><td colspan="4" class="empty-state">尚无已保存的爆仓分钟聚合</td></tr>';
+    } else {
+      symbolWindowBody.innerHTML = symbolWindows.map(r => `<tr>
+        <td><b>${r.symbol}</b></td>
+        <td>${windowCell(r['1h'])}</td>
+        <td>${windowCell(r['4h'])}</td>
+        <td>${windowCell(r['24h'])}</td>
+      </tr>`).join('');
     }
 
     const history = (historyRes && historyRes.data) || [];
