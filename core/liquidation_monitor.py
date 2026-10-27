@@ -34,7 +34,7 @@ class LiquidationMonitor:
     # canary on the same data path as forceOrder.
     BINANCE_HEALTH_STREAM = "btcusdt@markPrice@1s"
     WS_ENDPOINTS = {
-        "binance": "wss://fstream.binance.com/ws",
+        "binance": "wss://fstream.binance.com/market/ws",
         "okx": "wss://ws.okx.com:443/ws/v5/public",
         "bybit": "wss://stream.bybit.com/v5/public/linear",
         "bitget": "wss://ws.bitget.com/v3/ws/public",

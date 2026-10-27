@@ -239,6 +239,10 @@ class LiquidationParserTests(unittest.TestCase):
             "btcusdt@markPrice@1s",
         )
         self.assertNotIn("bookTicker", LiquidationMonitor.BINANCE_HEALTH_STREAM)
+        self.assertEqual(
+            LiquidationMonitor.WS_ENDPOINTS["binance"],
+            "wss://fstream.binance.com/market/ws",
+        )
 
     def test_subscription_ack_does_not_refresh_data_freshness(self):
         monitor = LiquidationMonitor(FakeConfig(), FakeDB())

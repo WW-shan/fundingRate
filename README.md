@@ -84,7 +84,7 @@ APR = 单期费率 × (365 × 24 / 结算间隔小时)
 
 | 交易所 | 公开数据源 | 说明 |
 |---|---|---|
-| Binance | `!forceOrder@arr` WebSocket | 每个交易对每秒最多推送最新一笔强平；用 `markPrice@1s` 校验线路，默认直连优先，可用 `BINANCE_PROXY` 单独指定代理 |
+| Binance | `/market/ws` 上的 `!forceOrder@arr` WebSocket | 每个交易对每秒最多推送最新一笔强平；用 `markPrice@1s` 校验线路，默认直连优先，可用 `BINANCE_PROXY` 单独指定代理 |
 | OKX | `liquidation-orders` WebSocket | 只覆盖近期强平，官方说明不代表全部强平量 |
 | Bybit | `allLiquidation.{symbol}` WebSocket | 订阅全部 USDT 线性永续合约 |
 | Gate | `/futures/usdt/liq_orders` REST | 每 2 秒轮询；持久连接、自动重试和失败退避；Gate 强平 WebSocket 需要账户鉴权 |
