@@ -10,6 +10,7 @@
 
 import asyncio
 import json
+import math
 import os
 import statistics
 import threading
@@ -22,6 +23,8 @@ import websockets
 from loguru import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from config.liquidation_defaults import DEFAULT_LIQUIDATION_SYMBOL_MIN_ALERT_USD
 
 
 class LiquidationMonitor:
@@ -1006,6 +1009,7 @@ class LiquidationMonitor:
                 500_000,
             ),
         )
+        symbol_min_alert_usd = self._symbol_min_alert_thresholds(min_alert_usd)
         ratio_threshold = max(
             1.2,
             self.config.get_float(
@@ -1061,7 +1065,10 @@ class LiquidationMonitor:
                     if baseline_values
                     else 0.0
                 )
-                effective_baseline = max(baseline, min_alert_usd / ratio_threshold)
+                symbol_min_alert = symbol_min_alert_usd.get(symbol, min_alert_usd)
+                effective_baseline = max(
+                    baseline, symbol_min_alert / ratio_threshold
+                )
                 trigger_ratio = (
                     current_usd / effective_baseline if effective_baseline > 0 else 0.0
                 )
@@ -1074,6 +1081,7 @@ class LiquidationMonitor:
                     "side": side,
                     "side_label": "空单" if side == "short" else "多单",
                     "window_seconds": window_seconds,
+                    "min_alert_usd": round(symbol_min_alert, 2),
                     "current_usd": round(current_usd, 2),
                     "baseline_usd": round(baseline, 2),
                     "ratio": round(ratio, 2) if ratio is not None else None,
@@ -1111,7 +1119,7 @@ class LiquidationMonitor:
                     continue
                 if len(active_sources) < min_sources:
                     continue
-                if current_usd < min_alert_usd:
+                if current_usd < symbol_min_alert:
                     continue
 
                 severity_ratio = ratio if ratio is not None else trigger_ratio
@@ -1133,7 +1141,7 @@ class LiquidationMonitor:
                     ),
                 )
                 critical_usd = max(
-                    min_alert_usd,
+                    symbol_min_alert,
                     self.config.get_float(
                         "alerts",
                         "liquidation_critical_usd",
@@ -1215,6 +1223,35 @@ class LiquidationMonitor:
                 except Exception as e:
                     logger.error(f"Liquidation alert callback error: {e}")
         return self.last_scan
+
+    def _symbol_min_alert_thresholds(self, default_usd: float) -> Dict[str, float]:
+        """Return 60-second alert floors, with per-symbol overrides."""
+        configured = self.config.get(
+            "alerts",
+            "liquidation_symbol_min_alert_usd",
+            DEFAULT_LIQUIDATION_SYMBOL_MIN_ALERT_USD,
+        )
+        if isinstance(configured, str):
+            try:
+                configured = json.loads(configured)
+            except (json.JSONDecodeError, TypeError):
+                configured = {}
+        if not isinstance(configured, dict):
+            configured = {}
+
+        values = dict(DEFAULT_LIQUIDATION_SYMBOL_MIN_ALERT_USD)
+        values.update(configured)
+        thresholds: Dict[str, float] = {}
+        for raw_symbol, raw_threshold in values.items():
+            symbol = str(raw_symbol or "").strip().upper()
+            try:
+                threshold = float(raw_threshold)
+            except (TypeError, ValueError):
+                continue
+            if not symbol or not math.isfinite(threshold) or threshold <= 0:
+                continue
+            thresholds[symbol] = max(float(default_usd), threshold)
+        return thresholds
 
     def _alert_sides(self) -> set:
         value = self.config.get("alerts", "liquidation_alert_sides", ["short", "long"])

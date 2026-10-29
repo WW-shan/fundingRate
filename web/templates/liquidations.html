@@ -66,7 +66,7 @@
 
   <div class="card">
     <h3>60 秒爆仓异动监控</h3>
-    <div class="window-note">这里是最近 60 秒的异动明细，按当前窗口金额展示，空单、多单分别一行；放大倍数只用于判断异常强度。累计排行榜在下方。</div>
+    <div class="window-note">这里是最近 60 秒的异动明细，按当前窗口金额展示，空单、多单分别一行；放大倍数只用于判断异常强度。默认提醒门槛按币种分档：BTC/ETH 为 $2M，主流币为 $1M，其余币种为 $500K；本表仍展示全部异动，累计排行榜在下方。</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -169,7 +169,11 @@ async function refresh() {
         return `<tr>
           <td><b>${escapeHtml(r.symbol)}</b></td>
           <td class="${sideClass}"><b>${escapeHtml(r.side_label || r.side)}</b></td>
-          <td><b>${fmtUsd(r.current_usd)}</b></td>
+          <td><b>${fmtUsd(r.current_usd)}</b>${
+            r.min_alert_usd === null || r.min_alert_usd === undefined
+              ? ''
+              : `<div class="window-count">提醒线 ${fmtUsd(r.min_alert_usd)}</div>`
+          }</td>
           <td>${fmtUsd(r.baseline_usd)}</td>
           <td><b>${r.ratio === null || r.ratio === undefined ? '基准不足' : Number(r.ratio).toFixed(1) + 'x'}</b></td>
           <td>${fmtUsd(r.max_order_usd)}</td>

@@ -5,6 +5,7 @@ import json
 from typing import Any
 from loguru import logger
 from database.db_manager import DatabaseManager
+from .liquidation_defaults import DEFAULT_LIQUIDATION_SYMBOL_MIN_ALERT_USD
 
 
 class ConfigManager:
@@ -131,6 +132,13 @@ class ConfigManager:
         self.set_default('alerts', 'liquidation_scan_interval', 10, True, "爆仓异动扫描间隔（秒）")
         self.set_default('alerts', 'liquidation_gate_poll_seconds', 2, True, 'Gate liquidation REST poll interval (seconds)')
         self.set_default('alerts', 'liquidation_min_alert_usd', 500000, True, "触发爆仓告警的最低当前窗口金额（USD）")
+        self.set_default(
+            'alerts',
+            'liquidation_symbol_min_alert_usd',
+            DEFAULT_LIQUIDATION_SYMBOL_MIN_ALERT_USD,
+            True,
+            "60 秒爆仓告警的币种最低金额（USD JSON 映射；未配置币种使用全局门槛）",
+        )
         self.set_default('alerts', 'liquidation_ratio_threshold', 3.0, True, "当前爆仓量相对常态的倍数阈值")
         self.set_default('alerts', 'liquidation_critical_ratio', 6.0, True, "爆仓量达到常态多少倍时升级为严重告警")
         self.set_default('alerts', 'liquidation_critical_usd', 2000000, True, "当前窗口爆仓金额达到多少 USD 时升级为严重告警")

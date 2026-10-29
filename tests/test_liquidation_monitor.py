@@ -533,14 +533,14 @@ class LiquidationDetectionTests(unittest.TestCase):
         for offset in range(1, 9):
             monitor._record_event(
                 "binance",
-                "BTC",
+                "ALT",
                 "short",
                 50_000,
                 80_000,
                 minute_floor - offset * 60_000 + 30_000,
             )
-        monitor._record_event("binance", "BTC", "short", 300_000, 81_000, now_ms - 20_000)
-        monitor._record_event("bybit", "BTC", "short", 200_000, 81_000, now_ms - 10_000)
+        monitor._record_event("binance", "ALT", "short", 300_000, 81_000, now_ms - 20_000)
+        monitor._record_event("bybit", "ALT", "short", 200_000, 81_000, now_ms - 10_000)
         alerts = []
         monitor.register_alert_callback(alerts.extend)
 
@@ -565,10 +565,10 @@ class LiquidationDetectionTests(unittest.TestCase):
             monitor._connections[name]["last_message"] = now
         now_ms = int(now * 1000)
         monitor._record_event(
-            "binance", "BTC", "short", 300_000, 81_000, now_ms - 20_000
+            "binance", "ALT", "short", 300_000, 81_000, now_ms - 20_000
         )
         monitor._record_event(
-            "bybit", "BTC", "short", 200_000, 81_000, now_ms - 10_000
+            "bybit", "ALT", "short", 200_000, 81_000, now_ms - 10_000
         )
         alerts = []
         monitor.register_alert_callback(alerts.extend)
@@ -578,11 +578,52 @@ class LiquidationDetectionTests(unittest.TestCase):
         self.assertEqual(scan["alert_candidates"], 1)
         self.assertEqual(alerts[0]["details"]["current_usd"], 500_000)
 
+    def test_symbol_specific_min_alert_thresholds_apply_to_60s_alerts(self):
+        values = dict(DETECTION_CONFIG)
+        values["liquidation_symbol_min_alert_usd"] = {
+            "BTC": 2_000_000,
+            "ETH": 2_000_000,
+            "SOL": 1_000_000,
+            "ALT": 100_000,
+        }
+        monitor = LiquidationMonitor(FakeConfig(values), FakeDB())
+        monitor._started_at = time.time() - 600
+        now = time.time()
+        for name in monitor._connections:
+            monitor._connections[name]["connected"] = True
+            monitor._connections[name]["last_message"] = now
+        now_ms = int(now * 1000)
+        for symbol, total in (
+            ("BTC", 1_900_000),
+            ("ETH", 2_500_000),
+            ("SOL", 900_000),
+            ("ALT", 600_000),
+        ):
+            monitor._record_event(
+                "binance", symbol, "short", total * 0.6, 81_000, now_ms - 20_000
+            )
+            monitor._record_event(
+                "bybit", symbol, "short", total * 0.4, 81_000, now_ms - 10_000
+            )
+        alerts = []
+        monitor.register_alert_callback(alerts.extend)
+
+        scan = monitor.scan_once()
+
+        self.assertEqual(scan["alert_candidates"], 2)
+        self.assertEqual({alert["symbol"] for alert in alerts}, {"ETH", "ALT"})
+        rows = {row["symbol"]: row for row in scan["ranking"]}
+        self.assertEqual(rows["BTC"]["min_alert_usd"], 2_000_000)
+        self.assertEqual(rows["ETH"]["min_alert_usd"], 2_000_000)
+        self.assertEqual(rows["SOL"]["min_alert_usd"], 1_000_000)
+        # A symbol-level value below the global floor cannot weaken it.
+        self.assertEqual(rows["ALT"]["min_alert_usd"], 500_000)
+
     def test_cold_start_does_not_report_fake_ratio(self):
         monitor = self.monitor()
         now_ms = int(time.time() * 1000)
-        monitor._record_event("binance", "BTC", "short", 300_000, 81_000, now_ms - 20_000)
-        monitor._record_event("bybit", "BTC", "short", 200_000, 81_000, now_ms - 10_000)
+        monitor._record_event("binance", "ALT", "short", 300_000, 81_000, now_ms - 20_000)
+        monitor._record_event("bybit", "ALT", "short", 200_000, 81_000, now_ms - 10_000)
         alerts = []
         monitor.register_alert_callback(alerts.extend)
 
@@ -602,6 +643,22 @@ class LiquidationPersistenceTests(unittest.TestCase):
             with db.get_connection() as conn:
                 self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
                 self.assertEqual(conn.execute("PRAGMA synchronous").fetchone()[0], 1)
+
+    def test_default_config_includes_symbol_alert_thresholds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseManager(str(Path(temp_dir) / "test.db"))
+            db.init_database()
+            config = ConfigManager(db)
+            config.init_default_configs()
+
+            thresholds = config.get(
+                "alerts", "liquidation_symbol_min_alert_usd"
+            )
+
+            self.assertEqual(thresholds["BTC"], 2_000_000)
+            self.assertEqual(thresholds["ETH"], 2_000_000)
+            self.assertEqual(thresholds["SOL"], 1_000_000)
+            self.assertNotIn("ALT", thresholds)
 
     def test_legacy_100k_threshold_migrates_once_to_500k(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1026,6 +1083,7 @@ class LiquidationWebTests(unittest.TestCase):
         self.assertIn("各币种累计爆仓量", page.get_data(as_text=True))
         self.assertIn("搜索币种", page.get_data(as_text=True))
         self.assertIn("按近 1 小时排行", page.get_data(as_text=True))
+        self.assertIn("提醒线", page.get_data(as_text=True))
         self.assertIn("limit=2000", page.get_data(as_text=True))
         self.assertIn("escapeHtml", page.get_data(as_text=True))
         self.assertIn("refreshSequence", page.get_data(as_text=True))
