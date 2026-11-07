@@ -2,6 +2,7 @@
 Flask Web 应用（监控版）
 """
 import os
+import secrets
 from flask import Flask
 from loguru import logger
 
@@ -10,7 +11,12 @@ def create_app(config_manager, db_manager, data_collector, market_monitor, alert
                liquidation_monitor=None):
     """创建 Flask 应用"""
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    secret_key = os.getenv('SECRET_KEY')
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        logger.warning("SECRET_KEY is not configured; using a random session key. "
+                       "Sessions will be reset after restart. Set SECRET_KEY to keep sessions.")
+    app.config['SECRET_KEY'] = secret_key
 
     app.config['CONFIG_MANAGER'] = config_manager
     app.config['DB_MANAGER'] = db_manager
