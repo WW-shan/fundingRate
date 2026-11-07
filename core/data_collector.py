@@ -153,11 +153,18 @@ class DataCollector:
                 t0 = time.time()
                 # Fetch slower interval metadata first; fetch the live predicted rate last.
                 intervals = {}
+                intervals_fetched = False
                 if adapter.exchange.has.get('fetchFundingIntervals'):
                     try:
                         intervals = adapter.exchange.fetch_funding_intervals()
+                        intervals_fetched = True
                     except Exception as e:
                         logger.debug(f"{name} fetch_funding_intervals failed: {e}")
+
+                # Binance's 8h default requires a successful adjusted-contract list.
+                default_interval = adapter.default_funding_interval_ms
+                if name == 'binance' and not intervals_fetched:
+                    default_interval = None
 
                 rates = adapter.exchange.fetch_funding_rates()
                 if not rates:
@@ -212,7 +219,7 @@ class DataCollector:
                     iv_data = intervals.get(symbol) or {}
                     interval_ms = (adapter._parse_funding_interval(data)
                                    or adapter._parse_funding_interval(iv_data)
-                                   or adapter.default_funding_interval_ms)
+                                   or default_interval)
                     next_ts = data.get('fundingTimestamp') or iv_data.get('fundingTimestamp')
 
                     entry = {
